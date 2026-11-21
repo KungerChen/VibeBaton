@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# VibeBaton runtime artifacts
+.baton/worktrees/
+.baton/state.sqlite*
+.baton/logs/
+.baton/prompts/
+.baton/out/
+.bootstrap-runner/
+
+# OS & Editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

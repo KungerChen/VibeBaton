@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "id": "starter_2tier",
+  "name": "小白极简入门双层流 (Starter 2-Tier Flow)",
+  "difficulty": "beginner",
+  "description": "零门槛、超低成本！只需一个高性价比 API/CLI（如 OpenCode Go / DeepSeek / Gemini）即可跑完规划、写代码、自动测试和人工预览验收。",
+  "recommended_for": ["个人网页 / 小工具", "零代码小白第一次 Vibe Coding", "快速原型验证"],
+  "nodes": [
+    {
+      "id": "plan",
+      "type": "planner_node",
+      "label": "方案拆解 (任意推理模型)",
+      "role": "tactical_planner",
+      "position": { "x": 80, "y": 160 },
+      "config": { "provider": "dsh_opencode", "model": "deepseek-flash-v4.1-max" }
+    },
+    {
+      "id": "worker",
+      "type": "worker_node",
+      "label": "并发执行 (OpenCode / DeepSeek)",
+      "role": "bulk_worker",
+      "position": { "x": 380, "y": 160 },
+      "config": { "provider": "dsh_opencode", "model": "deepseek-flash-v4.1-max", "concurrency": 3 }
+    },
+    {
+      "id": "gate",
+      "type": "gate_node",
+      "label": "自动测试门禁",
+      "position": { "x": 680, "y": 160 },
+      "config": { "max_loops": 2 }
+    },
+    {
+      "id": "final",
+      "type": "human_gate_node",
+      "label": "预览并确认成果",
+      "role": "brainstorm_and_final_gate",
+      "position": { "x": 980, "y": 160 },
+      "config": { "provider": "host_native", "model": "any" }
+    }
+  ],
+  "edges": [
+    { "id": "s1", "source": "plan", "sourceHandle": "dag", "target": "worker", "targetHandle": "in" },
+    { "id": "s2", "source": "worker", "sourceHandle": "out", "target": "gate", "targetHandle": "in" },
+    { "id": "s3", "source": "gate", "sourceHandle": "fail", "target": "worker", "targetHandle": "fix", "max_loops": 2 },
+    { "id": "s4", "source": "gate", "sourceHandle": "pass", "target": "final", "targetHandle": "in" }
+  ]
+}

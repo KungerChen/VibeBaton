@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "vibebaton": {
+      "command": "python",
+      "args": ["-m", "vibebaton", "mcp"],
+      "env": {
+        "PYTHONPATH": "D:\\Projects\\VibeBaton\\src"
+      }
+    }
+  }
+}
