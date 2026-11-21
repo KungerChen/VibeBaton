@@ -45,6 +45,10 @@ async def run_gate_command(command: str, workdir: Path, timeout_sec: int = 600) 
     start = time.monotonic()
     env = os.environ.copy()
     env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    src_dir = workdir / "src"
+    if src_dir.is_dir():
+        existing_pp = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = f"{src_dir}{os.pathsep}{existing_pp}" if existing_pp else str(src_dir)
     proc = await asyncio.create_subprocess_shell(
         command,
         cwd=str(workdir),

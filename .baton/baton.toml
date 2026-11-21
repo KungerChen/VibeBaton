@@ -1,0 +1,91 @@
+# VibeBaton Configuration (Zero-dependency native TOML)
+# Edit any provider or role model below — changes hot-reload before the next dispatched task.
+
+[daemon]
+db_path = ".baton/state.sqlite"
+worktree_root = ".baton/worktrees"
+base_branch = "main"
+dev_branch = "dev"
+prevent_sleep_windows = true
+default_stall_timeout_sec = 300
+default_hard_timeout_sec = 1800
+poll_interval_sec = 1.0
+
+[policies]
+machine_gate_before_ai_review = true
+max_self_heal_attempts = 2
+max_review_rejects = 2
+require_human_approval_at = ["rfc_signoff", "plan_amendment", "final_merge"]
+
+# ---------------------------------------------------------------------------
+# Providers (CLI command templates + subscription quota cooldown policies)
+# Placeholders available in `command`: {model}, {workdir}, {prompt_file}, {output_file}
+# ---------------------------------------------------------------------------
+
+[providers.claude_sub]
+type = "cli"
+max_concurrency = 1
+cooldown_backoff_sec = [300, 900, 1800]
+rate_limit_regex = "(rate.?limit|usage.?limit|429|try again|overloaded|credit balance)"
+command = ["claude", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "text"]
+prompt_via = "stdin"
+stall_timeout_sec = 360
+hard_timeout_sec = 1800
+
+[providers.codex_sub]
+type = "cli"
+max_concurrency = 1
+cooldown_backoff_sec = [300, 900, 1800]
+rate_limit_regex = "(rate.?limit|usage.?limit|429|too many requests|quota)"
+command = ["codex", "exec", "--model", "{model_name}", "-c", "model_reasoning_effort=\"{effort}\"", "-s", "workspace-write", "-c", "approval_policy=\"never\"", "-o", "{output_file}", "-"]
+prompt_via = "stdin"
+stall_timeout_sec = 360
+hard_timeout_sec = 1800
+
+[providers.dsh_opencode]
+type = "cli"
+max_concurrency = 4
+cooldown_backoff_sec = [30, 120, 300]
+rate_limit_regex = "(rate.?limit|429|quota|temporarily unavailable|overloaded)"
+# DeepSeek Harness (dsh) headless mode calling your configured OpenCode Go API profile.
+# Uses a zero-secret patch overlay under `{package_root}/presets/` to enable credentials + opencode-go.
+command = ["dsh", "--profile", "headless", "--patch", "{package_root}/presets/dsh-headless-opencode-go.patch.yml", "--permission-mode", "workspace-write", "--approval-policy", "never", "-"]
+prompt_via = "stdin"
+stall_timeout_sec = 240
+hard_timeout_sec = 1200
+
+# ---------------------------------------------------------------------------
+# Logical Roles (Swap any model in 1 line; swap provider in 2 lines)
+# ---------------------------------------------------------------------------
+
+[roles.brainstorm_and_final_gate]
+provider = "host_native"
+model = "gemini-4-neon-high"
+prompt_file = "prompts/l0_final_gate.md"
+
+[roles.tactical_planner]
+provider = "claude_sub"
+model = "fable@high"
+prompt_file = "prompts/l1_planner.md"
+
+[roles.milestone_reviewer]
+provider = "claude_sub"
+model = "opus@high"
+prompt_file = "prompts/l1_milestone_reviewer.md"
+fallback = [{ provider = "codex_sub", model = "gpt-6.2-astra@xhigh" }]
+
+[roles.micro_orchestrator]
+provider = "codex_sub"
+model = "gpt-6.2-astra@xhigh"
+prompt_file = "prompts/l2_codex_orchestrator.md"
+
+[roles.critical_executor]
+provider = "codex_sub"
+model = "gpt-6.2-sol@max"
+prompt_file = "prompts/l2_codex_specialist.md"
+
+[roles.bulk_worker]
+provider = "dsh_opencode"
+model = "deepseek-v4.1-flash@max"
+prompt_file = "prompts/l3_dsh_worker.md"
+fallback = [{ provider = "codex_sub", model = "gpt-6.2-sol@max" }]
