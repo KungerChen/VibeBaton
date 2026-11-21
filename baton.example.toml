@@ -27,7 +27,7 @@ type = "cli"
 max_concurrency = 1
 cooldown_backoff_sec = [300, 900, 1800]
 rate_limit_regex = "(rate.?limit|usage.?limit|429|try again|overloaded|credit balance)"
-command = ["claude", "-p", "--model", "{model}", "--dangerously-skip-permissions", "--output-format", "text"]
+command = ["claude", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "text"]
 prompt_via = "stdin"
 stall_timeout_sec = 360
 hard_timeout_sec = 1800
@@ -37,7 +37,7 @@ type = "cli"
 max_concurrency = 1
 cooldown_backoff_sec = [300, 900, 1800]
 rate_limit_regex = "(rate.?limit|usage.?limit|429|too many requests|quota)"
-command = ["codex", "exec", "--model", "{model}", "--full-auto", "-"]
+command = ["codex", "exec", "--model", "{model_name}", "-c", "model_reasoning_effort=\"{effort}\"", "-s", "workspace-write", "-c", "approval_policy=\"never\"", "-o", "{output_file}", "-"]
 prompt_via = "stdin"
 stall_timeout_sec = 360
 hard_timeout_sec = 1800
@@ -65,27 +65,27 @@ prompt_file = "prompts/l0_final_gate.md"
 
 [roles.tactical_planner]
 provider = "claude_sub"
-model = "fable-5.2-high"
+model = "fable@high"
 prompt_file = "prompts/l1_planner.md"
 
 [roles.milestone_reviewer]
 provider = "claude_sub"
-model = "opus-5.5-high"
+model = "opus@high"
 prompt_file = "prompts/l1_milestone_reviewer.md"
-fallback = [{ provider = "codex_sub", model = "6.2-astra-xhigh" }]
+fallback = [{ provider = "codex_sub", model = "gpt-6.2-astra@xhigh" }]
 
 [roles.micro_orchestrator]
 provider = "codex_sub"
-model = "6.2-astra-xhigh"
+model = "gpt-6.2-astra@xhigh"
 prompt_file = "prompts/l2_codex_orchestrator.md"
 
 [roles.critical_executor]
 provider = "codex_sub"
-model = "6.2-sol-max"
+model = "gpt-6.2-sol@max"
 prompt_file = "prompts/l2_codex_specialist.md"
 
 [roles.bulk_worker]
 provider = "dsh_opencode"
 model = "deepseek-v4.1-flash@max"
 prompt_file = "prompts/l3_dsh_worker.md"
-fallback = [{ provider = "codex_sub", model = "6.2-sol-max" }]
+fallback = [{ provider = "codex_sub", model = "gpt-6.2-sol@max" }]

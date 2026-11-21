@@ -71,8 +71,14 @@ def format_command_template(
     prompt_file: Path,
     output_file: Path,
 ) -> list[str]:
+    if "@" in model:
+        model_name, effort = model.split("@", 1)
+    else:
+        model_name, effort = model, ""
     mapping = {
         "model": model,
+        "model_name": model_name,
+        "effort": effort,
         "workdir": str(workdir),
         "prompt_file": str(prompt_file),
         "output_file": str(output_file),
@@ -80,6 +86,10 @@ def format_command_template(
     }
     rendered: list[str] = []
     for token in template:
+        if not effort and "{effort}" in token:
+            if rendered and rendered[-1] in ("--effort", "-c", "--config"):
+                rendered.pop()
+            continue
         val = token
         for k, v in mapping.items():
             val = val.replace("{" + k + "}", v)
@@ -87,14 +97,32 @@ def format_command_template(
     return rendered
 
 
+def resolve_cli_binary(binary: str) -> str | None:
+    """Resolve a CLI binary name/path; on Windows, prefer a newer Codex Desktop bundled CLI over a stale PATH binary."""
+    if Path(binary).exists():
+        return str(Path(binary).resolve())
+    found = shutil.which(binary)
+    if sys.platform == "win32" and binary.lower() in ("codex", "codex.exe"):
+        local_app = os.environ.get("LOCALAPPDATA")
+        if local_app:
+            codex_bins = sorted(
+                Path(local_app).glob("OpenAI/Codex/bin/*/codex.exe"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if codex_bins:
+                newest = codex_bins[0]
+                if not found or newest.stat().st_mtime > Path(found).stat().st_mtime:
+                    return str(newest)
+    return found
+
+
 def check_provider_binary(provider: ProviderConfig) -> dict[str, str | bool]:
     """Check whether the provider's configured CLI binary exists in PATH."""
     if not provider.command:
         return {"provider": provider.name, "ok": False, "binary": "", "resolved": "", "detail": "Empty command template"}
     binary = provider.command[0]
-    resolved = shutil.which(binary)
-    if resolved is None and Path(binary).exists():
-        resolved = str(Path(binary).resolve())
+    resolved = resolve_cli_binary(binary)
     return {
         "provider": provider.name,
         "ok": resolved is not None,
@@ -140,9 +168,9 @@ async def run_provider_cli(
             command=[],
         )
 
-    # Resolve Windows .cmd / .bat shims cleanly when invoking directly via create_subprocess_exec
+    # Resolve Windows .cmd / .bat shims (or newer bundled Codex Desktop binary) cleanly
     exe = cmd[0]
-    resolved_exe = shutil.which(exe)
+    resolved_exe = resolve_cli_binary(exe)
     if resolved_exe:
         cmd[0] = resolved_exe
 
