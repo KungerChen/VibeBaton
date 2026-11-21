@@ -771,81 +771,155 @@ class OrchestrationEngine:
         rfc_text: str,
         overrides: dict[str, str],
     ) -> bool:
-        review_wt = self._worktree_root() / run_id[-6:] / f"_ms_{milestone.id.lower()}"
-        create_worktree(self.repo_path, review_wt, f"baton/{run_id[-6:]}/ms-{milestone.id.lower()}", milestone_branch)
-        try:
-            gate_report = "No milestone gate commands configured."
-            if milestone.gate_commands:
-                gate_res = await run_gate_suite(milestone.gate_commands, workdir=review_wt)
-                gate_report = gate_res.summary_text()
-                if not gate_res.passed:
+        max_milestone_fixes = max(1, self.cfg.policies.max_review_rejects)
+        pending_fix_feedback: str | None = None
+
+        m_rows = {m["id"]: m for m in self.store.get_milestones(run_id)}
+        existing_rev_raw = m_rows.get(milestone.id, {}).get("review_json")
+        if existing_rev_raw:
+            try:
+                existing_rev = json.loads(existing_rev_raw)
+                if isinstance(existing_rev, dict) and existing_rev.get("verdict") in ("MINOR_FIX", "MAJOR_REWORK"):
+                    pending_fix_feedback = json.dumps(existing_rev, indent=2, ensure_ascii=False)
+            except (ValueError, TypeError):
+                pass
+
+        for fix_round in range(max_milestone_fixes + 1):
+            fix_branch = f"baton/{run_id[-6:]}/ms-{milestone.id.lower()}-r{fix_round}"
+            review_wt = self._worktree_root() / run_id[-6:] / f"_ms_{milestone.id.lower()}_r{fix_round}"
+            create_worktree(self.repo_path, review_wt, fix_branch, milestone_branch)
+            try:
+                if pending_fix_feedback:
+                    gates_hint = "\n".join(f"- `{cmd}`" for cmd in (milestone.gate_commands or [])) or "- None"
+                    fix_prompt = (
+                        f"# Milestone Remediation: {milestone.id} — {milestone.title}\n\n"
+                        "The milestone reviewer or mechanical gate found blocking issues on this milestone branch.\n"
+                        "Fix EVERY blocking issue directly in this worktree, add regression tests for each fix, "
+                        "and ensure all mechanical gates pass cleanly.\n\n"
+                        f"## Blocking Feedback\n{pending_fix_feedback}\n\n"
+                        f"## Milestone Gate Commands\n{gates_hint}\n"
+                    )
+                    fix_res, fix_actor = await self._invoke_role(
+                        run_id=run_id,
+                        role_name="critical_executor",
+                        prompt=fix_prompt,
+                        workdir=review_wt,
+                        artifact_key=f"milestone_{milestone.id}_fix_r{fix_round}",
+                        model_overrides=overrides,
+                        milestone_id=milestone.id,
+                    )
+                    if fix_res.status != "ok":
+                        err_msg = f"Milestone remediation CLI failed ({fix_res.status}): {(fix_res.stderr or fix_res.stdout)[:500]}"
+                        self.store.log_event(
+                            run_id,
+                            "milestone_fix_error",
+                            actor=fix_actor,
+                            milestone_id=milestone.id,
+                            message=err_msg,
+                        )
+                        self.store.update_milestone(run_id, milestone.id, TaskStatus.FAILED)
+                        return False
+
+                    commit_worktree_changes(
+                        review_wt,
+                        f"fix({milestone.id}): address milestone review blocking issues (round {fix_round})",
+                    )
+                    async with self._merge_lock:
+                        merge_branch_into(
+                            repo=self.repo_path,
+                            source_branch=fix_branch,
+                            target_branch=milestone_branch,
+                            commit_message=f"fix({milestone.id}): address milestone review blocking issues (round {fix_round})",
+                            worktree_root=self._worktree_root(),
+                        )
                     self.store.log_event(
                         run_id,
-                        "milestone_gate_failed",
+                        "milestone_fix_applied",
+                        actor=fix_actor,
                         milestone_id=milestone.id,
-                        message=gate_report[:500],
+                        message=f"Applied remediation round {fix_round} onto {milestone_branch}",
                     )
-                    self.store.update_milestone(run_id, milestone.id, TaskStatus.FAILED)
+                    pending_fix_feedback = None
+
+                gate_report = "No milestone gate commands configured."
+                if milestone.gate_commands:
+                    gate_res = await run_gate_suite(milestone.gate_commands, workdir=review_wt)
+                    gate_report = gate_res.summary_text()
+                    if not gate_res.passed:
+                        self.store.log_event(
+                            run_id,
+                            "milestone_gate_failed",
+                            milestone_id=milestone.id,
+                            message=gate_report[:500],
+                        )
+                        if fix_round < max_milestone_fixes:
+                            pending_fix_feedback = f"Milestone mechanical gate FAILED:\n{gate_report}"
+                            continue
+                        self.store.update_milestone(run_id, milestone.id, TaskStatus.FAILED)
+                        return False
+
+                diff_text = get_diff_against(self.repo_path, base_ref=dev_branch, head_ref=milestone_branch)
+                verdict = await self._run_review(
+                    run_id=run_id,
+                    reviewer_role=milestone.reviewer_role,
+                    target_id=milestone.id,
+                    context_title=f"Milestone {milestone.id}: {milestone.title}",
+                    acceptance_criteria=[
+                        "Matches Master RFC architecture and boundaries",
+                        "All milestone mechanical gates passed",
+                        f"Gate summary:\n{gate_report}",
+                        f"Master RFC excerpt:\n{rfc_text[:3000]}",
+                    ],
+                    diff_text=diff_text,
+                    workdir=review_wt,
+                    artifact_key=f"milestone_{milestone.id}_review_r{fix_round}",
+                    overrides=overrides,
+                    milestone_id=milestone.id,
+                )
+
+                if verdict.verdict == VerdictKind.PASS:
+                    async with self._merge_lock:
+                        merge_branch_into(
+                            repo=self.repo_path,
+                            source_branch=milestone_branch,
+                            target_branch=dev_branch,
+                            commit_message=f"milestone({milestone.id}): {milestone.title}",
+                            worktree_root=self._worktree_root(),
+                        )
+                    self.store.update_milestone(run_id, milestone.id, TaskStatus.PASSED, review_json=verdict.to_dict())
+                    self.store.log_event(
+                        run_id,
+                        "milestone_passed",
+                        actor=verdict.reviewer,
+                        milestone_id=milestone.id,
+                        message=f"Milestone {milestone.id} merged into {dev_branch}",
+                    )
+                    return True
+
+                if verdict.verdict == VerdictKind.PLAN_AMENDMENT:
+                    self.store.update_milestone(run_id, milestone.id, TaskStatus.WAITING_HUMAN, review_json=verdict.to_dict())
+                    self.store.update_run_status(
+                        run_id,
+                        RunStatus.WAITING_HUMAN,
+                        human_prompt=f"Milestone {milestone.id} reviewer requested PLAN_AMENDMENT: {verdict.summary}",
+                    )
                     return False
 
-            diff_text = get_diff_against(self.repo_path, base_ref=dev_branch, head_ref=milestone_branch)
-            verdict = await self._run_review(
-                run_id=run_id,
-                reviewer_role=milestone.reviewer_role,
-                target_id=milestone.id,
-                context_title=f"Milestone {milestone.id}: {milestone.title}",
-                acceptance_criteria=[
-                    "Matches Master RFC architecture and boundaries",
-                    "All milestone mechanical gates passed",
-                    f"Gate summary:\n{gate_report}",
-                    f"Master RFC excerpt:\n{rfc_text[:3000]}",
-                ],
-                diff_text=diff_text,
-                workdir=review_wt,
-                artifact_key=f"milestone_{milestone.id}_review",
-                overrides=overrides,
-                milestone_id=milestone.id,
-            )
-
-            if verdict.verdict == VerdictKind.PASS:
-                async with self._merge_lock:
-                    merge_branch_into(
-                        repo=self.repo_path,
-                        source_branch=milestone_branch,
-                        target_branch=dev_branch,
-                        commit_message=f"milestone({milestone.id}): {milestone.title}",
-                        worktree_root=self._worktree_root(),
-                    )
-                self.store.update_milestone(run_id, milestone.id, TaskStatus.PASSED, review_json=verdict.to_dict())
+                self.store.update_milestone(run_id, milestone.id, TaskStatus.FAILED, review_json=verdict.to_dict())
                 self.store.log_event(
                     run_id,
-                    "milestone_passed",
+                    "milestone_rejected",
                     actor=verdict.reviewer,
                     milestone_id=milestone.id,
-                    message=f"Milestone {milestone.id} merged into {dev_branch}",
+                    message=verdict.summary,
                 )
-                return True
-
-            if verdict.verdict == VerdictKind.PLAN_AMENDMENT:
-                self.store.update_milestone(run_id, milestone.id, TaskStatus.WAITING_HUMAN, review_json=verdict.to_dict())
-                self.store.update_run_status(
-                    run_id,
-                    RunStatus.WAITING_HUMAN,
-                    human_prompt=f"Milestone {milestone.id} reviewer requested PLAN_AMENDMENT: {verdict.summary}",
-                )
+                if fix_round < max_milestone_fixes:
+                    pending_fix_feedback = json.dumps(verdict.to_dict(), indent=2, ensure_ascii=False)
+                    continue
                 return False
-
-            self.store.update_milestone(run_id, milestone.id, TaskStatus.FAILED, review_json=verdict.to_dict())
-            self.store.log_event(
-                run_id,
-                "milestone_rejected",
-                actor=verdict.reviewer,
-                milestone_id=milestone.id,
-                message=verdict.summary,
-            )
-            return False
-        finally:
-            remove_worktree(self.repo_path, review_wt, branch_name=f"baton/{run_id[-6:]}/ms-{milestone.id.lower()}")
+            finally:
+                remove_worktree(self.repo_path, review_wt, branch_name=fix_branch)
+        return False
 
     async def _run_review(
         self,

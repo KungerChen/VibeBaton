@@ -116,12 +116,13 @@ def list_changed_files(worktree_dir: Path, base_ref: str = "HEAD") -> list[str]:
                 raw_path = raw_path.split(" -> ", 1)[1].strip()
             files.add(raw_path.strip('"').replace("\\", "/"))
 
-    # Committed files relative to base_ref (in case CLI committed directly)
-    diff_out = _run_git(worktree_dir, ["diff", "--name-only", base_ref], check=False).stdout
-    for line in diff_out.splitlines():
-        clean = line.strip().replace("\\", "/")
-        if clean:
-            files.add(clean)
+    # Committed files relative to merge-base with base_ref (immune to sibling merges advancing base_ref)
+    if base_ref != "HEAD":
+        diff_out = _run_git(worktree_dir, ["diff", "--name-only", f"{base_ref}...HEAD"], check=False).stdout
+        for line in diff_out.splitlines():
+            clean = line.strip().replace("\\", "/")
+            if clean:
+                files.add(clean)
 
     # Ignore internal .baton runtime metadata and ephemeral tool/Python caches
     return sorted(f for f in files if not _is_ephemeral_artifact(f))
@@ -160,11 +161,17 @@ def check_path_whitelist(
 
 def revert_disallowed_files(worktree_dir: Path, violations: list[str], base_ref: str = "HEAD") -> None:
     """Restore or delete files that violated the allowed_paths whitelist."""
+    restore_ref = "HEAD"
+    if base_ref != "HEAD":
+        mb = _run_git(worktree_dir, ["merge-base", base_ref, "HEAD"], check=False).stdout.strip()
+        if mb:
+            restore_ref = mb
     for rel in violations:
-        tracked = _run_git(worktree_dir, ["ls-files", "--error-unmatch", rel], check=False).returncode == 0
+        tracked = _run_git(worktree_dir, ["cat-file", "-e", f"{restore_ref}:{rel}"], check=False).returncode == 0
         if tracked:
-            _run_git(worktree_dir, ["checkout", base_ref, "--", rel], check=False)
+            _run_git(worktree_dir, ["checkout", restore_ref, "--", rel], check=False)
         else:
+            _run_git(worktree_dir, ["rm", "--cached", "--ignore-unmatch", "--", rel], check=False)
             target = worktree_dir / rel
             if target.exists():
                 if target.is_dir():
@@ -193,7 +200,8 @@ def commit_worktree_changes(worktree_dir: Path, message: str) -> bool:
 
 def get_diff_against(worktree_or_repo: Path, base_ref: str, head_ref: str | None = None, max_chars: int = 40000) -> str:
     """Extract unified git diff for AI review."""
-    args = ["diff", f"{base_ref}...{head_ref}"] if head_ref else ["diff", base_ref]
+    target = head_ref or "HEAD"
+    args = ["diff", f"{base_ref}...{target}"] if base_ref != target else ["diff", base_ref]
     out = _run_git(worktree_or_repo, args, check=False).stdout
     if len(out) > max_chars:
         return out[:max_chars] + f"\n\n... [diff truncated at {max_chars} chars] ..."

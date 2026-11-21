@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,12 +47,16 @@ async def run_gate_command(command: str, workdir: Path, timeout_sec: int = 600) 
     start = time.monotonic()
     env = os.environ.copy()
     env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    env.setdefault("PYTHONUTF8", "1")
     src_dir = workdir / "src"
     if src_dir.is_dir():
         existing_pp = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = f"{src_dir}{os.pathsep}{existing_pp}" if existing_pp else str(src_dir)
+    exec_cmd = command
+    if sys.platform == "win32":
+        exec_cmd = re.sub(r"([<>]\s*)/dev/null\b", r"\1NUL", exec_cmd)
     proc = await asyncio.create_subprocess_shell(
-        command,
+        exec_cmd,
         cwd=str(workdir),
         env=env,
         stdout=asyncio.subprocess.PIPE,
