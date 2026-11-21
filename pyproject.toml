@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vibebaton"
-version = "0.2.0"
+version = "0.3.0-dev"
 description = "Node-based multi-agent coding workflow orchestrator with Git worktree isolation, mechanical gates, and subscription-aware scheduling."
 readme = "README.md"
 license = { file = "LICENSE" }

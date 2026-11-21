@@ -24,3 +24,61 @@ body,
   height: 100%;
   margin: 0;
 }
+
+.app {
+  display: grid;
+  grid-template-columns: 280px 1fr 360px;
+  grid-template-rows: 48px 1fr;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app > .header-bar {
+  grid-column: 1 / -1;
+}
+
+.app-pane {
+  min-width: 0;
+  min-height: 0;
+}
+
+.app-pane--canvas {
+  position: relative;
+}
+
+.app-pane--inspector > .right-inspector {
+  height: 100%;
+}
+
+.app-pane--canvas .playback-bar.panel {
+  top: 16px;
+  bottom: auto;
+  justify-content: center;
+  width: max-content;
+}
+
+.app > .app-tabs {
+  display: none;
+}
+
+@media (width < 960px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(48px, auto) auto minmax(0, 1fr);
+    height: 100dvh;
+  }
+
+  .app > .app-tabs {
+    display: flex;
+    padding-inline: 0.5rem;
+    background: var(--panel);
+  }
+
+  .app-pane[data-active='false'] {
+    display: none;
+  }
+
+  .app-pane--sidebar > .left-sidebar {
+    width: 100%;
+  }
+}
