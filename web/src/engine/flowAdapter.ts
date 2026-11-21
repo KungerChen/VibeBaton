@@ -46,11 +46,12 @@ function layoutDepths(graph: WorkflowGraph): Map<string, number> {
 }
 
 function editableConfig(config: WorkflowNode['config']) {
-  const { provider, model, max_loops } = config ?? {};
+  const { provider, model, max_loops, concurrency } = config ?? {};
   return {
     provider: typeof provider === 'string' ? provider : undefined,
     model: typeof model === 'string' ? model : undefined,
     max_loops: typeof max_loops === 'number' ? max_loops : undefined,
+    concurrency: typeof concurrency === 'number' ? concurrency : undefined,
   };
 }
 

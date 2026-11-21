@@ -1,7 +1,7 @@
 import './LeftSidebar.css';
 import './ui/ui.css';
 import { useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
-import { ChevronDown, Download, Upload } from 'lucide-react';
+import { ChevronDown, Download, Link2, Upload } from 'lucide-react';
 import { validateGraph } from '../engine/localSimulator';
 import { NODE_TYPES, tierForNodeType, type WorkflowEdge, type WorkflowGraph } from '../types/graph';
 import { NODE_ICONS, TIER_COLORS } from './nodes/BatonNode';
@@ -46,6 +46,7 @@ export function LeftSidebar({
   onAddNode,
   onImportGraph,
   onExport,
+  onShare,
   validation,
 }: LeftSidebarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -170,6 +171,12 @@ export function LeftSidebar({
             <Download size={16} aria-hidden="true" />
             Export JSON
           </button>
+          {onShare && (
+            <button className="btn left-sidebar__action" type="button" onClick={onShare}>
+              <Link2 size={16} aria-hidden="true" />
+              Share Link
+            </button>
+          )}
         </div>
         {importErrors.length > 0 && (
           <ul className="left-sidebar__import-errors" role="alert">

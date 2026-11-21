@@ -14,9 +14,11 @@ import {
   type OnSelectionChangeFunc,
 } from '@xyflow/react';
 import { tierForNodeType } from '../types/graph';
+import { BatonEdge, EDGE_TONE_COLORS, edgeSemanticTone } from './edges/BatonEdge';
 import { BatonNode, TIER_COLORS, type BatonFlowNode } from './nodes/BatonNode';
 
 const NODE_TYPES_MAP = { baton: BatonNode };
+const EDGE_TYPES_MAP = { baton: BatonEdge };
 
 export type CanvasWorkspaceProps = {
   nodes: BatonFlowNode[];
@@ -44,13 +46,22 @@ export function CanvasWorkspace({
   const styledEdges = useMemo(() => edges.map((edge) => {
     const active = activeEdgeIds.has(edge.id);
     const traversed = traversedEdgeIds.has(edge.id);
+    const semanticTone = edgeSemanticTone(edge.sourceHandle);
+    const palette = EDGE_TONE_COLORS[semanticTone];
     return {
       ...edge,
-      animated: active,
+      type: 'baton',
+      animated: false,
+      data: {
+        ...edge.data,
+        active,
+        traversed,
+        semanticTone,
+      },
       style: {
         ...edge.style,
-        stroke: active ? 'var(--sky)' : traversed ? 'var(--emerald)' : 'var(--slate)',
-        strokeWidth: active ? 3 : traversed ? 2 : 1,
+        stroke: active ? palette.active : traversed ? palette.traversed : 'var(--slate)',
+        strokeWidth: active ? 3 : traversed ? 2 : 1.25,
       },
     };
   }), [edges, activeEdgeIds, traversedEdgeIds]);
@@ -76,6 +87,7 @@ export function CanvasWorkspace({
           nodes={nodes}
           edges={styledEdges}
           nodeTypes={NODE_TYPES_MAP}
+          edgeTypes={EDGE_TYPES_MAP}
           colorMode="dark"
           fitView
           deleteKeyCode={['Backspace', 'Delete']}

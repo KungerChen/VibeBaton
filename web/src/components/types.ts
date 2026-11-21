@@ -16,12 +16,15 @@ export interface LeftSidebarProps {
   onAddNode(type: NodeType): void;
   onImportGraph(graph: WorkflowGraph): void;
   onExport(): void;
+  onShare?: () => void;
   validation: GraphValidationResult | null;
 }
 
 export interface PlaybackBarProps {
   scenario: Scenario;
   onScenarioChange(s: Scenario): void;
+  replayActive?: boolean;
+  onToggleReplay?: () => void;
   playing: boolean;
   onPlayPause(): void;
   onStep(): void;

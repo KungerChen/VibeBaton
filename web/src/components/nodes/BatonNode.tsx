@@ -25,6 +25,7 @@ export type BatonNodeData = {
   provider?: string;
   model?: string;
   max_loops?: number;
+  concurrency?: number;
   state: ExecutionState;
 };
 
@@ -62,13 +63,23 @@ export const NODE_HANDLES: Record<NodeType, { targets: string[]; sources: string
   human_gate_node: { targets: ['in'], sources: ['approve', 'reject'] },
 };
 
+const STATE_BADGES: Partial<Record<ExecutionState, { text: string; className: string }>> = {
+  active: { text: '● RUN', className: 'baton-node__badge--active' },
+  retrying: { text: '↻ RETRY', className: 'baton-node__badge--retrying' },
+  escalated: { text: '▲ ESC', className: 'baton-node__badge--escalated' },
+  passed: { text: '✓ OK', className: 'baton-node__badge--passed' },
+  failed: { text: '✕ FAIL', className: 'baton-node__badge--failed' },
+};
+
 export const BatonNode = memo(function BatonNode({ data, isConnectable, selected }: NodeProps<BatonFlowNode>) {
-  const { label, nodeType, role, provider, model, max_loops: maxLoops, state = 'idle' } = data;
+  const { label, nodeType, role, provider, model, max_loops: maxLoops, concurrency, state = 'idle' } = data;
   const tier = tierForNodeType(nodeType, role);
   const tierColor = TIER_COLORS[tier];
   const Icon = NODE_ICONS[nodeType];
   const { targets, sources } = NODE_HANDLES[nodeType];
   const modelLabel = model && (provider ? `${provider} / ${model}` : model);
+  const parallelCount = concurrency !== undefined && concurrency > 1 ? concurrency : undefined;
+  const stateBadge = STATE_BADGES[state];
 
   const style = {
     '--tier-color': tierColor,
@@ -106,14 +117,24 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
 
         {role && <div className="baton-node__role">{role}</div>}
 
-        {(modelLabel || maxLoops !== undefined) && (
+        {(modelLabel || maxLoops !== undefined || parallelCount !== undefined || stateBadge) && (
           <div className="baton-node__meta">
             {modelLabel && (
               <span className="baton-node__model" title={modelLabel}>
                 {modelLabel}
               </span>
             )}
+            {parallelCount !== undefined && (
+              <span className="baton-node__concurrency" title="Parallel workers">
+                ⚡ ×{parallelCount}
+              </span>
+            )}
             {maxLoops !== undefined && <span className="baton-node__loops">↻ ×{maxLoops}</span>}
+            {stateBadge && (
+              <span className={`baton-node__badge ${stateBadge.className}`}>
+                {stateBadge.text}
+              </span>
+            )}
           </div>
         )}
       </div>

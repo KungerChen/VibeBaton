@@ -1,6 +1,6 @@
 import './PlaybackBar.css';
 import './ui/ui.css';
-import { Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
+import { Film, Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 import { SPEEDS } from '../engine/playback';
 import { SCENARIOS, type Scenario } from '../types/graph';
@@ -15,7 +15,9 @@ const SCENARIO_LABELS: Record<Scenario, string> = {
 const PILL_CLASS_BY_OUTCOME: Record<string, string> = {
   pass: 'pill--ok',
   approve: 'pill--ok',
+  completed: 'pill--ok',
   fail: 'pill--warn',
+  minor_fix: 'pill--warn',
   escalate: 'pill--err',
   reject: 'pill--err',
 };
@@ -23,6 +25,8 @@ const PILL_CLASS_BY_OUTCOME: Record<string, string> = {
 export function PlaybackBar({
   scenario,
   onScenarioChange,
+  replayActive = false,
+  onToggleReplay,
   playing,
   onPlayPause,
   onStep,
@@ -40,11 +44,12 @@ export function PlaybackBar({
   const stepDisabled = disabled || stepIndex >= stepCount;
   const outcome = currentEvent?.outcome ?? null;
   const pillClass = (outcome ? PILL_CLASS_BY_OUTCOME[outcome] : undefined) ?? 'pill--muted';
-  const eventLabel = currentEvent
+  const defaultEventLabel = currentEvent
     ? [currentEvent.kind, currentEvent.edge_id ?? currentEvent.node_id, currentEvent.outcome]
         .filter((part): part is string => Boolean(part))
         .join(' · ')
     : 'Ready';
+  const eventLabel = replayActive && currentEvent?.message ? currentEvent.message : defaultEventLabel;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (disabled || event.target !== event.currentTarget) return;
@@ -61,18 +66,35 @@ export function PlaybackBar({
   return (
     <div className="playback-bar panel" tabIndex={0} onKeyDown={handleKeyDown}>
       <div className="playback-bar__segments" role="group" aria-label="Scenario">
-        {SCENARIOS.map((value) => (
+        {SCENARIOS.map((value) => {
+          const isActive = !replayActive && scenario === value;
+          return (
+            <button
+              className={`playback-bar__segment${isActive ? ' playback-bar__segment--active' : ''}`}
+              key={value}
+              type="button"
+              disabled={disabled}
+              aria-pressed={isActive}
+              onClick={() => onScenarioChange(value)}
+            >
+              {SCENARIO_LABELS[value]}
+            </button>
+          );
+        })}
+        {onToggleReplay && (
           <button
-            className={`playback-bar__segment${scenario === value ? ' playback-bar__segment--active' : ''}`}
-            key={value}
+            className={`playback-bar__segment playback-bar__segment--replay${
+              replayActive ? ' playback-bar__segment--replay-active' : ''
+            }`}
             type="button"
-            disabled={disabled}
-            aria-pressed={scenario === value}
-            onClick={() => onScenarioChange(value)}
+            aria-pressed={replayActive}
+            title="Replay real Stage 1 self-hosting run (run-20261121-044454-3b1845 · 107m @ 60×)"
+            onClick={onToggleReplay}
           >
-            {SCENARIO_LABELS[value]}
+            <Film size={12} aria-hidden="true" />
+            <span>Stage 1 60×</span>
           </button>
-        ))}
+        )}
       </div>
 
       <div className="playback-bar__controls">
@@ -121,7 +143,10 @@ export function PlaybackBar({
         </div>
       </div>
 
-      <span className={`playback-bar__event pill ${pillClass}`} title={eventLabel}>
+      <span
+        className={`playback-bar__event${replayActive ? ' playback-bar__event--replay' : ''} pill ${pillClass}`}
+        title={eventLabel}
+      >
         {eventLabel}
       </span>
     </div>

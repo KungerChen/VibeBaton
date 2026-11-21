@@ -8,9 +8,11 @@ import { PlaybackBar } from './components/PlaybackBar';
 import { RightInspector } from './components/RightInspector';
 import type { EdgePatch, NodePatch } from './components/types';
 import { ToastHost, useToasts } from './components/ui/Toast';
-import { findPreset, starter_2tier } from './data/presets';
+import { findPreset, flagship_4tier, starter_2tier } from './data/presets';
+import { STAGE1_REPLAY_TRACE } from './data/stage1Replay';
 import { flowToGraph, graphToFlow } from './engine/flowAdapter';
 import { deriveStates, stepIntervalMs } from './engine/playback';
+import { buildShareUrl, decodeRecipeHash, encodeRecipeHash } from './engine/shareUrl';
 import type {
   GraphTraceEvent,
   GraphValidationResult,
@@ -69,6 +71,9 @@ export default function App() {
   const [pane, setPane] = useState<(typeof panes)[number]['id']>('canvas');
   const [canvasKey, setCanvasKey] = useState(0);
   const [scenario, setScenario] = useState<Scenario>('happy_path');
+  const [replayActive, setReplayActive] = useState(false);
+  const replayActiveRef = useRef(false);
+  replayActiveRef.current = replayActive;
   const [playback, setPlayback] = useState(initialPlayback);
   const [speed, setSpeed] = useState(1);
   const [checkedGraph, setCheckedGraph] = useState<{
@@ -90,8 +95,11 @@ export default function App() {
   }), [graph]);
   const getGraph = useEffectEvent(() => graph);
   const validation = checkedGraph?.structure === structure ? checkedGraph.result : null;
-  const trace = simulation?.validation === validation && simulation.scenario === scenario
-    ? simulation.trace : emptyTrace;
+  const trace = replayActive
+    ? STAGE1_REPLAY_TRACE
+    : simulation?.validation === validation && simulation.scenario === scenario
+      ? simulation.trace
+      : emptyTrace;
   const stepIndex = Math.min(playback.stepIndex, trace.length);
   const playing = playback.playing && trace.length > 0;
   const resetPlayback = useCallback(() => setPlayback(initialPlayback), []);
@@ -134,9 +142,27 @@ export default function App() {
     };
   }, [client, mode, push, structure]);
 
+  const loadSharedHash = useEffectEvent(() => {
+    if (typeof window === 'undefined') return;
+    const decoded = decodeRecipeHash(window.location.hash);
+    if (!decoded) return;
+    if ('error' in decoded) {
+      push(`Invalid shared recipe link: ${decoded.error}`, 'err');
+      return;
+    }
+    latestPresetRequest.current += 1;
+    setReplayActive(false);
+    replaceGraph(decoded.graph);
+    push(`Loaded shared recipe: ${decoded.graph.name}`);
+  });
+
+  useEffect(() => {
+    loadSharedHash();
+  }, []);
+
   useEffect(() => {
     setSimulation(null);
-    resetPlayback();
+    if (!replayActiveRef.current) resetPlayback();
     if (!validation?.valid) return;
     let active = true;
     const validGraph = validation;
@@ -199,7 +225,10 @@ export default function App() {
     try {
       const preset = mode === 'local' ? await client.getPreset(id) : findPreset(id);
       if (!preset) throw new Error(`Unknown preset '${id}'`);
-      if (request === latestPresetRequest.current) replaceGraph(preset);
+      if (request === latestPresetRequest.current) {
+        setReplayActive(false);
+        replaceGraph(preset);
+      }
     } catch (error) {
       if (request === latestPresetRequest.current) push(errorMessage(error), 'err');
     }
@@ -208,12 +237,14 @@ export default function App() {
   function onAddNode(type: NodeType) {
     const node = newWorkflowNode(type, graph.nodes);
     const flow = graphToFlow({ ...graph, nodes: [node], edges: [] });
+    setReplayActive(false);
     setBaseGraph({ ...graph, nodes: [...graph.nodes, node] });
     setNodes((current) => [...current, ...flow.nodes]);
   }
 
   function onImportGraph(imported: WorkflowGraph) {
     latestPresetRequest.current += 1;
+    setReplayActive(false);
     replaceGraph(imported);
     push(`Imported ${imported.name}`);
   }
@@ -228,6 +259,41 @@ export default function App() {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  async function onShare() {
+    try {
+      const hash = encodeRecipeHash(graph);
+      const url = buildShareUrl(graph, window.location.href);
+      window.history.replaceState(null, '', hash);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        push('Shareable link copied to clipboard');
+      } else {
+        push('Shareable URL updated in address bar');
+      }
+    } catch (error) {
+      push(errorMessage(error), 'err');
+    }
+  }
+
+  function onScenarioSelect(nextScenario: Scenario) {
+    setReplayActive(false);
+    setScenario(nextScenario);
+    resetPlayback();
+  }
+
+  function onToggleReplay() {
+    if (replayActive) {
+      setReplayActive(false);
+      resetPlayback();
+      return;
+    }
+    latestPresetRequest.current += 1;
+    if (graph.id !== flagship_4tier.id) replaceGraph(flagship_4tier);
+    setReplayActive(true);
+    setPlayback({ stepIndex: 1, playing: true });
+    push('Stage 1 Real Run (v0.2.0 · 107m @ 60×) loaded');
   }
 
   function onUpdateNode(id: string, patch: NodePatch) {
@@ -292,6 +358,7 @@ export default function App() {
           onAddNode={onAddNode}
           onImportGraph={onImportGraph}
           onExport={onExport}
+          onShare={onShare}
           validation={validation}
         />
       </div>
@@ -309,7 +376,9 @@ export default function App() {
         >
           <PlaybackBar
             scenario={scenario}
-            onScenarioChange={setScenario}
+            onScenarioChange={onScenarioSelect}
+            replayActive={replayActive}
+            onToggleReplay={onToggleReplay}
             playing={playing}
             onPlayPause={onPlayPause}
             onStep={() => onJumpToStep(stepIndex + 1)}
