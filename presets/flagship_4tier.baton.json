@@ -20,7 +20,7 @@
       "label": "L1 战术拆解 (Claude Fable)",
       "role": "tactical_planner",
       "position": { "x": 340, "y": 180 },
-      "config": { "provider": "claude_sub", "model": "fable-5.2-high" }
+      "config": { "provider": "claude_sub", "model": "fable@high" }
     },
     {
       "id": "router_tier",
@@ -35,7 +35,7 @@
       "label": "L2 核心攻坚 (Codex Sol)",
       "role": "critical_executor",
       "position": { "x": 920, "y": 60 },
-      "config": { "provider": "codex_sub", "model": "6.2-sol-max", "concurrency": 1 }
+      "config": { "provider": "codex_sub", "model": "gpt-6.2-sol@max", "concurrency": 1 }
     },
     {
       "id": "l3_bulk",
@@ -43,7 +43,7 @@
       "label": "L3 并发批量 (DSH OpenCode)",
       "role": "bulk_worker",
       "position": { "x": 920, "y": 300 },
-      "config": { "provider": "dsh_opencode", "model": "deepseek-flash-v4.1-max", "concurrency": 4 }
+      "config": { "provider": "dsh_opencode", "model": "deepseek-v4.1-flash@max", "concurrency": 4 }
     },
     {
       "id": "gate_unit",
@@ -58,7 +58,7 @@
       "label": "L2 微观审校 (Codex Astra)",
       "role": "micro_orchestrator",
       "position": { "x": 1500, "y": 300 },
-      "config": { "provider": "codex_sub", "model": "6.2-astra-xhigh", "max_rejects": 2 }
+      "config": { "provider": "codex_sub", "model": "gpt-6.2-astra@xhigh", "max_rejects": 2 }
     },
     {
       "id": "git_merge",
@@ -73,7 +73,7 @@
       "label": "L1 里程碑把关 (Claude Opus)",
       "role": "milestone_reviewer",
       "position": { "x": 2060, "y": 180 },
-      "config": { "provider": "claude_sub", "model": "opus-5.5-high" }
+      "config": { "provider": "claude_sub", "model": "opus@high" }
     },
     {
       "id": "l0_final_gate",

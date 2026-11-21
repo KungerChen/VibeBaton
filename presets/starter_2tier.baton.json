@@ -12,7 +12,7 @@
       "label": "方案拆解 (任意推理模型)",
       "role": "tactical_planner",
       "position": { "x": 80, "y": 160 },
-      "config": { "provider": "dsh_opencode", "model": "deepseek-flash-v4.1-max" }
+      "config": { "provider": "dsh_opencode", "model": "deepseek-v4.1-flash@max" }
     },
     {
       "id": "worker",
@@ -20,7 +20,7 @@
       "label": "并发执行 (OpenCode / DeepSeek)",
       "role": "bulk_worker",
       "position": { "x": 380, "y": 160 },
-      "config": { "provider": "dsh_opencode", "model": "deepseek-flash-v4.1-max", "concurrency": 3 }
+      "config": { "provider": "dsh_opencode", "model": "deepseek-v4.1-flash@max", "concurrency": 3 }
     },
     {
       "id": "gate",

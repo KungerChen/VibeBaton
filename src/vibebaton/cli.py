@@ -271,6 +271,113 @@ def cmd_promote_seed(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_presets(args: argparse.Namespace) -> int:
+    """List workflow presets and optionally report validation for each one."""
+    from .presets import list_presets, validate_all_presets
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+
+    try:
+        summaries = list_presets()
+        validations = validate_all_presets() if args.validate else {}
+    except (OSError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        rows = []
+        for summary in summaries:
+            row = summary.to_dict()
+            if args.validate:
+                validation = validations[summary.id]
+                row.update(
+                    valid=validation.valid, errors=validation.errors, warnings=validation.warnings
+                )
+            rows.append(row)
+        print(json.dumps(rows, indent=2))
+    else:
+        id_width = max([len("ID"), *(len(summary.id) for summary in summaries)])
+        difficulty_width = max([len("Difficulty"), *(len(summary.difficulty) for summary in summaries)])
+        print(
+            f"{'ID':<{id_width}}  {'Difficulty':<{difficulty_width}}  "
+            f"{'Nodes':>5}  {'Edges':>5}  Name"
+        )
+        for summary in summaries:
+            print(
+                f"{summary.id:<{id_width}}  {summary.difficulty:<{difficulty_width}}  "
+                f"{summary.node_count:>5}  {summary.edge_count:>5}  {summary.name}"
+            )
+            if args.validate:
+                validation = validations[summary.id]
+                print(
+                    f"  valid={validation.valid}  errors={len(validation.errors)}  "
+                    f"warnings={len(validation.warnings)}"
+                )
+                for error in validation.errors:
+                    print(f"  Error: {error}")
+                for warning in validation.warnings:
+                    print(f"  Warning: {warning}")
+
+    return 1 if any(not validation.valid for validation in validations.values()) else 0
+
+
+def cmd_graph(args: argparse.Namespace) -> int:
+    """Validate a workflow graph or simulate it after validation succeeds."""
+    from dataclasses import asdict
+
+    from .graph_engine import simulate_graph
+    from .graph_schema import GraphValidationResult, validate_graph
+    from .presets import load_preset
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+
+    try:
+        graph = load_preset(args.graph)
+    except (OSError, ValueError) as exc:
+        graph = None
+        validation = GraphValidationResult(
+            valid=False, errors=[str(exc)], warnings=[], entry_nodes=[], has_cycles=False
+        )
+    else:
+        validation = validate_graph(graph)
+
+    if args.graph_command == "validate" or graph is None or not validation.valid:
+        if args.json:
+            print(json.dumps(asdict(validation), indent=2))
+        else:
+            print(f"Valid: {validation.valid}")
+            print(f"Entry nodes: {', '.join(validation.entry_nodes) or '-'}")
+            print(f"Has cycles: {validation.has_cycles}")
+            for error in validation.errors:
+                print(f"Error: {error}")
+            for warning in validation.warnings:
+                print(f"Warning: {warning}")
+        return 0 if validation.valid else 1
+
+    result = simulate_graph(graph, args.scenario)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "status": result.status,
+                    "visited_nodes": result.visited_nodes,
+                    "trace": [event.to_dict() for event in result.trace],
+                },
+                indent=2,
+            )
+        )
+    else:
+        for event in result.trace:
+            line = (
+                f"[{event.seq}] {event.kind} {event.node_id or '-'} "
+                f"{event.edge_id or '-'} {event.outcome or '-'} {event.message}"
+            )
+            print(line.replace("\r", "\\r").replace("\n", "\\n").rstrip())
+    return 0 if result.status == "completed" else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="baton",
@@ -337,6 +444,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_seed = sub.add_parser("promote-seed", help="Export immutable bootstrap runner snapshot for safe self-hosting")
     p_seed.add_argument("--dest", required=True, help="Destination directory for immutable runner copy")
     p_seed.set_defaults(func=cmd_promote_seed)
+
+    p_presets = sub.add_parser("presets", help="List workflow presets")
+    p_presets.add_argument("--validate", action="store_true", help="Validate all presets")
+    p_presets.add_argument("--json", action="store_true", help="Output JSON")
+    p_presets.set_defaults(func=cmd_presets)
+
+    from .graph_engine import SCENARIOS
+
+    p_graph = sub.add_parser("graph", help="Validate or simulate a workflow graph")
+    graph_sub = p_graph.add_subparsers(dest="graph_command", required=True)
+
+    p_validate = graph_sub.add_parser("validate", help="Validate a workflow graph")
+    p_validate.add_argument("graph", help="Preset ID or path to a .baton.json file")
+    p_validate.add_argument("--json", action="store_true", help="Output JSON")
+    p_validate.set_defaults(func=cmd_graph)
+
+    p_simulate = graph_sub.add_parser("simulate", help="Simulate a workflow graph")
+    p_simulate.add_argument("graph", help="Preset ID or path to a .baton.json file")
+    p_simulate.add_argument("--scenario", choices=SCENARIOS, default="happy_path")
+    p_simulate.add_argument("--json", action="store_true", help="Output JSON")
+    p_simulate.set_defaults(func=cmd_graph)
 
     return parser
 

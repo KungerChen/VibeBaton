@@ -302,8 +302,10 @@ class TestEndToEndPipeline(unittest.TestCase):
 
             list_resp = mcp.handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
             tool_names = [t["name"] for t in list_resp["result"]["tools"]]
-            self.assertEqual(len(tool_names), 7)
+            self.assertEqual(len(tool_names), 9)
             self.assertIn("baton_start", tool_names)
+            self.assertIn("baton_list_presets", tool_names)
+            self.assertIn("baton_validate_graph", tool_names)
 
             pkg_resp = mcp.handle_request(
                 {
