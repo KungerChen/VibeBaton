@@ -47,7 +47,9 @@ type = "cli"
 max_concurrency = 4
 cooldown_backoff_sec = [30, 120, 300]
 rate_limit_regex = "(rate.?limit|429|quota|temporarily unavailable|overloaded)"
-command = ["opencode", "run", "--model", "{model}"]
+# DeepSeek Harness (dsh) headless mode calling your configured OpenCode Go API profile.
+# Model/provider comes from your dsh profile (or add "--patch", "<file.yml>" to override per run).
+command = ["dsh", "--profile", "headless", "--permission-mode", "workspace-write", "--approval-policy", "never", "-"]
 prompt_via = "stdin"
 stall_timeout_sec = 240
 hard_timeout_sec = 1200
