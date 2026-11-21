@@ -68,6 +68,32 @@ $env:PYTHONPATH = "D:\Projects\VibeBaton\src"
 python -m unittest discover -s D:\Projects\VibeBaton\tests -v
 ```
 
+---
+
+## Why VibeBaton & Honest Boundaries
+
+- **Core Moat**: Cross-vendor heterogeneous orchestration (`Antigravity` + `Claude` + `Codex` + `OpenCode Go / DeepSeek`) and an open, shareable `.baton.json` workflow recipe ecosystem that no single model vendor will build natively.
+- **When to Use It**: Medium-to-large multi-module engineering, batch refactors/migrations, and unattended overnight runs with objective test/lint gates (`unittest`, `tsc`, `vitest`).
+- **When NOT to Use It**: Quick 30-second single-file tweaks or vague exploratory UI prototyping — a single interactive agent is faster there.
+- **Current Best-Tested Stacks**: Python 3.11+ and TypeScript/Node standalone repositories on Windows (Docker/DevContainer templates and additional ecosystems are on the roadmap).
+
+---
+
+## Security Model
+
+VibeBaton's **Path Whitelist Guard** is a post-hoc Git worktree audit/revert layer — **not** an OS-level kernel sandbox. Running unattended non-interactive CLI agents directly on your host is recommended **only for trusted repositories**. See [docs/SECURITY.md](docs/SECURITY.md) for trust boundaries, polite rate-limiting rules, and secret hygiene.
+
+---
+
+## Roadmap
+
+- **Stage 0 (`v0.1-seed`)** & **Stage 1 (`v0.2.0`)**: Shipped — pure stdlib node-graph workflow engine, 4 official presets, 63 tests, self-hosted via `.bootstrap-runner`.
+- **Stage 2 (`v0.3.0-canvas`)**: In progress — zero-dependency `baton ui` web server (`ThreadingHTTPServer` + SSE), React Flow 3-pane visual canvas (connected local + standalone GitHub Pages demo), 3-color Baton Flow particles, real Stage 1 run replay, and `#recipe=` URL sharing.
+- **Stage 3 (`v0.9-beta`)**: Unified Smart Allocation (dynamic reasoning effort for medium projects & multi-model allocation for large projects), scenario & same-family recipes, interactive Brainstorm & Preflight Config Wizard, and reproducible 3-arm benchmarks.
+- **Stage 4 (`v1.0`)**: Native OpenAI-compatible HTTP provider with exact token/cost billing, Auto-Conflict-Resolver, and Docker/DevContainer sandbox templates.
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/RFC_STAGE3_DRAFT.md](docs/RFC_STAGE3_DRAFT.md) for full details.
+
 ## License
 
 MIT License — see [`LICENSE`](LICENSE).
