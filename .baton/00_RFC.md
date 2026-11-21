@@ -1,107 +1,129 @@
-# Master RFC: VibeBaton Stage 1 (`v0.2-engine`) — Declarative Node-Graph Workflow Engine
+# Master RFC: VibeBaton Stage 2 (`v0.3-canvas`) — React Flow Visual Canvas & Dual-Mode Interactive Demo
 
 ## 1. Goal
 
-Upgrade VibeBaton from `v0.1-seed` (`__version__ = "0.1.0-seed"`) to **`v0.2-engine`** (`__version__ = "0.2.0-dev"`): a declarative **Node-Graph Workflow Engine** supporting all 7 atomic building-block node types, 4 official `.baton.json` presets, CLI/MCP graph validation and deterministic dry-run simulation, and zero external runtime dependencies (Python 3.11+ stdlib only).
+Upgrade VibeBaton from `v0.2.0` to **`v0.3.0-dev`**: deliver a **3-pane interactive React Flow node-graph canvas** (`web/`), a **zero-config 3-scenario animated Mock Demo** (running both locally via `baton ui` AND purely standalone as static files for GitHub Pages with `base: './'`), **sidebar hot-reload model editing** (`.baton/baton.toml`), and a **Live Run SSE monitor + Start Real Run control**.
 
 ---
 
-## 2. Constraints & Non-Goals
+## 2. Constraints, Pre-Installed Frontend Toolchain & Non-Goals
 
 ### Hard Constraints
-- **Zero External Dependencies**: Pure Python 3.11+ standard library only (`dataclasses`, `enum`, `asyncio`, `json`, `pathlib`, `unittest`). Do NOT add third-party packages to `pyproject.toml`.
-- **100% Backward Compatibility**: Preserve all existing CLI subcommands (`init`, `doctor`, `run`, `daemon`, `status`, `resolve`, `report`, `mcp`, `promote-seed`) and all 7 existing MCP tools (`baton_health`, `baton_start`, `baton_status`, `baton_logs`, `baton_resolve`, `baton_control`, `baton_final_package`).
-- **Windows & Self-Hosting Compatibility**: All tests must pass cleanly on Windows under `python -m unittest discover -s tests -v`.
-- **Update Existing E2E Assertion**: Note that `tests/test_e2e_pipeline.py` (line 305) currently asserts `self.assertEqual(len(tool_names), 7)` on `tools/list`. When adding new MCP tools (`baton_list_presets`, `baton_validate_graph`), update that assertion accordingly (e.g. `>= 9` or exact expected count and check the new tool names) so the full test suite remains green.
+- **Zero New Python Runtime Dependencies**: Python backend MUST use Python 3.11+ standard library only (`http.server.ThreadingHTTPServer`, `json`, `urllib`, `sqlite3`, `tomllib`, `webbrowser`). Keep `pyproject.toml` `dependencies = []`. Bind default HTTP server to `127.0.0.1`.
+- **Pre-Installed Frontend Dependencies (CRITICAL)**:
+  - `web/package.json`, `web/package-lock.json`, and `web/node_modules/` are **already installed** on the host and automatically mounted into every worktree via directory junction.
+  - **DO NOT run `npm install` or download packages from the internet inside tasks.**
+  - Use ONLY the already-installed packages: `react`, `react-dom`, `@xyflow/react`, `lucide-react`, `vite`, `@vitejs/plugin-react`, `typescript`, `vitest` (plus `@types/react`, `@types/react-dom`).
+- **Windows Gate Commands**:
+  - In PowerShell / Windows `cmd.exe`, always invoke `npm.cmd` and `npx.cmd` (never bare `npm` or `npx` without `.cmd`). Never use `/dev/null`.
+  - Standard frontend verification gate: `cd web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build`.
+- **100% Backward Compatibility**: Preserve all 11 existing CLI subcommands, all 9 existing MCP tools, and all 63 existing Python tests passing (`python -m unittest discover -s tests -v`).
 
-### Non-Goals (Out of Scope for Stage 1)
-- Do **NOT** build Stage 2 React Flow web canvas / FastAPI web UI / frontend assets in this stage. Stage 1 focuses solely on the Python node-graph schema, async execution engine, mock simulation, 4 presets, CLI, and MCP integration.
-
----
-
-## 3. Architecture & Module Deliverables
-
-To maximize parallel execution with Contract-First safety, structure the work into foundation contracts (`critical`) followed by presets/integrations/tests (`routine` + final integration):
-
-### Deliverable 1 (`critical`): `src/vibebaton/graph_schema.py`
-Strongly-typed declarative workflow graph schema & validator matching the `.baton.json` format (`schema_version`, `id`, `name`, `difficulty`, `description`, `recommended_for`, `nodes`, `edges`):
-- `NodeType` (`str, Enum`) with all **7 atomic node types**:
-  1. `planner_node`
-  2. `router_node`
-  3. `worker_node`
-  4. `gate_node`
-  5. `reviewer_node`
-  6. `merge_node`
-  7. `human_gate_node`
-- Dataclasses:
-  - `NodeSpec(id: str, type: NodeType, label: str, role: str | None = None, position: dict[str, float] | None = None, config: dict[str, Any] = field(default_factory=dict))`
-  - `EdgeSpec(id: str, source: str, target: str, source_handle: str = "out", target_handle: str = "in", max_loops: int | None = None, condition: str | None = None)`
-  - `WorkflowGraph(schema_version: str, id: str, name: str, nodes: list[NodeSpec], edges: list[EdgeSpec], difficulty: str = "pro", description: str = "", recommended_for: list[str] = field(default_factory=list))`
-  - `GraphValidationResult(valid: bool, errors: list[str], warnings: list[str], entry_nodes: list[str], has_cycles: bool)`
-- Methods & Functions:
-  - `WorkflowGraph.from_dict(data: dict[str, Any]) -> WorkflowGraph` (accepts both `sourceHandle`/`targetHandle` camelCase from `.baton.json` and snake_case, raising a clear `ValueError` or `SchemaValidationError` on invalid node types/missing required fields).
-  - `WorkflowGraph.to_dict() -> dict[str, Any]` (round-trips cleanly to `.baton.json` camelCase keys).
-  - `validate_graph(graph: WorkflowGraph) -> GraphValidationResult`:
-    - Checks non-empty `nodes` and unique `node.id` values and unique `edge.id` values.
-    - Checks every `edge.source` and `edge.target` references an existing `node.id`.
-    - Identifies entry nodes (nodes with in-degree 0 ignoring loop/back-edges, or all nodes with 0 incoming non-`fix`/non-loop edges; warns or errors if unreachable nodes exist from entry nodes).
-    - Detects cycles: allows controlled feedback loops (e.g., `gate_node` `fail` -> `worker_node` `fix`, or `reviewer_node` `minor_fix` -> `worker_node` `fix`), **provided** every cycle contains at least one edge with `max_loops >= 1` (or a node config with `max_loops >= 1`). Unbounded cycles without `max_loops >= 1` MUST fail validation with a clear error.
-
-### Deliverable 2 (`critical`): `src/vibebaton/graph_engine.py`
-Generic async node-graph execution engine + deterministic mock simulator (for Stage 2 zero-config preview):
-- `NodeExecutionResult` dataclass (`outcome: str` e.g. `"out"`, `"pass"`, `"fail"`, `"minor_fix"`, `"escalate"`, `"critical"`, `"routine"`, `"rfc"`, `"dag"`; `payload: dict[str, Any]`; `message: str = ""`).
-- `GraphTraceEvent` dataclass (`seq: int`, `timestamp: float`, `kind: str` in `{"node_started", "node_completed", "node_failed", "edge_traversed", "loop_limit_reached", "graph_completed", "graph_halted"}`, `node_id: str | None`, `edge_id: str | None`, `outcome: str | None`, `message: str`).
-- `NodeHandler` protocol (`async def handle(self, node: NodeSpec, context: dict[str, Any]) -> NodeExecutionResult`).
-- `GraphExecutionEngine`:
-  - Validates the graph before execution (raises `ValueError` if `validate_graph(graph).valid` is False).
-  - Registry mapping `NodeType` (or node ID) -> `NodeHandler`.
-  - Traverses outgoing edges matching `source_handle == result.outcome` (with clean fallback if `source_handle == "out"` or wildcard when appropriate).
-  - Tracks per-edge traversal count and enforces `edge.max_loops` (or target/source node `config.get("max_loops")`): when an edge exceeds `max_loops`, emits `loop_limit_reached` and safely halts/circuits rather than looping infinitely.
-  - Returns a `GraphRunResult(status: str, visited_nodes: list[str], trace: list[GraphTraceEvent], context: dict[str, Any])`.
-- `MockSimulationHandlers` + `simulate_graph(graph: WorkflowGraph, scenario: str = "happy_path") -> GraphRunResult`:
-  - Supports 3 deterministic scenarios without calling external CLIs or network:
-    - `"happy_path"`: clean pass through planning, routing, workers, gate pass, reviewer pass, merge, and human gate.
-    - `"gate_retry"`: `gate_node` returns `"fail"` on attempt 1 (triggers loop back to worker `fix`), then `"pass"` on attempt 2.
-    - `"escalate"`: `reviewer_node` (micro review) returns `"escalate"` (or triggers `"minor_fix"` loop then `"escalate"`), routing to specialist/critical path before merge and milestone review.
-
-### Deliverable 3 (`routine` / Presets): `src/vibebaton/presets.py` + 4 Official `.baton.json` Presets
-1. Update `presets/flagship_4tier.baton.json`:
-   - Align model names to verified defaults: `fable@high`, `opus@high`, `gpt-6.2-astra@xhigh`, `gpt-6.2-sol@max`, `deepseek-v4.1-flash@max` (keep `gemini-4-neon-high` for `host_native`).
-   - Ensure all nodes/edges pass `validate_graph()` cleanly (every loop edge `e6`, `e8` has `max_loops >= 1`).
-2. Update `presets/starter_2tier.baton.json`:
-   - Align `dsh_opencode` model names to `deepseek-v4.1-flash@max` and ensure it passes `validate_graph()`.
-3. Create `presets/solo_coder_3tier.baton.json`:
-   - Balanced 3-tier solo developer workflow (`difficulty: "intermediate"`): `planner_node` (`fable@high` or `gpt-6.2-sol@max`) -> `worker_node` (`deepseek-v4.1-flash@max`) -> `gate_node` (with `fail` retry loop `max_loops: 2`) -> `reviewer_node` (`gpt-6.2-astra@xhigh`) -> `merge_node` -> `human_gate_node`. Passes `validate_graph()`.
-4. Create `presets/review_only_audit.baton.json`:
-   - Read-only code audit & verification pipeline (`difficulty: "beginner"`): `gate_node` -> `reviewer_node` (micro/security review with `gpt-6.2-astra@xhigh`) -> `reviewer_node` (architecture review with `opus@high`) -> `human_gate_node`. No code-writing `worker_node`. Passes `validate_graph()`.
-5. Implement `src/vibebaton/presets.py`:
-   - `PresetSummary` dataclass (`id`, `name`, `difficulty`, `description`, `recommended_for`, `path`, `node_count`, `edge_count`).
-   - `presets_dir() -> Path`
-   - `list_presets(directory: Path | None = None) -> list[PresetSummary]`
-   - `load_preset(id_or_path: str | Path, directory: Path | None = None) -> WorkflowGraph`
-   - `validate_all_presets(directory: Path | None = None) -> dict[str, GraphValidationResult]`
-
-### Deliverable 4 (CLI, MCP, Version Bump & Integration):
-- Bump `src/vibebaton/__init__.py` `__version__` to `"0.2.0-dev"`.
-- Update `src/vibebaton/cli.py`:
-  - Add `baton presets [--validate] [--json]`: lists all built-in presets; with `--validate`, validates every preset and exits `1` if any fails, `0` if all pass.
-  - Add `baton graph validate <file> [--json]` and `baton graph simulate <file> [--scenario happy_path|gate_retry|escalate] [--json]`: validates or dry-run simulates any `.baton.json` file (or preset ID).
-- Update `src/vibebaton/mcp_server.py`:
-  - Add `baton_list_presets` (lists preset summaries + validation status).
-  - Add `baton_validate_graph` (takes `graph_path` or `graph_json` and returns `GraphValidationResult` + optional simulation trace if `simulate_scenario` is provided).
-  - Update `tests/test_e2e_pipeline.py` line 305 tool count assertion to match the updated tool count (`9`) and assert presence of `baton_list_presets` and `baton_validate_graph`.
-
-### Deliverable 5 (Comprehensive Automated Tests):
-- `tests/test_graph_schema.py`: unit tests for all 7 `NodeType`s, `from_dict`/`to_dict` round-trip, missing node/edge error handling, cycle-with-`max_loops` allowed vs unbounded-cycle rejected, unreachable-node detection.
-- `tests/test_graph_engine.py`: async execution tests for `GraphExecutionEngine`, loop limit circuit breaking (`loop_limit_reached`), and deterministic `simulate_graph()` across `"happy_path"`, `"gate_retry"`, and `"escalate"` scenarios.
-- `tests/test_presets.py`: tests `list_presets()` (4 presets), `validate_all_presets()` (all valid), `load_preset()`, CLI `presets --validate` & `graph simulate`, and MCP `baton_list_presets` / `baton_validate_graph`.
+### Non-Goals (Out of Scope for Stage 2)
+- Do **NOT** build Stage 3 Starter View wizard or PNG poster export yet (`v0.9-beta`).
+- Do **NOT** modify `web/package.json` or `web/package-lock.json`.
 
 ---
 
-## 4. Acceptance Criteria (Verifiable Mechanical Gates)
+## 3. Milestones & Module Deliverables (Contract-First)
 
-- [ ] `python -m unittest discover -s tests -v` exits `0` with all existing 6 tests and all new Stage 1 tests passing.
-- [ ] `python -m vibebaton presets --validate` exits `0` and validates all 4 official `.baton.json` presets (`flagship_4tier`, `starter_2tier`, `solo_coder_3tier`, `review_only_audit`).
-- [ ] `python -m vibebaton graph simulate presets/flagship_4tier.baton.json --scenario escalate` exits `0` and outputs a complete trace covering escalation to specialist, merge, milestone review, and final human gate.
-- [ ] Zero new external runtime dependencies added to `pyproject.toml`.
-- [ ] All existing CLI subcommands (`init`, `doctor`, `run`, `daemon`, `status`, `resolve`, `report`, `mcp`, `promote-seed`) and 7 core MCP tools remain 100% intact.
+### Milestone M1: Python Web Backend Contract & `baton ui` CLI (`critical`)
+
+#### 1. `src/vibebaton/web_server.py`
+Zero-dependency `http.server.ThreadingHTTPServer` server hosting both REST/SSE JSON APIs and built static assets (`web/dist/`):
+- `create_server(repo_path: Path, host: str = "127.0.0.1", port: int = 7860, static_dir: Path | None = None, config_path: Path | None = None, daemon_spawner: Callable[[Path, Path, str], int] | None = None) -> ThreadingHTTPServer` (alias/wrapper class `VibeBatonWebServer` welcome).
+- JSON response helper with `CORS` headers (`Access-Control-Allow-Origin: *` for local Vite dev server compatibility, `OPTIONS` preflight support).
+- **Read & Simulation Endpoints**:
+  - `GET /api/health`: returns `{"status": "ok", "mode": "local", "version": __version__, "repo": str(repo), "config_path": str(cfg_path), "providers": checks, "quotas": ..., "roles": ...}`
+  - `GET /api/presets`: returns `{"presets": [{...PresetSummary.to_dict(), "valid": ..., "errors": [...], "warnings": [...], "graph": WorkflowGraph.to_dict()}]}`
+  - `GET /api/presets/{id}`: returns `{"preset": summary, "graph": ..., "validation": ...}` (404 JSON error if unknown ID)
+  - `POST /api/graph/validate`: accepts `{"graph": {...}}` or `{"graph_json": "..."}`; returns `{"valid": bool, "errors": [...], "warnings": [...], "entry_nodes": [...], "has_cycles": bool}` (returns `valid: False` with error message on malformed graph without crashing)
+  - `POST /api/graph/simulate`: accepts `{"graph": {...} | "preset_id": "...", "scenario": "happy_path"|"gate_retry"|"escalate"}`; validates graph first (400 if invalid or unknown scenario) and returns `{"status": ..., "visited_nodes": [...], "trace": [...]}`
+- **Hot-Reload Config Endpoints**:
+  - `GET /api/config/roles`: returns `{"config_path": ..., "providers": {name: {"max_concurrency": ..., "command": ...}}, "roles": {name: {"provider": ..., "model": ..., "fallback": [...]}}}`
+  - `PUT /api/config/roles/{role_name}`: accepts `{"provider": str (optional), "model": str (required non-empty)}`; validates `role_name` exists and `provider` (if given) exists in `providers` or is `"host_native"`. Ensures repo-local `.baton/baton.toml` exists (copying `baton.example.toml` if config was using package fallback), updates `[roles.<role_name>]` `provider` and `model` cleanly in TOML (preserving all other sections and comments, or cleanly rewriting the TOML key line inside `[roles.<role_name>]`), and verifies reload via `HotReloadConfig`! Returns updated role config.
+- **Live Run Monitoring & Control Endpoints**:
+  - `GET /api/runs/latest`: returns `{"run": ..., "milestones": [...], "tasks": [...], "events": [...], "quotas": [...]}` (or `{"run": null, "milestones": [], "tasks": [], "events": [], "quotas": []}` if no runs yet)
+  - `GET /api/runs/{run_id}`: returns full run snapshot (`run`, `milestones`, `tasks`, `events`, `quotas`; 404 if missing)
+  - `GET /api/runs/{run_id}/report`: returns `{"run_id": ..., "battle_report_markdown": generate_battle_report(store, run_id)}` (404 if missing)
+  - `GET /api/runs/stream`: `text/event-stream` SSE endpoint (`Cache-Control: no-cache`, `Connection: keep-alive`). Emits `event: snapshot\ndata: <json>\n\n` immediately on connect, and when `?once=1` is present closes cleanly after sending the snapshot (for deterministic automated tests); otherwise polls SQLite every ~1.0s and pushes updated `snapshot` / `event` payloads until client disconnects or server shuts down.
+  - `POST /api/runs/start`: accepts `{"rfc_path"?: str, "rfc_markdown"?: str, "mode"?: "overnight"|"interactive", "model_overrides"?: dict[str, str]}`.
+    - If `rfc_markdown` is provided, writes safely to `.baton/ui_rfcs/<timestamp>.md`.
+    - If `rfc_path` is provided, resolves against `repo_path` and **strictly rejects path traversal outside `repo_path`** (HTTP 400).
+    - Creates run in `StateStore`, spawns detached daemon via `daemon_spawner or _spawn_detached_daemon`, logs `daemon_spawned`, returns `201`/`200` `{"run_id": ..., "daemon_pid": ..., "status": "STARTED"}`.
+  - `POST /api/runs/{run_id}/control`: accepts `{"action": "pause" | "resume"}` (404 if unknown run; 400 if unsupported action).
+  - `POST /api/runs/{run_id}/resolve`: accepts `{"decision": "approve" | "reject", "note"?: str}` and invokes `store.record_human_decision(...)` (+ respawns daemon on `"approve"`).
+- **Static Hosting**:
+  - Resolves `static_dir` (defaulting to `<package_root>/web/dist` if present).
+  - Serves `GET /` -> `index.html`, and static files under `static_dir` with strict path traversal protection (`resolve().is_relative_to(static_dir.resolve())` returning 403/404 on traversal attempts) and proper MIME types (`.html`, `.js`, `.css`, `.svg`, `.json`, `.png`).
+  - If `static_dir / "index.html"` does not exist yet, `GET /` returns HTTP 200 helpful HTML notice explaining how to build `web/dist`.
+
+#### 2. `src/vibebaton/cli.py`
+- Add `baton ui [--repo .] [--host 127.0.0.1] [--port 7860] [--no-open]`:
+  - Prints listening URL `http://{host}:{port}`, opens default browser via `webbrowser.open(...)` unless `--no-open` is passed, and serves until `KeyboardInterrupt` (`Ctrl+C`), shutting down cleanly.
+  - Preserve all 11 existing subcommands untouched.
+
+#### 3. `tests/test_web_server.py`
+- Pure stdlib `unittest` using `urllib.request` against `create_server(..., port=0)` in a background thread:
+  - Tests `/api/health`, `/api/presets`, `/api/presets/flagship_4tier`, 404 on unknown preset, `/api/graph/validate` (valid + unbounded cycle + malformed), `/api/graph/simulate` (all 3 scenarios), `/api/config/roles` + `PUT /api/config/roles/bulk_worker` verifying `.baton/baton.toml` persists & hot-reloads, `/api/runs/start` (with mock `daemon_spawner`) + path traversal rejection, `/api/runs/{id}` + `/report` + `/control` + `/resolve`, `/api/runs/stream?once=1` SSE framing, static file serving + static path traversal rejection, and `cli.build_parser()` accepting `ui --no-open`.
+
+---
+
+### Milestone M2: React Flow Canvas Core & Dual-Mode Offline Engine (`web/`)
+
+1. **Tooling Config**:
+   - `web/index.html` (dark background `#090d16`, title `VibeBaton — Multi-Agent Workflow Canvas`)
+   - `web/vite.config.ts` (`plugins: [react()]`, `base: './'`, `build: { outDir: 'dist', emptyOutDir: true }`, dev proxy `/api -> http://127.0.0.1:7860`)
+   - `web/tsconfig.json` (`strict: true`, `jsx: "react-jsx"`, `moduleResolution: "bundler"`, `noEmit: true`)
+   - `web/vitest.config.ts` (`test: { environment: 'node', include: ['src/**/*.test.ts'] }`)
+2. **`web/src/types/graph.ts`**:
+   - TypeScript definitions for `NodeType` (all 7 atomic types), `WorkflowNode`, `WorkflowEdge`, `WorkflowGraph`, `GraphValidationResult`, `GraphTraceEvent`, `SimulationResult`, `PresetItem`, `RoleConfig`, `LiveRunSnapshot`.
+3. **`web/src/data/presets.ts`**:
+   - Embedded copies of all 4 official presets (`flagship_4tier`, `solo_coder_3tier`, `starter_2tier`, `review_only_audit`) matching `presets/*.baton.json`, so standalone GitHub Pages / static offline mode works with zero backend.
+4. **`web/src/engine/localSimulator.ts` + `web/src/engine/localSimulator.test.ts`**:
+   - Pure TypeScript `validateGraph(graph)` and `simulateGraph(graph, scenario)` mirroring `src/vibebaton/graph_schema.py` & `src/vibebaton/graph_engine.py`:
+     - Supports all 7 `NodeType`s, bounded-cycle validation (`max_loops >= 1`), entry-node detection ignoring feedback edges, `"happy_path"` (with `merge_node` join semantics), `"gate_retry"`, and `"escalate"` scenarios.
+     - Verified with `vitest run` tests covering all 4 embedded presets across all 3 scenarios + unbounded cycle rejection.
+5. **`web/src/api/client.ts`**:
+   - `BatonApiClient`: auto-probes `GET /api/health` on initialization; exposes `mode: 'local' | 'demo'`.
+   - In `local` mode, delegates presets/validate/simulate/roles/runs to the Python backend; in `demo` mode, serves embedded presets & `localSimulator.ts` with zero network errors.
+6. **Custom Nodes & React Flow Workspace**:
+   - `web/src/components/nodes/BatonNode.tsx`: custom dark-mode React Flow node card rendering all 7 `NodeType`s with distinct tier accent colors & icons (`L0` amber/gold, `L1` violet, `L2` sky/cyan, `L3` emerald, `GATE` indigo/amber, `MERGE` slate, `ROUTER` teal), `model` pill, `max_loops` badge, and animated execution state styles (`idle`, `active`, `passed`, `retrying`, `escalated`, `failed`).
+   - `web/src/components/CanvasWorkspace.tsx`: wraps `<ReactFlow>` with custom node registration, `<Background />`, `<Controls />`, `<MiniMap />`, drag-to-move, connect-to-add-edge, node/edge deletion, and dynamic animated edge highlighting for the active/traversed edge during playback or live runs.
+
+---
+
+### Milestone M3: Playback Animation, Model Hot-Swap Inspector, Live Run Panel & Full-Stack Build
+
+1. **`web/src/components/LeftSidebar.tsx`**:
+   - **Presets Picker**: cards for all 4 presets (`difficulty` badge, node/edge count, one-click switch).
+   - **Node Palette**: all 7 atomic node types — click (or drag) to spawn onto the canvas with sensible defaults.
+   - **Import / Export `.baton.json`**: file upload `<input type="file" accept=".json">` validating via `validateGraph` before loading, plus 1-click JSON download.
+   - **Graph Validation Pill**: shows `Valid` or exact error/warning list.
+2. **`web/src/components/PlaybackBar.tsx`**:
+   - Top/bottom floating toolbar for zero-config Mock Demo:
+     - Scenario selector (`Happy Path`, `Gate Retry`, `Escalate`)
+     - Controls: `Play` / `Pause`, `Step Forward`, `Reset`
+     - Speed toggle (`0.5x`, `1x`, `2x`)
+     - Progress indicator (`Step X / N`) & current event summary pill.
+3. **`web/src/components/RightInspector.tsx`**:
+   - **Tab 1 — Node & Edge Inspector**: edit selected node (`label`, `role`, `provider`, `model` e.g. `deepseek-v4.1-flash@max`, `max_loops`) or edge (`sourceHandle`, `targetHandle`, `max_loops`). When connected in `local` mode and the node has a `role`, provides a **"Save to baton.toml (Hot-Reload)"** button calling `PUT /api/config/roles/{role}` with instant feedback toast.
+   - **Tab 2 — Trace & Live Run Monitor**:
+     - During Mock playback: interactive clickable trace list highlighting nodes/edges.
+     - In `local` mode: connects to `EventSource('/api/runs/stream')` to show live run status, task breakdown table, streaming event log, battle report viewer, **"▶ Start Real Run"** modal (enter RFC markdown or repo path + mode `overnight`/`interactive` -> `POST /api/runs/start`), and Pause/Resume/Human Approve/Reject buttons when `WAITING_HUMAN` or `RUNNING`.
+4. **`web/src/App.tsx`, `web/src/main.tsx`, `web/src/index.css`**:
+   - Cohesive 3-pane layout (`LeftSidebar` + `CanvasWorkspace` with `PlaybackBar` + `RightInspector`), top header with VibeBaton logo, `Local Connected` vs `Standalone Demo` indicator, and responsive design.
+   - Note: include `@xyflow/react/dist/style.css` import in `main.tsx` / `App.tsx` so React Flow handles, edges, minimap, and controls render properly!
+5. **Full-Stack Integration & Version Bump**:
+   - Bump `src/vibebaton/__init__.py` `__version__ = "0.3.0-dev"`.
+   - Build `web/dist` (`cd web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build`) and add/verify a Python test in `tests/test_web_server.py` (or `tests/test_web_fullstack.py`) confirming `create_server` serves built `web/dist/index.html` cleanly when `web/dist` exists (and gracefully skips/falls back if absent).
+
+---
+
+## 4. Acceptance Criteria
+
+- [ ] `python -m unittest discover -s tests -v` exits `0` with all 63 existing tests + all new `test_web_server.py` tests passing.
+- [ ] `cd web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build` exits `0` and produces `web/dist/index.html`.
+- [ ] `python -m vibebaton ui --repo . --no-open --port 0` / server check serves `/api/health`, `/api/presets`, `/api/graph/simulate`, and built static `index.html`.
+- [ ] `pyproject.toml` `dependencies == []` (zero Python runtime dependencies added).
+- [ ] Built `web/dist/index.html` uses relative asset paths (`./assets/...` via `base: './'`) so it can be opened or deployed to GitHub Pages with zero backend.

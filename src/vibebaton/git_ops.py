@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import fnmatch
+import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -59,6 +61,33 @@ def ensure_branch(repo: Path, branch_name: str, start_point: str) -> None:
         _run_git(repo, ["branch", branch_name, start_point])
 
 
+def _attach_shared_node_modules(repo: Path, worktree_dir: Path) -> None:
+    """Mount repo's pre-warmed web/node_modules into a worktree via junction/symlink so frontend gates run offline."""
+    repo_nm = (repo / "web" / "node_modules").resolve()
+    wt_web = worktree_dir / "web"
+    wt_nm = wt_web / "node_modules"
+    is_junc = hasattr(os.path, "isjunction") and os.path.isjunction(wt_nm)
+    if not repo_nm.is_dir() or not wt_web.is_dir() or wt_nm.exists() or is_junc:
+        return
+    if sys.platform == "win32":
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(wt_nm), str(repo_nm)],
+            capture_output=True,
+            check=False,
+        )
+    else:
+        os.symlink(repo_nm, wt_nm, target_is_directory=True)
+
+
+def _detach_shared_node_modules(worktree_dir: Path) -> None:
+    """Safely unlink any mounted web/node_modules junction/symlink without deleting the shared target."""
+    wt_nm = worktree_dir / "web" / "node_modules"
+    if sys.platform == "win32" and hasattr(os.path, "isjunction") and os.path.isjunction(wt_nm):
+        os.rmdir(wt_nm)
+    elif wt_nm.is_symlink():
+        wt_nm.unlink(missing_ok=True)
+
+
 def create_worktree(
     repo: Path,
     worktree_dir: Path,
@@ -77,12 +106,14 @@ def create_worktree(
         _run_git(repo, ["worktree", "add", str(worktree_dir), branch_name])
     else:
         _run_git(repo, ["worktree", "add", "-b", branch_name, str(worktree_dir), start_point])
+    _attach_shared_node_modules(repo, worktree_dir)
     return worktree_dir
 
 
 def remove_worktree(repo: Path, worktree_dir: Path, branch_name: str | None = None) -> None:
     """Cleanly remove a git worktree and optionally delete its short-lived branch."""
     worktree_dir = worktree_dir.resolve()
+    _detach_shared_node_modules(worktree_dir)
     _run_git(repo, ["worktree", "remove", "--force", str(worktree_dir)], check=False)
     if worktree_dir.exists():
         shutil.rmtree(worktree_dir, ignore_errors=True)
@@ -91,12 +122,16 @@ def remove_worktree(repo: Path, worktree_dir: Path, branch_name: str | None = No
         _run_git(repo, ["branch", "-D", branch_name], check=False)
 
 
-_EPHEMERAL_DIR_NAMES = frozenset({"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"})
+_EPHEMERAL_DIR_NAMES = frozenset(
+    {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "node_modules", ".vite"}
+)
 
 
 def _is_ephemeral_artifact(rel_path: str) -> bool:
     norm = rel_path.replace("\\", "/").lstrip("./")
     if norm == ".baton" or norm.startswith(".baton/"):
+        return True
+    if norm == "web/dist" or norm.startswith("web/dist/"):
         return True
     parts = norm.split("/")
     if any(part in _EPHEMERAL_DIR_NAMES for part in parts):
