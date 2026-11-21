@@ -29,8 +29,8 @@ cooldown_backoff_sec = [300, 900, 1800]
 rate_limit_regex = "(rate.?limit|usage.?limit|429|try again|overloaded|credit balance)"
 command = ["claude", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "text"]
 prompt_via = "stdin"
-stall_timeout_sec = 360
-hard_timeout_sec = 1800
+stall_timeout_sec = 900
+hard_timeout_sec = 2400
 
 [providers.codex_sub]
 type = "cli"
@@ -39,8 +39,8 @@ cooldown_backoff_sec = [300, 900, 1800]
 rate_limit_regex = "(rate.?limit|usage.?limit|429|too many requests|quota)"
 command = ["codex", "exec", "--model", "{model_name}", "-c", "model_reasoning_effort=\"{effort}\"", "-s", "workspace-write", "-c", "approval_policy=\"never\"", "-o", "{output_file}", "-"]
 prompt_via = "stdin"
-stall_timeout_sec = 360
-hard_timeout_sec = 1800
+stall_timeout_sec = 900
+hard_timeout_sec = 2400
 
 [providers.dsh_opencode]
 type = "cli"

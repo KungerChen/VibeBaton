@@ -7,3 +7,4 @@ Rules:
 2. Mark repetitive, template-driven tasks as `tier: "routine"`, `assignee_role: "bulk_worker"`, `reviewer_role: "micro_orchestrator"`, and attach strict `allowed_paths` glob whitelists + `golden_example` + deterministic `verify_cmd`.
 3. Never allow parallel `routine` tasks to edit the same shared file (e.g., `package.json`, root routers). Keep shared wiring in a dedicated `critical` integration task.
 4. Output ONLY valid JSON conforming to the requested schema (no prose outside the JSON object).
+5. Never inspect or search inside `node_modules/`, `.baton/`, or `.bootstrap-runner/` during planning; rely on the RFC contracts and brief targeted reads of `src/` only.
