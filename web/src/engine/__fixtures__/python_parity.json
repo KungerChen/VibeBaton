@@ -1,0 +1,288 @@
+{
+  "flagship_4tier": {
+    "happy_path": {
+      "status": "completed",
+      "visited_nodes": [
+        "l0_brainstorm",
+        "l1_plan",
+        "router_tier",
+        "l3_bulk",
+        "l2_specialist",
+        "gate_unit",
+        "l2_review",
+        "git_merge",
+        "l1_milestone_review",
+        "l0_final_gate"
+      ]
+    },
+    "gate_retry": {
+      "status": "completed",
+      "visited_nodes": [
+        "l0_brainstorm",
+        "l1_plan",
+        "router_tier",
+        "l3_bulk",
+        "gate_unit",
+        "l3_bulk",
+        "gate_unit",
+        "l2_review",
+        "git_merge",
+        "l1_milestone_review",
+        "l0_final_gate"
+      ]
+    },
+    "escalate": {
+      "status": "completed",
+      "visited_nodes": [
+        "l0_brainstorm",
+        "l1_plan",
+        "router_tier",
+        "l3_bulk",
+        "gate_unit",
+        "l2_review",
+        "l2_specialist",
+        "git_merge",
+        "l1_milestone_review",
+        "l0_final_gate"
+      ]
+    }
+  },
+  "review_only_audit": {
+    "happy_path": {
+      "status": "completed",
+      "visited_nodes": [
+        "audit_gate",
+        "micro_security_review",
+        "architecture_review",
+        "human_final"
+      ]
+    },
+    "gate_retry": {
+      "status": "completed",
+      "visited_nodes": [
+        "audit_gate",
+        "micro_security_review",
+        "architecture_review",
+        "human_final"
+      ]
+    },
+    "escalate": {
+      "status": "completed",
+      "visited_nodes": [
+        "audit_gate",
+        "micro_security_review",
+        "architecture_review",
+        "human_final"
+      ]
+    }
+  },
+  "solo_coder_3tier": {
+    "happy_path": {
+      "status": "completed",
+      "visited_nodes": [
+        "plan",
+        "worker",
+        "gate",
+        "review",
+        "merge",
+        "human_final"
+      ]
+    },
+    "gate_retry": {
+      "status": "completed",
+      "visited_nodes": [
+        "plan",
+        "worker",
+        "gate",
+        "worker",
+        "gate",
+        "review",
+        "merge",
+        "human_final"
+      ]
+    },
+    "escalate": {
+      "status": "completed",
+      "visited_nodes": [
+        "plan",
+        "worker",
+        "gate",
+        "review",
+        "worker",
+        "gate",
+        "review",
+        "merge",
+        "human_final"
+      ]
+    }
+  },
+  "starter_2tier": {
+    "happy_path": {
+      "status": "completed",
+      "visited_nodes": [
+        "plan",
+        "worker",
+        "gate",
+        "final"
+      ]
+    },
+    "gate_retry": {
+      "status": "completed",
+      "visited_nodes": [
+        "plan",
+        "worker",
+        "gate",
+        "worker",
+        "gate",
+        "final"
+      ]
+    },
+    "escalate": {
+      "status": "completed",
+      "visited_nodes": [
+        "plan",
+        "worker",
+        "gate",
+        "final"
+      ]
+    }
+  },
+  "worker_and_gate": {
+    "happy_path": {
+      "status": "completed",
+      "visited_nodes": [
+        "worker",
+        "gate",
+        "approval"
+      ]
+    },
+    "gate_retry": {
+      "status": "completed",
+      "visited_nodes": [
+        "worker",
+        "gate",
+        "worker",
+        "gate",
+        "approval"
+      ]
+    },
+    "escalate": {
+      "status": "completed",
+      "visited_nodes": [
+        "worker",
+        "gate",
+        "approval"
+      ]
+    }
+  },
+  "reviewer_routes": {
+    "happy_path": {
+      "status": "completed",
+      "visited_nodes": [
+        "review",
+        "human",
+        "done"
+      ]
+    },
+    "gate_retry": {
+      "status": "completed",
+      "visited_nodes": [
+        "review",
+        "human",
+        "done"
+      ]
+    },
+    "escalate": {
+      "status": "completed",
+      "visited_nodes": [
+        "review",
+        "review",
+        "human",
+        "done"
+      ]
+    }
+  },
+  "merge_in_loop": {
+    "happy_path": {
+      "status": "completed",
+      "visited_nodes": [
+        "plan",
+        "merge",
+        "worker",
+        "check",
+        "merge",
+        "done",
+        "worker",
+        "check",
+        "done"
+      ]
+    },
+    "gate_retry": {
+      "status": "completed",
+      "visited_nodes": [
+        "plan",
+        "merge",
+        "worker",
+        "check",
+        "merge",
+        "done",
+        "worker",
+        "check",
+        "done"
+      ]
+    },
+    "escalate": {
+      "status": "completed",
+      "visited_nodes": [
+        "plan",
+        "merge",
+        "worker",
+        "check",
+        "merge",
+        "done",
+        "worker",
+        "check",
+        "done"
+      ]
+    }
+  },
+  "merge_after_branches": {
+    "happy_path": {
+      "status": "completed",
+      "visited_nodes": [
+        "route",
+        "short",
+        "long",
+        "extra",
+        "merge",
+        "done"
+      ]
+    },
+    "gate_retry": {
+      "status": "completed",
+      "visited_nodes": [
+        "route",
+        "short",
+        "long",
+        "merge",
+        "extra",
+        "done",
+        "merge",
+        "done"
+      ]
+    },
+    "escalate": {
+      "status": "completed",
+      "visited_nodes": [
+        "route",
+        "short",
+        "long",
+        "merge",
+        "extra",
+        "done",
+        "merge",
+        "done"
+      ]
+    }
+  }
+}

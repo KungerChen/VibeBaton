@@ -1,0 +1,210 @@
+.baton-node {
+  --tier-color: var(--border);
+  --tier-border: var(--border);
+  --tier-glow: rgba(148, 163, 184, 0.35);
+  --tier-glow-soft: rgba(148, 163, 184, 0.15);
+
+  position: relative;
+  display: flex;
+  gap: 14px;
+  box-sizing: border-box;
+  min-width: 200px;
+  padding-left: 16px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  background: var(--panel);
+  border: 1px solid var(--tier-border);
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(2, 6, 23, 0.45);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.baton-node::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--tier-color);
+  border-radius: 11px 0 0 11px;
+  content: '';
+  pointer-events: none;
+}
+
+.baton-node__content {
+  flex: 1;
+  align-self: center;
+  min-width: 0;
+  padding: 10px 0;
+}
+
+.baton-node__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.baton-node__icon {
+  flex: none;
+  color: var(--tier-color);
+}
+
+.baton-node__tier {
+  flex: none;
+  padding: 1px 5px;
+  color: var(--tier-color);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  background: var(--tier-glow-soft);
+  border-radius: 999px;
+}
+
+.baton-node__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.baton-node__role {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.baton-node__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.baton-node__model {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 1px 7px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Consolas, monospace;
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+}
+
+.baton-node__loops {
+  padding: 1px 7px;
+  color: var(--amber);
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Consolas, monospace;
+  font-size: 9.5px;
+  white-space: nowrap;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 999px;
+}
+
+.react-flow__handle.baton-node__handle {
+  width: 8px;
+  height: 8px;
+  min-width: 0;
+  min-height: 0;
+  background: var(--tier-color);
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+}
+
+.baton-node__sources {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: space-evenly;
+  gap: 4px;
+  padding: 6px 0;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: right;
+}
+
+.baton-node__source {
+  position: relative;
+  padding-right: 12px;
+  white-space: nowrap;
+}
+
+.baton-node--idle {
+  border-color: var(--tier-border);
+}
+
+.baton-node--active {
+  animation: baton-node-active-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes baton-node-active-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px var(--tier-glow-soft),
+      0 0 12px var(--tier-glow-soft);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 2px var(--tier-glow),
+      0 0 24px var(--tier-glow);
+  }
+}
+
+.baton-node--passed {
+  border-color: var(--emerald);
+}
+
+.baton-node--retrying {
+  border-color: var(--amber);
+  animation: baton-node-retry-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes baton-node-retry-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px #f59e0b00,
+      0 0 6px #f59e0b00;
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 2px #f59e0b2e,
+      0 0 14px #f59e0b24;
+  }
+}
+
+.baton-node--escalated {
+  border-color: var(--rose);
+}
+
+.baton-node--failed {
+  border-color: #ef4444;
+  filter: saturate(0.35);
+  opacity: 0.85;
+}
+
+.baton-node--selected {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}

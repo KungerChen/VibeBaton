@@ -1,0 +1,48 @@
+.canvas-workspace {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.canvas-workspace .react-flow {
+  --xy-background-color: var(--bg);
+  --xy-background-pattern-dots-color: var(--border);
+  --xy-controls-button-background-color: var(--panel);
+  --xy-controls-button-background-color-hover: var(--border);
+  --xy-controls-button-border-color: var(--border);
+  --xy-controls-button-color: var(--text);
+  --xy-controls-button-color-hover: var(--text);
+  --xy-edge-label-background-color: var(--panel);
+  --xy-edge-label-color: var(--text);
+  --xy-minimap-background-color: var(--panel);
+  --xy-minimap-mask-background-color: rgb(9 13 22 / 65%);
+}
+
+.canvas-workspace .react-flow__node-baton {
+  max-width: 256px;
+}
+
+.canvas-workspace .baton-node__header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.canvas-workspace .baton-node__tier {
+  justify-self: start;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.canvas-workspace .baton-node__label {
+  grid-column: 1 / -1;
+}
+
+.canvas-workspace .react-flow__edge.selected .react-flow__edge-path {
+  filter: brightness(1.5);
+}
