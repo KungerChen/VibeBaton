@@ -3,6 +3,17 @@
 | ID | 日期 | 摘要 | 状态 |
 | --- | --- | --- | --- |
 | [20261121-051952-m1-graph-remediation](#20261121-051952-m1-graph-remediation) | 2026-11-21 | M1 入口识别、重试限额和旗舰预览汇合 | 已自测，待用户验收 |
+| [20261121-095252-m1-web-resume](#20261121-095252-m1-web-resume) | 2026-11-21 | M1 Web 暂停恢复与 daemon 启动 | 已自测，待用户验收 |
+
+## 20261121-095252-m1-web-resume
+
+2026-11-21 09:52:52 PST。M1 复审授权修复 Web 控制端点恢复运行时缺少 daemon 的阻塞。分支为 `baton/e815d5/ms-m1-r1`，起始工作树干净，基准提交为 `d5af581`。
+
+- `tests/test_web_server.py` 的两个 `test_control_*` 回归在基准实现上确认 `resume` 返回 HTTP 200，启动器调用次数为零。
+- `src/vibebaton/web_server.py` 复用现有启动助手。恢复成功时记录 `daemon_spawned` 并返回 `daemon_pid`。启动失败时恢复 `PAUSED` 并返回 HTTP 500，用户可再次恢复。成功和失败响应已写入 `.baton/00_RFC.md`。
+- 三项门禁全部返回 0。全量 unittest 通过 104 项，依赖检查输出 `deps ok`，CLI 解析检查输出 `ui ok 0`。测试进程将 `PYTHONPATH` 指向当前工作树的 `src`，Git 使用进程级配置读取工作树的 `.gitignore`，避开沙箱内不可读的用户级 ignore 文件。
+- 在临时 Git 仓库用预置计划和已通过的里程碑验证实际恢复。HTTP 暂停后，恢复请求返回真实 daemon 的 PID。该进程退出码为 0，`/api/runs/stream?once=1` 返回同一运行的 `READY_FOR_FINAL_GATE` 快照和 `daemon_spawned` 事件。画布交互随前端里程碑验收。
+- 本轮差异在当前工作树，回退基准为 `d5af581`。验收可对已暂停且旧 daemon 已退出的本地运行发送 `resume`，核对响应中的 `daemon_pid` 与后续 SSE 状态。
 
 ## 20261121-051952-m1-graph-remediation
 
