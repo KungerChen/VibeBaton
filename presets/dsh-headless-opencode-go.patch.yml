@@ -1,0 +1,57 @@
+# VibeBaton overlay for DeepSeek Harness (`dsh --profile headless`) using OpenCode Go API.
+# Re-enables local DSH credential lookup (`~/.dsh/.credentials.yaml`) so OPENCODE_API_KEY
+# is read securely without storing secrets in VibeBaton config files.
+- id: credentials
+  disabled: false
+
+- id: llm-pi-ai
+  config:
+    providers:
+      opencode-go:
+        displayName: OpenCode Go
+        apiKeyEnv: OPENCODE_API_KEY
+        api: openai-completions
+        baseURL: https://opencode.ai/inference/go/v1
+        headers:
+          x-opencode-session: !!js process.env.OPENCODE_SESSION_ID || process.env.VIBEBATON_SESSION_ID || 'vibebaton-default-session'
+        models:
+          - id: deepseek-v4.1-flash
+            name: DeepSeek V4.1 Flash
+            contextWindow: 1000000
+            maxTokens: 384000
+            input:
+              - text
+              - image
+            reasoningEfforts:
+              off: null
+              low: low
+              high: high
+              max: max
+          - id: deepseek-v4-pro
+            name: DeepSeek V4 Pro
+            contextWindow: 1000000
+            maxTokens: 384000
+            input:
+              - text
+            reasoningEfforts:
+              off: null
+              high: high
+              max: max
+          - id: glm-5.3
+            name: GLM-5.3
+            contextWindow: 204800
+            maxTokens: 131072
+            input:
+              - text
+          - id: glm-5.2
+            name: GLM-5.2
+            contextWindow: 204800
+            maxTokens: 131072
+            input:
+              - text
+
+- id: agent-default-model
+  config:
+    provider: opencode-go
+    model: !!js (process.env.VIBEBATON_MODEL || 'deepseek-v4.1-flash').split('@')[0]
+    reasoningEffort: !!js (process.env.VIBEBATON_MODEL || '').split('@')[1] || 'max'

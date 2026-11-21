@@ -108,6 +108,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             )
         )
         print(f"  Smoke Result: status={res.status} exit={res.exit_code} duration={res.duration_sec:.2f}s")
+        if res.status == "ok" and res.stdout.strip():
+            print(f"  STDOUT: {res.stdout.strip()[:200]}")
         if res.status != "ok":
             print(f"  STDERR: {res.stderr[:400]}")
             return 1

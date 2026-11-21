@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -75,6 +76,7 @@ def format_command_template(
         "workdir": str(workdir),
         "prompt_file": str(prompt_file),
         "output_file": str(output_file),
+        "package_root": str(Path(__file__).resolve().parents[2]),
     }
     rendered: list[str] = []
     for token in template:
@@ -152,6 +154,7 @@ async def run_provider_cli(
     env["VIBEBATON_OUTPUT_FILE"] = str(output_file)
     env["VIBEBATON_MODEL"] = model
     env["VIBEBATON_PROVIDER"] = provider.name
+    env.setdefault("VIBEBATON_SESSION_ID", str(uuid.uuid4()))
 
     stall_limit = provider.stall_timeout_sec or default_stall_timeout
     hard_limit = provider.hard_timeout_sec or default_hard_timeout
