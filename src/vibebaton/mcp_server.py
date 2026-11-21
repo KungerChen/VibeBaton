@@ -147,6 +147,32 @@ class VibeBatonMCPServer:
                 },
             },
         },
+        {
+            "name": "baton_list_presets",
+            "description": "List workflow presets with their validation results.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Override the default presets directory."},
+                },
+            },
+        },
+        {
+            "name": "baton_validate_graph",
+            "description": "Validate a workflow graph and optionally simulate it with mock handlers.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "graph_path": {
+                        "type": "string",
+                        "description": "Preset ID or graph file path. Used when both graph inputs are supplied.",
+                    },
+                    "graph_json": {"type": ["string", "object"], "description": "Graph as a JSON string or object."},
+                    "simulate_scenario": {"type": "string", "enum": ["happy_path", "gate_retry", "escalate"]},
+                },
+                "anyOf": [{"required": ["graph_path"]}, {"required": ["graph_json"]}],
+            },
+        },
     ]
 
     def __init__(self, default_repo: Path | None = None, explicit_config: Path | None = None) -> None:
@@ -162,6 +188,66 @@ class VibeBatonMCPServer:
         return repo, cfg_path, loader, StateStore(db_path)
 
     def dispatch_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        if name == "baton_list_presets":
+            from .presets import list_presets, validate_all_presets
+
+            directory = args.get("directory")
+            summaries = list_presets(directory)
+            validation_by_id = validate_all_presets(directory)
+            presets: list[dict[str, Any]] = []
+            for summary in summaries:
+                validation = validation_by_id[summary.id]
+                presets.append(
+                    {
+                        **summary.to_dict(),
+                        "valid": validation.valid,
+                        "errors": validation.errors,
+                        "warnings": validation.warnings,
+                    }
+                )
+            return {"presets": presets, "count": len(presets)}
+
+        if name == "baton_validate_graph":
+            from .graph_engine import simulate_graph
+            from .graph_schema import WorkflowGraph, validate_graph
+            from .presets import load_preset
+
+            try:
+                if "graph_path" in args:
+                    graph = load_preset(args["graph_path"])
+                elif "graph_json" in args:
+                    graph_json = args["graph_json"]
+                    graph = WorkflowGraph.from_dict(
+                        json.loads(graph_json) if isinstance(graph_json, str) else graph_json
+                    )
+                else:
+                    raise ValueError("Provide graph_path or graph_json.")
+            except (OSError, TypeError, ValueError) as exc:
+                return {
+                    "valid": False,
+                    "errors": [str(exc)],
+                    "warnings": [],
+                    "entry_nodes": [],
+                    "has_cycles": False,
+                }
+
+            validation = validate_graph(graph)
+            result: dict[str, Any] = {
+                "valid": validation.valid,
+                "errors": validation.errors,
+                "warnings": validation.warnings,
+                "entry_nodes": validation.entry_nodes,
+                "has_cycles": validation.has_cycles,
+            }
+            if validation.valid and "simulate_scenario" in args:
+                simulation = simulate_graph(graph, args["simulate_scenario"])
+                result["simulation"] = {
+                    "status": simulation.status,
+                    "visited_nodes": simulation.visited_nodes,
+                    "trace": [event.to_dict() for event in simulation.trace],
+                }
+            return result
+
         repo, cfg_path, loader, store = self._context(args)
         cfg = loader.current
 
