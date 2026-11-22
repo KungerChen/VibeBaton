@@ -99,6 +99,12 @@ class _BillingTelemetry(TypedDict):
     has_exact_billing: bool
 
 
+class _ConflictTelemetry(TypedDict):
+    conflicts_detected: int
+    conflicts_auto_resolved: int
+    conflicts_failed: int
+
+
 def _parse_token_count(value: object) -> int:
     return value if type(value) is int and value > 0 else 0
 
@@ -221,7 +227,7 @@ def compute_run_telemetry(
     *,
     now_ts: float | None = None,
 ) -> dict[str, Any]:
-    """Compute run timing and billing telemetry from recorded events."""
+    """Compute run timing, billing, and merge-conflict telemetry from recorded events."""
     run = store.get_run(run_id)
     if not run:
         raise ValueError(f"Run '{run_id}' not found")
@@ -437,12 +443,29 @@ def compute_run_telemetry(
     if total_cost_usd is not None:
         billing["total_cost_usd"] = round(total_cost_usd, 6)
 
-    return {
+    conflicts: _ConflictTelemetry = {
+        "conflicts_detected": 0,
+        "conflicts_auto_resolved": 0,
+        "conflicts_failed": 0,
+    }
+    for event in events:
+        kind = event.get("kind")
+        if kind == "merge_conflict_detected":
+            conflicts["conflicts_detected"] += 1
+        elif kind == "merge_conflict_resolved":
+            conflicts["conflicts_auto_resolved"] += 1
+        elif kind == "merge_conflict_failed":
+            conflicts["conflicts_failed"] += 1
+
+    telemetry: dict[str, Any] = {
         "elapsed_sec": elapsed_sec,
         "stages": stages,
         "models": models,
         "billing": billing,
     }
+    if any(conflicts.values()):
+        telemetry["conflicts"] = conflicts
+    return telemetry
 
 
 def _escape_cell(value: str) -> str:
@@ -482,6 +505,29 @@ def _token_cost_section(
         f"**{_format_cost_usd(billing['total_cost_usd'])}** |"
     )
     return lines
+
+
+def _conflict_section(conflicts: _ConflictTelemetry | None, *, lang: str) -> list[str]:
+    if conflicts is None:
+        return []
+
+    if lang == "zh":
+        heading = "## 合并冲突自动解决"
+        labels = ("检测到的冲突", "自动解决", "升级人工处理")
+        separator = "："
+    else:
+        heading = "## Merge Conflict Resolution"
+        labels = ("Detected", "Auto-resolved", "Escalated")
+        separator = ": "
+
+    return [
+        "",
+        heading,
+        "",
+        f"- {labels[0]}{separator}**{conflicts['conflicts_detected']}**",
+        f"- {labels[1]}{separator}**{conflicts['conflicts_auto_resolved']}**",
+        f"- {labels[2]}{separator}**{conflicts['conflicts_failed']}**",
+    ]
 
 
 def generate_battle_report(store: StateStore, run_id: str, lang: str = "en") -> str:
@@ -554,6 +600,7 @@ def generate_battle_report(store: StateStore, run_id: str, lang: str = "en") -> 
 
     lines.extend(_smart_allocation_summary(events, lang=locale))
     lines.extend(_token_cost_section(telemetry["billing"], telemetry["models"], lang=locale))
+    lines.extend(_conflict_section(telemetry.get("conflicts"), lang=locale))
     return "\n".join(lines) + "\n"
 
 

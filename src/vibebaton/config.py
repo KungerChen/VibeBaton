@@ -44,6 +44,8 @@ class PolicySettings:
         default_factory=lambda: ["rfc_signoff", "plan_amendment", "final_merge"]
     )
     budget_profile: str = "balanced"
+    auto_resolve_merge_conflicts: bool = True
+    max_conflict_resolve_attempts: int = 1
 
 
 @dataclass
@@ -101,6 +103,14 @@ class BatonConfig:
     providers: dict[str, ProviderConfig]
     roles: dict[str, RoleConfig]
     source_path: Path | None = None
+
+    def resolve_role_name(self, preferred: str, *fallbacks: str) -> str:
+        """Return the first configured role in preference order."""
+        candidates = (preferred, *fallbacks)
+        for name in candidates:
+            if name in self.roles:
+                return name
+        raise KeyError(f"No configured role matches {candidates}. Available roles: {sorted(self.roles)}")
 
     def resolve_role(
         self,
@@ -243,6 +253,12 @@ def parse_config_dict(raw: dict[str, Any], source_path: Path | None = None) -> B
             )
         ],
         budget_profile=_validate_budget_profile(p_raw.get("budget_profile", PolicySettings.budget_profile)),
+        auto_resolve_merge_conflicts=bool(
+            p_raw.get("auto_resolve_merge_conflicts", PolicySettings.auto_resolve_merge_conflicts)
+        ),
+        max_conflict_resolve_attempts=int(
+            p_raw.get("max_conflict_resolve_attempts", PolicySettings.max_conflict_resolve_attempts)
+        ),
     )
 
     providers: dict[str, ProviderConfig] = {}

@@ -10,6 +10,17 @@
 | [20261122-000739-m4-t5-benchmark-runner](#20261122-000739-m4-t5-benchmark-runner) | 2026-11-22 | M4-T5 三臂 runner、计分板与门禁 | 已自测，待用户验收 |
 | [20261122-002235-m4-t5-scoreboard-acl](#20261122-002235-m4-t5-scoreboard-acl) | 2026-11-22 | M4-T5 Windows 计分板权限回归修复 | 已自测，待用户验收 |
 | [20261122-004033-m4-hidden-eval-remediation](#20261122-004033-m4-hidden-eval-remediation) | 2026-11-22 | M4 隐藏评估失败按臂计分并继续导出 | 已自测，待用户验收 |
+| [20261122-041231-m2-merge-crash-recovery](#20261122-041231-m2-merge-crash-recovery) | 2026-11-22 | M2 恢复中断后的合并工作树 | 已自测，待用户验收 |
+
+## 20261122-041231-m2-merge-crash-recovery
+
+2026-11-22 04:12:31 PST。M2 复审授权修复崩溃遗留的合并工作树阻塞续跑。分支为 `baton/03d01c/ms-m2-r1`，起始工作树干净，基准提交为 `e6e813f`。
+
+- `tests/test_conflict_resolver.py` 在临时 Git 仓库留下有未合并条目和已暂存文件的注册工作树。基准实现报 `GitError`，修复后重新触发 resolver 和门禁，目标分支提交双方改动，旧文件和工作树注册被清理。
+- `src/vibebaton/git_ops.py` 让两种合并模式共用 `remove_worktree` 清理逻辑。路径校验拒绝指向其他目录的链接，回归验证目标目录内的文件和目标分支均保留。
+- `python -m unittest discover -s tests -v` 通过 313 项，含静态资源和 API 的回环 HTTP 集成测试。`python -m unittest tests.test_conflict_resolver tests.test_conflict_resolver_engine tests.test_report_conflicts tests.test_e2e_pipeline -v` 通过 25 项。两条命令的 `PYTHONPATH` 指向当前工作树的 `src`，Git 子进程使用工作树的 `.gitignore`。
+- `cmd /c "cd /d web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build"` 返回 0。Vitest 通过 27 个文件、264 项，TypeScript 检查和 Vite 构建通过。Vite 报告分块体积告警。为避开指向工作树外的依赖 junction，在工作树内复制依赖和 118 个经 SHA-256 核对的输入文件。构建产物用于 Python HTTP 集成测试，验证后清理了副本和产物。
+- 已自测，待用户验收。恢复场景使用真实 Git 和本地 resolver 回调。验收时可运行 `test_resolver_recovers_interrupted_squash_merge`，预期目标分支生成包含双方改动的提交，遗留工作树从 Git 注册表移除。回退参考为 `e6e813f` 和当前工作树差异。
 
 ## 20261122-004033-m4-hidden-eval-remediation
 
