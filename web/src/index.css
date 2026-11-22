@@ -35,6 +35,12 @@
   --scroll-thumb-hover: rgba(255, 255, 255, 0.24);
   --canvas-dot: rgba(255, 255, 255, 0.07);
   --backdrop: rgba(0, 0, 0, 0.52);
+  --edge-normal-active: #22d3ee;
+  --edge-normal-traversed: #34d399;
+  --edge-retry-active: #f59e0b;
+  --edge-retry-traversed: #d97706;
+  --edge-escalate-active: #ec4899;
+  --edge-escalate-traversed: #db2777;
 
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: var(--text);
@@ -77,6 +83,12 @@
   --scroll-thumb-hover: rgba(0, 0, 0, 0.28);
   --canvas-dot: rgba(0, 0, 0, 0.09);
   --backdrop: rgba(15, 23, 42, 0.28);
+  --edge-normal-active: #0284c7;
+  --edge-normal-traversed: #047857;
+  --edge-retry-active: #b45309;
+  --edge-retry-traversed: #d97706;
+  --edge-escalate-active: #be123c;
+  --edge-escalate-traversed: #e11d48;
 }
 
 html {

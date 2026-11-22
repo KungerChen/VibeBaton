@@ -79,7 +79,8 @@
   color: var(--text-strong);
 }
 
-.header-bar__theme-btn {
+.header-bar__theme-btn,
+.header-bar__icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -94,13 +95,94 @@
   transition:
     background 0.15s ease,
     border-color 0.15s ease,
+    color 0.15s ease,
     transform 0.15s ease;
 }
 
-.header-bar__theme-btn:hover {
+.header-bar__theme-btn:hover,
+.header-bar__icon-btn:hover {
   border-color: var(--border-strong);
   background: var(--panel-hover);
   color: var(--text-strong);
+}
+
+.header-bar__icon-btn--accent {
+  border-color: var(--accent-ring);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.header-bar__sound-wrap {
+  position: relative;
+}
+
+.header-bar__sound-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  inset-inline-end: 0;
+  z-index: 30;
+  display: grid;
+  gap: 0.7rem;
+  width: 224px;
+  padding: 0.85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+}
+
+.header-bar__sound-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.header-bar__sound-label {
+  color: var(--text-strong);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.header-bar__sound-pct {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.header-bar__sound-toggle {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-subtle);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.header-bar__sound-toggle--on {
+  border-color: color-mix(in srgb, var(--emerald) 35%, transparent);
+  background: var(--emerald-soft);
+  color: var(--emerald);
+}
+
+.header-bar__sound-vol {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.header-bar__sound-vol input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.header-bar__sound-preview {
+  width: 100%;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.76rem;
 }
 
 .header-bar__theme-icon {
@@ -145,7 +227,7 @@
   box-shadow: var(--shadow-sm);
 }
 
-:is(.header-bar__guide-btn, .header-bar__theme-btn, .header-bar__lang-btn):focus-visible {
+:is(.header-bar__guide-btn, .header-bar__theme-btn, .header-bar__icon-btn, .header-bar__lang-btn):focus-visible {
   outline: 2px solid var(--accent-ring);
   outline-offset: 2px;
 }

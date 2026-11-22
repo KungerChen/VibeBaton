@@ -11,6 +11,13 @@ export interface Messages {
     guideButton: string;
     switchToLight: string;
     switchToDark: string;
+    soundButtonAria: string;
+    soundTitle: string;
+    soundToggleLabel: string;
+    soundVolumeLabel: string;
+    soundPreview: string;
+    soundOn: string;
+    soundOff: string;
   };
   tabs: {
     ariaLabel: string;
@@ -180,6 +187,13 @@ export const MESSAGES: Record<Locale, Messages> = {
       guideButton: 'Guide',
       switchToLight: 'Switch to light theme',
       switchToDark: 'Switch to dark theme',
+      soundButtonAria: 'Liquid sound effects settings',
+      soundTitle: 'Liquid Sound',
+      soundToggleLabel: 'Sound Effects',
+      soundVolumeLabel: 'Volume',
+      soundPreview: 'Preview',
+      soundOn: 'On',
+      soundOff: 'Off',
     },
     tabs: {
       ariaLabel: 'Workspace views',
@@ -404,6 +418,13 @@ export const MESSAGES: Record<Locale, Messages> = {
       guideButton: '教程',
       switchToLight: '切换到浅色模式',
       switchToDark: '切换到深色模式',
+      soundButtonAria: '液体切换音效设置',
+      soundTitle: '液体同步音效',
+      soundToggleLabel: '开启音效',
+      soundVolumeLabel: '音量',
+      soundPreview: '试听',
+      soundOn: '已开启',
+      soundOff: '默认关闭',
     },
     tabs: {
       ariaLabel: '工作区视图',

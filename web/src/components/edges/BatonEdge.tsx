@@ -3,7 +3,6 @@ import { memo } from 'react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from '@xyflow/react';
 import { useI18n } from '../../i18n';
 import { translateHandle } from '../../i18n/presets';
-import { useTheme } from '../../theme';
 
 export type EdgeSemanticTone = 'normal' | 'retry' | 'escalate';
 
@@ -14,15 +13,6 @@ export const EDGE_TONE_COLORS: Record<
   normal: { active: '#22d3ee', traversed: '#34d399', labelBg: 'rgba(52, 211, 153, 0.16)' },
   retry: { active: '#f59e0b', traversed: '#d97706', labelBg: 'rgba(245, 158, 11, 0.16)' },
   escalate: { active: '#ec4899', traversed: '#db2777', labelBg: 'rgba(236, 72, 153, 0.18)' },
-};
-
-const EDGE_TONE_COLORS_LIGHT: Record<
-  EdgeSemanticTone,
-  { active: string; traversed: string }
-> = {
-  normal: { active: '#0284c7', traversed: '#047857' },
-  retry: { active: '#b45309', traversed: '#d97706' },
-  escalate: { active: '#be123c', traversed: '#e11d48' },
 };
 
 export function edgeSemanticTone(sourceHandle?: string | null): EdgeSemanticTone {
@@ -49,7 +39,6 @@ export const BatonEdge = memo(function BatonEdge({
   data,
 }: EdgeProps) {
   const { locale } = useI18n();
-  const { theme } = useTheme();
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -68,8 +57,9 @@ export const BatonEdge = memo(function BatonEdge({
   const active = Boolean(edgeData.active);
   const traversed = Boolean(edgeData.traversed);
   const tone = edgeData.semanticTone ?? edgeSemanticTone(sourceHandleId);
-  const palette = theme === 'light' ? EDGE_TONE_COLORS_LIGHT[tone] : EDGE_TONE_COLORS[tone];
-  const stroke = active ? palette.active : traversed ? palette.traversed : 'var(--slate)';
+  const activeVar = `var(--edge-${tone}-active)`;
+  const traversedVar = `var(--edge-${tone}-traversed)`;
+  const stroke = active ? activeVar : traversed ? traversedVar : 'var(--slate)';
   const strokeWidth = active ? 3 : traversed ? 2 : 1.35;
 
   return (
@@ -82,15 +72,15 @@ export const BatonEdge = memo(function BatonEdge({
           ...style,
           stroke,
           strokeWidth,
-          filter: active ? `drop-shadow(0 0 6px ${palette.active})` : undefined,
+          filter: active ? `drop-shadow(0 0 6px ${activeVar})` : undefined,
         }}
       />
       {active && (
         <g className="baton-edge__particles" aria-hidden="true">
-          <circle r={7.5} fill={palette.active} opacity={0.28}>
+          <circle r={7.5} fill={activeVar} opacity={0.28}>
             <animateMotion dur="0.85s" repeatCount="indefinite" path={edgePath} />
           </circle>
-          <circle r={4} fill={palette.active} opacity={0.98}>
+          <circle r={4} fill={activeVar} opacity={0.98}>
             <animateMotion dur="0.85s" repeatCount="indefinite" path={edgePath} />
           </circle>
         </g>
