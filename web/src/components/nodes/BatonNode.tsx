@@ -28,13 +28,17 @@ import {
   BaseNodeHeaderTitle,
   NodeStatusBadge,
 } from '../ui/base-node';
+import { getReadinessState, type ModelPinFields, type ProviderHealthMap } from './readiness';
 
-export type BatonNodeData = {
+export type BatonNodeData = ModelPinFields & {
   label: string;
   nodeType: NodeType;
   role?: string;
   provider?: string;
   model?: string;
+  providerHealth?: ProviderHealthMap;
+  readinessProvider?: string;
+  readinessTime?: number;
   max_loops?: number;
   concurrency?: number;
   state: ExecutionState;
@@ -99,12 +103,19 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
   const tierColor = TIER_COLORS[tier];
   const Icon = NODE_ICONS[nodeType];
   const { targets, sources } = NODE_HANDLES[nodeType];
-  const modelLabel = model && (provider ? `${formatProviderDisplay(provider)} / ${model}` : model);
+  const pinnedModel = data.pinned ? data.assigned_model?.trim() : undefined;
+  const modelLabel = pinnedModel || (model && (provider ? `${formatProviderDisplay(provider)} / ${model}` : model));
   const parallelCount = concurrency !== undefined && concurrency > 1 ? concurrency : undefined;
   const stateText = state !== 'idle' ? messages.nodeStates[state] : undefined;
   const localizedLabel = translatePresetText(label, locale);
   const localizedRole = role ? translateRole(role, locale) : undefined;
   const nodeTypeLabel = messages.nodeTypes[nodeType];
+  const readinessProvider = data.readinessProvider ?? provider?.trim();
+  const requiresProvider = readinessProvider || role?.trim() || nodeType === 'planner_node' || nodeType === 'worker_node';
+  const readiness = requiresProvider
+    ? getReadinessState(data.providerHealth?.get(readinessProvider ?? ''), data.readinessTime ?? Date.now())
+    : 'ready';
+  const readinessLabel = messages.nodeReadiness.statuses[readiness];
 
   const style = {
     '--tier-color': tierColor,
@@ -157,6 +168,12 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
             {localizedLabel}
           </BaseNodeHeaderTitle>
         </div>
+        <span
+          className={cn('baton-node__readiness', `baton-node__readiness--${readiness}`)}
+          role="img"
+          aria-label={readinessLabel}
+          title={readinessLabel}
+        />
       </BaseNodeHeader>
 
       {(localizedRole || modelLabel || maxLoops !== undefined || parallelCount !== undefined) && (

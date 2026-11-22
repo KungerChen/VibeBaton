@@ -1,5 +1,5 @@
 import './CanvasWorkspace.css';
-import { useCallback, useMemo, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import {
   Background,
   BackgroundVariant,
@@ -17,9 +17,38 @@ import { useTheme } from '../theme';
 import { tierForNodeType } from '../types/graph';
 import { BatonEdge, EDGE_TONE_COLORS, edgeSemanticTone } from './edges/BatonEdge';
 import { BatonNode, TIER_COLORS, type BatonFlowNode } from './nodes/BatonNode';
+import { resolveDoctorTarget, type DoctorTargets, type ProviderHealthMap } from './nodes/readiness';
 
 const NODE_TYPES_MAP = { baton: BatonNode };
 const EDGE_TYPES_MAP = { baton: BatonEdge };
+
+type WorkspaceReadiness = {
+  providerHealth: ProviderHealthMap;
+  doctorTargets?: DoctorTargets;
+};
+
+// The inspector and canvas are siblings. Keep one host snapshot across canvas remounts.
+const initialReadiness: WorkspaceReadiness = {
+  providerHealth: new Map([['host_native', { provider: 'host_native', ok: true, detail: '' }]]),
+};
+let workspaceReadiness = initialReadiness;
+const readinessListeners = new Set<() => void>();
+
+function subscribeToReadiness(listener: () => void) {
+  readinessListeners.add(listener);
+  return () => { readinessListeners.delete(listener); };
+}
+
+export function useWorkspaceReadiness() {
+  return useSyncExternalStore(subscribeToReadiness, () => workspaceReadiness, () => initialReadiness);
+}
+
+export function updateWorkspaceReadiness(update?: (current: WorkspaceReadiness) => WorkspaceReadiness) {
+  const next = update ? update(workspaceReadiness) : initialReadiness;
+  if (workspaceReadiness === next) return;
+  workspaceReadiness = next;
+  for (const listener of readinessListeners) listener();
+}
 
 export type CanvasWorkspaceProps = {
   nodes: BatonFlowNode[];
@@ -33,6 +62,32 @@ export type CanvasWorkspaceProps = {
   children?: ReactNode;
 };
 
+export function useReadinessTime(providerHealth: ProviderHealthMap) {
+  const [readinessTime, setReadinessTime] = useState(Date.now);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    function updateTime() {
+      const now = Date.now();
+      setReadinessTime(now);
+      let nextExpiry = Infinity;
+      for (const { cooldown_until = 0 } of providerHealth.values()) {
+        const expiry = cooldown_until * 1000;
+        if (expiry > now) nextExpiry = Math.min(nextExpiry, expiry);
+      }
+      if (nextExpiry !== Infinity) {
+        timer = setTimeout(updateTime, Math.min(Math.ceil(nextExpiry - now), 2_147_483_647));
+      }
+    }
+
+    updateTime();
+    return () => clearTimeout(timer);
+  }, [providerHealth]);
+
+  return readinessTime;
+}
+
 export function CanvasWorkspace({
   nodes,
   edges,
@@ -45,6 +100,19 @@ export function CanvasWorkspace({
   children,
 }: CanvasWorkspaceProps) {
   const { theme } = useTheme();
+  const { providerHealth, doctorTargets } = useWorkspaceReadiness();
+  const readinessTime = useReadinessTime(providerHealth);
+
+  const styledNodes = useMemo(() => nodes.map((node) => ({
+    ...node,
+    data: {
+      ...node.data,
+      providerHealth,
+      readinessProvider: resolveDoctorTarget(node.data, doctorTargets).provider,
+      readinessTime,
+    },
+  })), [nodes, providerHealth, doctorTargets, readinessTime]);
+
   const styledEdges = useMemo(() => edges.map((edge) => {
     const active = activeEdgeIds.has(edge.id);
     const traversed = traversedEdgeIds.has(edge.id);
@@ -86,7 +154,7 @@ export function CanvasWorkspace({
     <ReactFlowProvider>
       <div className="canvas-workspace">
         <ReactFlow<BatonFlowNode>
-          nodes={nodes}
+          nodes={styledNodes}
           edges={styledEdges}
           nodeTypes={NODE_TYPES_MAP}
           edgeTypes={EDGE_TYPES_MAP}

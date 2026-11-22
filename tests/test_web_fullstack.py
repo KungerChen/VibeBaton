@@ -1,16 +1,24 @@
-"""Verify that the Python canvas server serves the Vite build and its fallback."""
+"""Exercise the built canvas and Stage 3 API on the same loopback server."""
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
+import subprocess
 import tempfile
 import threading
+import tomllib
 import unittest
+from functools import partial
 from pathlib import Path
+from typing import Any
+from unittest.mock import Mock, patch
 from urllib.parse import urljoin
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
+from vibebaton import credentials
 from vibebaton.web_server import create_server
 
 REPO = Path(__file__).resolve().parents[1]
@@ -18,15 +26,28 @@ REPO = Path(__file__).resolve().parents[1]
 
 class WebFullStackTests(unittest.TestCase):
     def setUp(self) -> None:
-        temp_dir = tempfile.TemporaryDirectory()
-        self.addCleanup(temp_dir.cleanup)
-        self.repo = Path(temp_dir.name).resolve()
-        config_dir = self.repo / ".baton"
-        config_dir.mkdir()
-        shutil.copy2(REPO / "baton.example.toml", config_dir / "baton.toml")
+        temp_dir = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        self.repo = temp_dir / "repo"
+        self.config_path = self.repo / ".baton" / "baton.toml"
+        self.config_path.parent.mkdir(parents=True)
+        shutil.copy2(REPO / "baton.example.toml", self.config_path)
+        self.credentials_path = temp_dir / "credentials.json"
+        self.enterContext(patch.dict(os.environ))
+        for key in credentials.SUPPORTED_KEYS:
+            os.environ.pop(key, None)
 
     def start_server(self, static_dir: Path | None = None) -> str:
-        server = create_server(self.repo, port=0, static_dir=static_dir)
+        server = create_server(
+            self.repo,
+            host="127.0.0.1",
+            port=0,
+            static_dir=static_dir,
+            credentials_path=self.credentials_path,
+            provider_probe=partial(
+                credentials.probe_role_or_provider,
+                health_checker=Mock(return_value=(True, "CLI available")),
+            ),
+        )
         self.addCleanup(server.server_close)
         thread = threading.Thread(
             target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
@@ -36,21 +57,80 @@ class WebFullStackTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         return f"http://127.0.0.1:{server.server_address[1]}/"
 
-    @unittest.skipUnless((REPO / "web" / "dist" / "index.html").exists(), "web/dist not built")
-    def test_default_static_directory_serves_built_index_and_javascript(self) -> None:
+    def request_json(
+        self, base: str, path: str, *, method: str = "GET", payload: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        request = Request(urljoin(base, path), method=method)
+        if payload is not None:
+            request.data = json.dumps(payload).encode("utf-8")
+            request.add_header("Content-Type", "application/json")
+        with urlopen(request, timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), "application/json")
+            body = json.load(response)
+        self.assertIsInstance(body, dict)
+        return body
+
+    def test_serves_built_canvas_and_stage3_api(self) -> None:
+        web_dir = REPO / "web"
+        built_index = web_dir / "dist" / "index.html"
+        if not built_index.is_file():
+            subprocess.run(
+                ["npm.cmd" if os.name == "nt" else "npm", "run", "build"],
+                cwd=web_dir,
+                check=True,
+                timeout=120,
+            )
+
         base = self.start_server()
         with urlopen(base, timeout=5) as response:
             self.assertEqual(response.status, 200)
             self.assertEqual(response.headers.get_content_type(), "text/html")
-            index = response.read().decode("utf-8")
-        self.assertIn('id="root"', index)
+            index = response.read()
+        self.assertEqual(index, built_index.read_bytes())
+        self.assertIn(b'id="root"', index)
 
-        script = re.search(r"""<script\b[^>]*\bsrc=["'](\./assets/[^"']+\.js)["']""", index)
-        self.assertIsNotNone(script, "Expected a relative JavaScript asset in the built index")
+        script = re.search(r"""<script\b[^>]*\bsrc=["'](\./assets/[^"']+\.js)["']""", index.decode("utf-8"))
+        if script is None:
+            self.fail("Expected a relative JavaScript asset in the built index")
         with urlopen(urljoin(base, script.group(1)), timeout=5) as response:
             self.assertEqual(response.status, 200)
             self.assertIn(response.headers.get_content_type(), {"text/javascript", "application/javascript"})
             self.assertTrue(response.read())
+
+        presets = self.request_json(base, "/api/presets")["presets"]
+        self.assertEqual(len(presets), 7)
+        for preset in presets:
+            with self.subTest(preset_id=preset["id"]):
+                missing = preset["missing_providers"]
+                self.assertIsInstance(missing, list)
+                self.assertIs(preset["host_ready"], not missing)
+        readiness = {preset["id"]: preset["missing_providers"] for preset in presets}
+        self.assertEqual(readiness["codex_only_3tier"], [])
+        self.assertEqual(readiness["deepseek_bulk_factory"], ["dsh_opencode"])
+
+        config = self.request_json(base, "/api/config/roles")
+        self.assertEqual(config["budget_profile"], "balanced")
+        catalog = config["model_catalog"]
+        self.assertIsInstance(catalog, list)
+        self.assertTrue(any(model["provider"] == "codex_sub" and model["ready"] is True for model in catalog))
+        updated = self.request_json(
+            base, "/api/config/budget", method="PUT", payload={"budget_profile": "eco"}
+        )
+        self.assertEqual(updated, {"budget_profile": "eco", "model_catalog": catalog})
+        self.assertEqual(self.request_json(base, "/api/config/roles"), {**config, **updated})
+        stored_config = tomllib.loads(self.config_path.read_text(encoding="utf-8"))
+        self.assertEqual(stored_config["policies"]["budget_profile"], "eco")
+
+        rfc = (
+            "## Goal\nVerify the release integration gate.\n\n"
+            "## Constraints\nUse a loopback server and temporary credentials.\n\n"
+            "## Acceptance\n```sh\npython -m unittest discover -s tests -v\n```\n"
+        )
+        readiness = self.request_json(base, "/api/rfc/check", method="POST", payload={"rfc_markdown": rfc})
+        self.assertIs(readiness["safe_for_overnight"], True)
+        self.assertEqual(readiness["missing_sections"], [])
+        self.assertEqual(readiness["detected_commands"], ["python -m unittest"])
 
     def test_empty_static_directory_serves_build_notice(self) -> None:
         empty = self.repo / "empty"

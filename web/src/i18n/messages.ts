@@ -1,6 +1,8 @@
-import type { ExecutionState, NodeType, Scenario, TraceKind } from '../types/graph';
+import type { BudgetProfile, CostTier, ExecutionState, NodeType, PresetCategory, Scenario, TraceKind } from '../types/graph';
 
 export type Locale = 'en' | 'zh';
+
+type CredentialKey = 'DEEPSEEK_API_KEY' | 'OPENAI_API_KEY' | 'OPENCODE_API_KEY' | 'ANTHROPIC_API_KEY';
 
 export interface Messages {
   docTitle: string;
@@ -174,6 +176,69 @@ export interface Messages {
     shortcuts: readonly { keys: string; desc: string }[];
     dontShowAgain: string;
     getStarted: string;
+  };
+  recipePlaza: {
+    title: string;
+    filters: Record<'all' | 'ready_on_host' | Exclude<PresetCategory, 'general'>, string>;
+    hostReady: string;
+    hostMissing: string;
+    costTiers: Record<CostTier, string>;
+  };
+  budgetProfile: {
+    label: string;
+    options: Record<BudgetProfile, { label: string; tooltip: string }>;
+  };
+  nodeReadiness: {
+    statuses: Record<'ready' | 'cooldown' | 'missing', string>;
+    doctorButton: string;
+    latency(milliseconds: number): string;
+    installHint: string;
+    pinModelOverride: string;
+  };
+  credentials: {
+    title: string;
+    keyLabels: Record<CredentialKey, string>;
+    maskedNote: string;
+    manualLoginNote: string;
+    save: string;
+    clear: string;
+    copyCommand: string;
+    copyCommandHint: string;
+  };
+  wizard: {
+    steps: {
+      preflight: string;
+      brainstorm: string;
+      launch: string;
+    };
+    fields: {
+      goal: string;
+      constraints: string;
+      verificationCommand: string;
+      nonGoals: string;
+    };
+    generateRfc: string;
+    readinessScore(score: number): string;
+    warnings: {
+      title: string;
+      missingSections: string;
+      missingVerificationCommand: string;
+      unsafeForOvernight: string;
+      ambiguityMarker(marker: string): string;
+      questionInHeading: string;
+      shortGoal: string;
+      unnumberedAcceptance: string;
+    };
+    skipBrainstorm: string;
+    skipWarning: {
+      title: string;
+      body: string;
+      confirm: string;
+      cancel: string;
+    };
+    switchToReadyPreset: string;
+    runModes: Record<'overnight' | 'interactive', string>;
+    startRealRun: string;
   };
 }
 
@@ -408,6 +473,85 @@ export const MESSAGES: Record<Locale, Messages> = {
       dontShowAgain: "Don't show automatically on startup",
       getStarted: 'Get Started',
     },
+    recipePlaza: {
+      title: 'Recipe Plaza',
+      filters: {
+        all: 'All',
+        ready_on_host: 'Ready on Host',
+        same_family: 'Same-Family',
+        bulk_batch: 'Bulk Batch',
+        small_project: 'Small Project',
+        audit: 'Audit',
+      },
+      hostReady: 'Ready on Host',
+      hostMissing: 'Missing on Host',
+      costTiers: { low: 'Low', medium: 'Medium', high: 'High' },
+    },
+    budgetProfile: {
+      label: 'Budget Profile',
+      options: {
+        eco: { label: 'Eco', tooltip: 'Favor lower-cost models and reasoning settings.' },
+        balanced: { label: 'Balanced', tooltip: 'Balance cost and reasoning effort across tasks.' },
+        max_quality: { label: 'Max Quality', tooltip: 'Favor the strongest available models and highest reasoning effort.' },
+      },
+    },
+    nodeReadiness: {
+      statuses: { ready: 'Ready', cooldown: 'Cooldown', missing: 'Missing' },
+      doctorButton: '5s Doctor',
+      latency: (milliseconds) => `${milliseconds} ms latency`,
+      installHint: 'Setup Hint',
+      pinModelOverride: 'Pin model override',
+    },
+    credentials: {
+      title: 'Credentials Setup',
+      keyLabels: {
+        DEEPSEEK_API_KEY: 'DeepSeek API Key',
+        OPENAI_API_KEY: 'OpenAI API Key',
+        OPENCODE_API_KEY: 'DeepSeek API Gateway Key',
+        ANTHROPIC_API_KEY: 'Anthropic API Key',
+      },
+      maskedNote: 'Saved keys stay on this host outside the repository. Configured keys appear masked.',
+      manualLoginNote: 'Sign in to Claude, Codex, and other subscription CLIs manually in your terminal.',
+      save: 'Save',
+      clear: 'Clear',
+      copyCommand: 'Copy Command',
+      copyCommandHint: 'Copy this command and run it in your terminal.',
+    },
+    wizard: {
+      steps: {
+        preflight: 'Preflight & Credentials',
+        brainstorm: 'Brainstorm / RFC',
+        launch: 'Launch',
+      },
+      fields: {
+        goal: 'Goal',
+        constraints: 'Constraints',
+        verificationCommand: 'Verification Command',
+        nonGoals: 'Non-goals',
+      },
+      generateRfc: 'Generate RFC',
+      readinessScore: (score) => `Readiness Score · ${score}/100`,
+      warnings: {
+        title: 'Warnings',
+        missingSections: 'Missing RFC sections',
+        missingVerificationCommand: 'Add a verification command to check the run automatically.',
+        unsafeForOvernight: 'Resolve the RFC readiness issues before starting an overnight run.',
+        ambiguityMarker: (marker) => `Replace the ambiguous marker "${marker}" with a concrete requirement.`,
+        questionInHeading: 'Rewrite the question in the RFC heading as a clear requirement.',
+        shortGoal: 'Write a goal of at least 40 characters.',
+        unnumberedAcceptance: 'Number the acceptance criteria.',
+      },
+      skipBrainstorm: 'Skip Brainstorm',
+      skipWarning: {
+        title: 'Skip Brainstorm with an incomplete RFC?',
+        body: 'The RFC is missing required sections. Continuing may leave tasks without clear instructions or verification steps.',
+        confirm: 'Skip Anyway',
+        cancel: 'Cancel',
+      },
+      switchToReadyPreset: 'Switch to a Ready Preset',
+      runModes: { overnight: 'Overnight', interactive: 'Interactive' },
+      startRealRun: 'Start Real Run',
+    },
   },
   zh: {
     docTitle: 'VibeBaton — 多智能体工作流画布',
@@ -568,7 +712,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       reportRaw: '原始 Markdown',
       reportCopy: '复制 Markdown',
       rfcSourceLegend: 'RFC 来源',
-      rfcMarkdownOption: 'RFC Markdown',
+      rfcMarkdownOption: 'RFC Markdown 文本',
       rfcRepoPathOption: '仓库路径',
       rfcMarkdownAria: 'RFC Markdown 内容',
       rfcRepoPathAria: '仓库相对路径',
@@ -638,6 +782,85 @@ export const MESSAGES: Record<Locale, Messages> = {
       ],
       dontShowAgain: '下次打开不再自动弹出',
       getStarted: '开始使用',
+    },
+    recipePlaza: {
+      title: '工作流广场',
+      filters: {
+        all: '全部',
+        ready_on_host: '本机就绪',
+        same_family: '同家族',
+        bulk_batch: '批量处理',
+        small_project: '小型项目',
+        audit: '审计',
+      },
+      hostReady: '本机就绪',
+      hostMissing: '本机未就绪',
+      costTiers: { low: '低', medium: '中', high: '高' },
+    },
+    budgetProfile: {
+      label: '预算档位',
+      options: {
+        eco: { label: '节省', tooltip: '优先选择成本较低的模型和推理档位。' },
+        balanced: { label: '均衡', tooltip: '根据任务平衡成本与推理强度。' },
+        max_quality: { label: '质量优先', tooltip: '优先选择能力更强的可用模型和更高的推理档位。' },
+      },
+    },
+    nodeReadiness: {
+      statuses: { ready: '就绪', cooldown: '冷却中', missing: '缺失' },
+      doctorButton: '5 秒诊断',
+      latency: (milliseconds) => `延迟 ${milliseconds} 毫秒`,
+      installHint: '配置提示',
+      pinModelOverride: '固定模型覆盖设置',
+    },
+    credentials: {
+      title: '凭据设置',
+      keyLabels: {
+        DEEPSEEK_API_KEY: 'DeepSeek API 密钥',
+        OPENAI_API_KEY: 'OpenAI API 密钥',
+        OPENCODE_API_KEY: 'DeepSeek API 网关密钥',
+        ANTHROPIC_API_KEY: 'Anthropic API 密钥',
+      },
+      maskedNote: '密钥保存在本机的用户目录中。已配置的密钥会脱敏显示。',
+      manualLoginNote: 'Claude 和 Codex 等订阅命令行工具需在终端中手动登录。',
+      save: '保存',
+      clear: '清除',
+      copyCommand: '复制命令',
+      copyCommandHint: '复制此命令并在终端中执行。',
+    },
+    wizard: {
+      steps: {
+        preflight: '运行前检查与凭据',
+        brainstorm: '头脑风暴与 RFC',
+        launch: '启动',
+      },
+      fields: {
+        goal: '目标',
+        constraints: '约束',
+        verificationCommand: '验证命令',
+        nonGoals: '非目标',
+      },
+      generateRfc: '生成 RFC',
+      readinessScore: (score) => `就绪评分 · ${score}/100`,
+      warnings: {
+        title: '警告',
+        missingSections: '缺少的 RFC 章节',
+        missingVerificationCommand: '添加验证命令以自动检查运行结果。',
+        unsafeForOvernight: '请处理就绪检查发现的问题，再启动通宵运行。',
+        ambiguityMarker: (marker) => `用具体要求替换含义不明确的标记「${marker}」。`,
+        questionInHeading: '请将 RFC 标题中的问题改写为明确的要求。',
+        shortGoal: '请将目标扩写至至少 40 个字符。',
+        unnumberedAcceptance: '请为每条验收标准编号。',
+      },
+      skipBrainstorm: '跳过头脑风暴',
+      skipWarning: {
+        title: 'RFC 尚未完整，仍要跳过头脑风暴？',
+        body: '此 RFC 缺少必需章节。继续执行时，任务要求或验证步骤可能不够明确。',
+        confirm: '仍然跳过',
+        cancel: '取消',
+      },
+      switchToReadyPreset: '切换到已就绪的预设',
+      runModes: { overnight: '通宵无人值守', interactive: '交互式' },
+      startRealRun: '启动真实运行',
     },
   },
 };

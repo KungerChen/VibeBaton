@@ -18,10 +18,12 @@ import { I18nProvider, useI18n } from './i18n';
 import { translatePresetText } from './i18n/presets';
 import { ThemeProvider } from './theme';
 import type {
+  BudgetProfile,
   GraphTraceEvent,
   GraphValidationResult,
   NodeType,
   PresetItem,
+  RolesConfigResponse,
   Scenario,
   WorkflowGraph,
   WorkflowNode,
@@ -33,6 +35,19 @@ const emptyTrace: GraphTraceEvent[] = [];
 const initialPlayback = { stepIndex: 0, playing: false };
 const GUIDE_DISMISSED_KEY = 'vibebaton.quickstartDismissed';
 type WorkspacePane = 'canvas' | 'sidebar' | 'inspector';
+
+class WorkspaceApiClient extends BatonApiClient {
+  private initialRolesConfig?: Promise<RolesConfigResponse>;
+
+  loadInitialRolesConfig(): Promise<RolesConfigResponse> {
+    return this.initialRolesConfig ??= this.getRolesConfig();
+  }
+
+  override async getRoles(): Promise<RolesConfigResponse | null> {
+    // The workspace reports errors from this shared request.
+    return this.mode === 'local' ? this.loadInitialRolesConfig().catch(() => null) : null;
+  }
+}
 
 function readGuideDismissed(): boolean {
   if (typeof window === 'undefined') return false;
@@ -74,13 +89,16 @@ function AppContent() {
     { id: 'sidebar', label: messages.tabs.sidebar },
     { id: 'inspector', label: messages.tabs.inspector },
   ];
-  const clientRef = useRef<BatonApiClient | null>(null);
-  if (clientRef.current === null) clientRef.current = new BatonApiClient();
+  const clientRef = useRef<WorkspaceApiClient | null>(null);
+  if (clientRef.current === null) clientRef.current = new WorkspaceApiClient();
   const client = clientRef.current;
   const initialization = useRef<Promise<ApiMode> | null>(null);
   const latestPresetRequest = useRef(0);
   const [mode, setMode] = useState<ApiMode | null>(null);
   const [presets, setPresets] = useState<PresetItem[]>([]);
+  const [budgetProfile, setBudgetProfile] = useState<BudgetProfile | null>(null);
+  const [pendingBudgetProfile, setPendingBudgetProfile] = useState<BudgetProfile | null>(null);
+  const budgetProfileSaving = useRef(false);
   const [baseGraph, setBaseGraph] = useState<WorkflowGraph>(starter_2tier);
   const [nodes, setNodes, onNodesChange] = useNodesState(starter.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(starter.edges);
@@ -130,19 +148,23 @@ function AppContent() {
   useEffect(() => {
     let active = true;
 
-    async function initialize() {
-      try {
-        const nextMode = await (initialization.current ??= client.init());
-        if (!active) return;
-        setMode(nextMode);
-        const items = await client.listPresets();
-        if (active) setPresets(items);
-      } catch (error) {
-        if (active) push(errorMessage(error), 'err');
-      }
+    function reportError(error: unknown) {
+      if (active) push(errorMessage(error), 'err');
     }
 
-    void initialize();
+    async function initialize() {
+      const nextMode = await (initialization.current ??= client.init());
+      if (!active) return;
+      setMode(nextMode);
+      void client.listPresets().then((items) => {
+        if (active) setPresets(items);
+      }, reportError);
+      void client.loadInitialRolesConfig().then(({ budget_profile }) => {
+        if (active) setBudgetProfile(budget_profile);
+      }, reportError);
+    }
+
+    void initialize().catch(reportError);
     return () => { active = false; };
   }, [client, push]);
 
@@ -259,6 +281,21 @@ function AppContent() {
       }
     } catch (error) {
       if (request === latestPresetRequest.current) push(errorMessage(error), 'err');
+    }
+  }
+
+  async function onBudgetProfileChange(profile: BudgetProfile) {
+    if (budgetProfile === null || profile === budgetProfile || budgetProfileSaving.current) return;
+    budgetProfileSaving.current = true;
+    setPendingBudgetProfile(profile);
+    try {
+      const { budget_profile } = await client.setBudgetProfile(profile);
+      setBudgetProfile(budget_profile);
+    } catch (error) {
+      push(`${messages.budgetProfile.label} · ${errorMessage(error)}`, 'err');
+    } finally {
+      budgetProfileSaving.current = false;
+      setPendingBudgetProfile(null);
     }
   }
 
@@ -448,6 +485,9 @@ function AppContent() {
       <div className="app-pane app-pane--sidebar" id="workspace-sidebar" data-active={pane === 'sidebar'}>
         <LeftSidebar
           presets={presets}
+          budgetProfile={pendingBudgetProfile ?? budgetProfile}
+          budgetProfileSaving={pendingBudgetProfile !== null}
+          onBudgetProfileChange={onBudgetProfileChange}
           currentGraphId={graph.id}
           onSelectPreset={onSelectPreset}
           onAddNode={onAddNode}

@@ -7,6 +7,10 @@ export const starter_2tier: WorkflowGraph = {
   difficulty: 'beginner',
   description: 'Zero-friction, ultra-low-cost workflow. Run planning, parallel coding, automated testing, and human preview sign-off with a single affordable API/CLI.',
   recommended_for: ['Personal sites & mini tools', 'First Vibe Coding project', 'Rapid prototyping'],
+  category: 'small_project',
+  required_providers: ['dsh_opencode'],
+  cost_tier: 'low',
+  inspired_by: 'VibeBaton Stage 1 single-provider workflow',
   nodes: [
     {
       id: 'plan',

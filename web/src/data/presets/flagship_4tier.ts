@@ -7,6 +7,10 @@ export const flagship_4tier: WorkflowGraph = {
   difficulty: 'pro',
   description: 'Antigravity brainstorm & final sign-off -> Claude planning & milestone gate -> Codex critical execution & micro-review -> DeepSeek API parallel bulk execution. Built for commercial full-stack projects and overnight unattended runs.',
   recommended_for: ['Full-stack applications', 'Multi-module backends & CLI tools', 'Overnight unattended runs'],
+  category: 'general',
+  required_providers: ['claude_sub', 'codex_sub', 'dsh_opencode'],
+  cost_tier: 'high',
+  inspired_by: 'VibeBaton Stage 1 four-tier workflow',
   nodes: [
     {
       id: 'l0_brainstorm',

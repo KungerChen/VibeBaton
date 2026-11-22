@@ -1,15 +1,25 @@
-import { EMBEDDED_PRESETS, findPreset, presetToItem } from '../data/presets';
+import { DEMO_ROLES_CONFIG, demoProviderHealth } from '../data/demoConfig';
+import { PRESET_REGISTRY, findPreset, presetToItem } from '../data/presets';
 import { simulateGraph, validateGraph } from '../engine/localSimulator';
 import type {
+  BudgetConfigResponse,
+  BudgetProfile,
+  CredentialStatus,
+  DoctorRoleRequest,
+  DoctorRoleResult,
   GraphValidationResult,
   LiveRunSnapshot,
   PresetItem,
+  RfcBrainstormRequest,
+  RfcBrainstormResult,
+  RfcReadinessResult,
   RoleConfig,
   RolesConfigResponse,
   Scenario,
   SimulationResult,
   WorkflowGraph,
 } from '../types/graph';
+import { checkRfcReadiness, generateStructuredRfc } from './offlineRfc';
 
 export type ApiMode = 'local' | 'demo';
 
@@ -30,6 +40,17 @@ type WireRolesConfigResponse = Omit<RolesConfigResponse, 'roles'> & {
 
 type RunDecision = 'approve' | 'reject';
 
+const DEMO_DOCTOR_LATENCY_MS = 5000;
+const CREDENTIAL_KEYS = ['DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'OPENCODE_API_KEY', 'ANTHROPIC_API_KEY'] as const;
+
+function maskCredential(value: string): string {
+  const characters = Array.from(value);
+  const masked = characters.length <= 8
+    ? '••••'
+    : `${characters.slice(0, 4).join('')}••••${characters.slice(-4).join('')}`;
+  return masked.includes(value) ? '****' : masked;
+}
+
 function toRoleConfig(role: WireRoleConfig): RoleConfig {
   return {
     ...role,
@@ -47,6 +68,8 @@ export class BatonApiClient {
   mode: ApiMode = 'demo';
   health: Record<string, unknown> | null = null;
   private readonly baseUrl: string;
+  private demoBudgetProfile: BudgetProfile = 'balanced';
+  private readonly demoCredentials = new Map<string, string>();
 
   constructor(
     baseUrl = '',
@@ -76,7 +99,21 @@ export class BatonApiClient {
   }
 
   async listPresets(): Promise<PresetItem[]> {
-    if (this.mode === 'demo') return EMBEDDED_PRESETS.map(presetToItem);
+    if (this.mode === 'demo') {
+      return PRESET_REGISTRY.map((graph) => {
+        const requiredProviders = [...(graph.required_providers ?? [])];
+        const missingProviders = requiredProviders.filter((provider) => !demoProviderHealth(provider).ok);
+        return {
+          ...presetToItem(graph),
+          category: graph.category ?? 'general',
+          required_providers: requiredProviders,
+          cost_tier: graph.cost_tier ?? 'medium',
+          inspired_by: graph.inspired_by ?? null,
+          host_ready: missingProviders.length === 0,
+          missing_providers: missingProviders,
+        };
+      });
+    }
     const { presets } = await this.requestJson<{ presets: PresetItem[] }>('/api/presets');
     return presets;
   }
@@ -102,12 +139,79 @@ export class BatonApiClient {
   }
 
   async getRoles(): Promise<RolesConfigResponse | null> {
-    if (this.mode === 'demo') return null;
+    return this.mode === 'demo' ? null : this.getRolesConfig();
+  }
+
+  async getRolesConfig(): Promise<RolesConfigResponse> {
+    if (this.mode === 'demo') {
+      return { ...structuredClone(DEMO_ROLES_CONFIG), budget_profile: this.demoBudgetProfile };
+    }
     const config = await this.requestJson<WireRolesConfigResponse>('/api/config/roles');
     return {
       ...config,
       roles: Object.fromEntries(Object.entries(config.roles).map(([name, role]) => [name, toRoleConfig(role)])),
     };
+  }
+
+  async setBudgetProfile(profile: BudgetProfile): Promise<BudgetConfigResponse> {
+    if (this.mode === 'local') {
+      return this.requestJson('/api/config/budget', { method: 'PUT', body: { budget_profile: profile } });
+    }
+    this.demoBudgetProfile = profile;
+    return { budget_profile: profile, model_catalog: structuredClone(DEMO_ROLES_CONFIG.model_catalog) };
+  }
+
+  async doctorRole(payload: DoctorRoleRequest): Promise<DoctorRoleResult> {
+    if (this.mode === 'local') {
+      return this.requestJson('/api/doctor/role', { method: 'POST', body: payload });
+    }
+
+    const roleName = payload.role?.trim() ?? '';
+    const roleProvider = Object.hasOwn(DEMO_ROLES_CONFIG.roles, roleName)
+      ? DEMO_ROLES_CONFIG.roles[roleName].provider
+      : '';
+    const prefix = payload.model?.trim().match(/^([^:]+):/)?.[1] ?? '';
+    const modelProvider = roleProvider && Object.hasOwn(DEMO_ROLES_CONFIG.providers, prefix) ? prefix : '';
+    const provider = payload.provider?.trim() || modelProvider || roleProvider;
+    await new Promise<void>((resolve) => setTimeout(resolve, DEMO_DOCTOR_LATENCY_MS));
+    return { ...demoProviderHealth(provider), latency_ms: DEMO_DOCTOR_LATENCY_MS };
+  }
+
+  async listCredentials(): Promise<CredentialStatus[]> {
+    if (this.mode === 'local') return this.requestJson('/api/credentials');
+    return CREDENTIAL_KEYS.map((key) => {
+      const masked = this.demoCredentials.get(key);
+      return {
+        provider_key: key,
+        configured: masked !== undefined,
+        // Match the server's saved-credential status for the UI preview.
+        source: masked === undefined ? 'none' : 'local_file',
+        masked: masked ?? '',
+      };
+    });
+  }
+
+  async saveCredentials(updates: Record<string, string>): Promise<CredentialStatus[]> {
+    if (this.mode === 'local') {
+      return this.requestJson('/api/credentials', { method: 'POST', body: { updates } });
+    }
+    for (const key of CREDENTIAL_KEYS) {
+      const value = updates[key];
+      if (typeof value !== 'string' || value.includes('\0')) continue;
+      if (value) this.demoCredentials.set(key, maskCredential(value));
+      else this.demoCredentials.delete(key);
+    }
+    return this.listCredentials();
+  }
+
+  async checkRfc(rfcMarkdown: string): Promise<RfcReadinessResult> {
+    if (this.mode === 'demo') return checkRfcReadiness(rfcMarkdown);
+    return this.requestJson('/api/rfc/check', { method: 'POST', body: { rfc_markdown: rfcMarkdown } });
+  }
+
+  async brainstormRfc(payload: RfcBrainstormRequest): Promise<RfcBrainstormResult> {
+    if (this.mode === 'demo') return generateStructuredRfc(payload);
+    return this.requestJson('/api/rfc/brainstorm', { method: 'POST', body: payload });
   }
 
   async updateRole(role: string, payload: { provider?: string; model: string }): Promise<RoleConfig> {

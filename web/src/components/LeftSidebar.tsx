@@ -1,16 +1,20 @@
 import './LeftSidebar.css';
 import './ui/ui.css';
-import { useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
-import { ChevronDown, Download, Link2, Upload } from 'lucide-react';
+import { useId, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
+import { ChevronDown, Coins, Download, Link2, Upload } from 'lucide-react';
 import { validateGraph } from '../engine/localSimulator';
 import { useI18n } from '../i18n';
 import { translatePresetText } from '../i18n/presets';
 import { cn } from '../lib/utils';
-import { NODE_TYPES, tierForNodeType, type WorkflowEdge, type WorkflowGraph } from '../types/graph';
+import { NODE_TYPES, tierForNodeType, type BudgetProfile, type WorkflowEdge, type WorkflowGraph } from '../types/graph';
 import { NODE_ICONS, TIER_COLORS } from './nodes/BatonNode';
+import { filterPresets, getPresetBadges, RECIPE_FILTERS, type RecipeFilter } from './recipePlaza';
 import type { LeftSidebarProps } from './types';
 import { Badge, type BadgeProps } from './ui/badge';
 import { Button } from './ui/button';
+import { Card } from './ui/card';
+
+const BUDGET_PROFILES = ['eco', 'balanced', 'max_quality'] as const satisfies readonly BudgetProfile[];
 
 const difficultyVariants = new Map<string, BadgeProps['variant']>([
   ['beginner', 'success'],
@@ -46,6 +50,9 @@ function canonicalizeEdge(input: ImportedEdge): WorkflowEdge {
 
 export function LeftSidebar({
   presets,
+  budgetProfile,
+  budgetProfileSaving,
+  onBudgetProfileChange,
   currentGraphId,
   onSelectPreset,
   onAddNode,
@@ -55,10 +62,16 @@ export function LeftSidebar({
   validation,
 }: LeftSidebarProps) {
   const { locale, messages } = useI18n();
+  const { budgetProfile: budget, recipePlaza: plaza } = messages;
+  const sidebarId = useId();
+  const listId = `${sidebarId}-presets`;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const latestImport = useRef(0);
+  const [filter, setFilter] = useState<RecipeFilter>('all');
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [warningsOpen, setWarningsOpen] = useState(false);
+  const visiblePresets = filterPresets(presets, filter);
+  const providerList = new Intl.ListFormat(locale);
 
   const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
@@ -95,49 +108,111 @@ export function LeftSidebar({
 
   return (
     <aside className="left-sidebar border-e border-border bg-card">
+      <fieldset className="m-0 min-w-0 border-0 p-0" disabled={budgetProfile === null} aria-busy={budgetProfileSaving}>
+        <legend className="left-sidebar__title">{budget.label}</legend>
+        <div className="mt-2 grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/65 p-1">
+          {BUDGET_PROFILES.map((profile) => {
+            const { label, tooltip } = budget.options[profile];
+            return (
+              <label className="min-w-0" key={profile} title={tooltip}>
+                <input
+                  className="peer sr-only"
+                  type="radio"
+                  name={`${sidebarId}-budget`}
+                  value={profile}
+                  checked={budgetProfile === profile}
+                  aria-description={tooltip}
+                  aria-disabled={budgetProfileSaving || undefined}
+                  onChange={() => onBudgetProfileChange(profile)}
+                />
+                <span className="left-sidebar__budget-segment block cursor-pointer rounded-md px-1 py-1.5 text-center text-[11px] font-semibold text-muted-foreground transition-colors hover:text-text-strong peer-checked:bg-card peer-checked:text-text-strong peer-checked:shadow-xs peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-disabled:cursor-default peer-disabled:opacity-50">
+                  {label}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+
       <section className="left-sidebar__section">
-        <h2 className="left-sidebar__title">{messages.sidebar.presetsTitle}</h2>
-        <div className="left-sidebar__presets">
-          {presets.map((preset) => {
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="left-sidebar__title">{plaza.title}</h2>
+          <output className="text-[11px] font-mono text-muted-foreground" aria-label={plaza.title}>
+            {visiblePresets.length.toLocaleString(locale)}
+          </output>
+        </div>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label={plaza.title}>
+          {RECIPE_FILTERS.map((item) => (
+            <Button
+              key={item}
+              variant={item === filter ? 'default' : 'outline'}
+              size="xs"
+              className="rounded-full"
+              aria-pressed={item === filter}
+              aria-controls={listId}
+              onClick={() => setFilter(item)}
+            >
+              {plaza.filters[item]}
+            </Button>
+          ))}
+        </div>
+        <div className="left-sidebar__presets" id={listId}>
+          {visiblePresets.map((preset) => {
             const active = preset.id === currentGraphId;
             const badgeVariant = difficultyVariants.get(preset.difficulty) ?? 'outline';
             const difficultyLabel = messages.sidebar.difficulty[preset.difficulty] ?? preset.difficulty;
             const presetName = translatePresetText(preset.name, locale);
+            const { readiness, cost } = getPresetBadges(preset);
+            const missingProviders = readiness?.missingProviders.length
+              ? providerList.format(readiness.missingProviders)
+              : undefined;
 
             return (
-              <button
+              <Card
                 key={preset.id}
-                type="button"
-                aria-pressed={active}
-                onClick={() => onSelectPreset(preset.id)}
                 className={cn(
-                  'left-sidebar__preset rounded-xl border p-3 text-start transition-all cursor-pointer',
+                  'min-w-0 transition-colors',
                   active
-                    ? 'border-primary/50 bg-[var(--accent-soft)] ring-1 ring-primary/25 shadow-xs'
-                    : 'border-border bg-muted/40 hover:border-border-strong hover:bg-muted/80',
+                    ? 'border-primary/50 bg-[var(--accent-soft)] ring-1 ring-primary/25'
+                    : 'bg-muted/40 hover:border-[var(--border-strong)] hover:bg-muted/80',
                 )}
               >
-                <div className="flex items-start justify-between gap-2 min-w-0">
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        'h-2 w-2 shrink-0 rounded-full transition-colors',
-                        active ? 'bg-primary' : 'bg-border-strong',
-                      )}
-                    />
+                <button
+                  type="button"
+                  aria-pressed={active}
+                  aria-description={missingProviders}
+                  onClick={() => onSelectPreset(preset.id)}
+                  className="left-sidebar__preset cursor-pointer rounded-xl p-2.5 text-start"
+                >
+                  <span className="flex w-full min-w-0 items-center justify-between gap-2">
                     <span className="truncate text-[13px] font-semibold text-text-strong" title={presetName}>
                       {presetName}
                     </span>
+                    <Badge variant={badgeVariant} className="shrink-0 px-1.5 py-0 text-[9.5px] uppercase tracking-wide">
+                      {difficultyLabel}
+                    </Badge>
                   </span>
-                  <Badge variant={badgeVariant} className="shrink-0 px-1.5 py-0 text-[9.5px] uppercase tracking-wide">
-                    {difficultyLabel}
-                  </Badge>
-                </div>
-                <span className="ps-4 text-[11px] font-mono text-muted-foreground">
-                  {messages.sidebar.presetCounts(preset.node_count, preset.edge_count)}
-                </span>
-              </button>
+                  <span className="text-[11px] font-mono text-muted-foreground">
+                    {messages.sidebar.presetCounts(preset.node_count, preset.edge_count)}
+                  </span>
+                  {(readiness || cost) && (
+                    <span className="flex flex-wrap gap-1.5">
+                      {readiness && (
+                        <Badge variant={readiness.variant} title={missingProviders} className="px-1.5">
+                          <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                          {plaza[readiness.label]}
+                        </Badge>
+                      )}
+                      {cost && (
+                        <Badge variant={cost.variant} className="px-1.5">
+                          <Coins size={11} aria-hidden="true" />
+                          {plaza.costTiers[cost.tier]}
+                        </Badge>
+                      )}
+                    </span>
+                  )}
+                </button>
+              </Card>
             );
           })}
         </div>

@@ -40,6 +40,40 @@ class TestPresetsModule(unittest.TestCase):
                 self.assertTrue(result.valid, result.errors)
                 self.assertEqual(result.errors, [])
 
+    def test_original_presets_declare_metadata(self) -> None:
+        expected = {
+            "flagship_4tier": (
+                "general", ["claude_sub", "codex_sub", "dsh_opencode"], "high",
+                "VibeBaton Stage 1 four-tier workflow",
+            ),
+            "review_only_audit": (
+                "audit", ["codex_sub", "claude_sub"], "medium",
+                "VibeBaton mechanical gate principle",
+            ),
+            "solo_coder_3tier": (
+                "general", ["claude_sub", "dsh_opencode", "codex_sub"], "medium",
+                "VibeBaton Stage 1 Golden Example",
+            ),
+            "starter_2tier": (
+                "small_project", ["dsh_opencode"], "low",
+                "VibeBaton Stage 1 single-provider workflow",
+            ),
+        }
+        summaries = {summary.id: summary.to_dict() for summary in list_presets()}
+        for preset_id, (category, providers, cost_tier, inspired_by) in expected.items():
+            with self.subTest(preset=preset_id):
+                graph = load_preset(preset_id).to_dict()
+                summary = summaries[preset_id]
+                metadata = {
+                    "category": category,
+                    "required_providers": providers,
+                    "cost_tier": cost_tier,
+                    "inspired_by": inspired_by,
+                }
+                for field, value in metadata.items():
+                    self.assertEqual(graph[field], value)
+                    self.assertEqual(summary[field], value)
+
     def test_legacy_presets_derive_summary_metadata(self) -> None:
         expected = {
             "flagship_4tier": ("general", ["claude_sub", "codex_sub", "dsh_opencode"]),
@@ -47,7 +81,14 @@ class TestPresetsModule(unittest.TestCase):
             "solo_coder_3tier": ("general", ["claude_sub", "dsh_opencode", "codex_sub"]),
             "starter_2tier": ("small_project", ["dsh_opencode"]),
         }
-        summaries = {summary.id: summary.to_dict() for summary in list_presets()}
+        with TemporaryDirectory() as directory:
+            for preset_id in expected:
+                data = load_preset(preset_id).to_dict()
+                for field in ("category", "required_providers", "cost_tier", "inspired_by"):
+                    del data[field]
+                path = Path(directory) / f"{preset_id}.baton.json"
+                path.write_text(json.dumps(data), encoding="utf-8")
+            summaries = {summary.id: summary.to_dict() for summary in list_presets(directory)}
         for preset_id, (category, providers) in expected.items():
             with self.subTest(preset=preset_id):
                 summary = summaries[preset_id]
@@ -138,10 +179,13 @@ class TestPresetsModule(unittest.TestCase):
             load_preset("does_not_exist")
 
     def test_every_preset_round_trips_through_dict(self) -> None:
-        for preset_id in PRESET_IDS:
-            with self.subTest(preset=preset_id):
-                graph = load_preset(preset_id)
+        for summary in list_presets():
+            with self.subTest(preset=summary.id):
+                path = Path(summary.path)
+                source = json.loads(path.read_text(encoding="utf-8"))
+                graph = load_preset(path)
                 serialized = graph.to_dict()
+                self.assertEqual(serialized, source)
                 self.assertEqual(WorkflowGraph.from_dict(serialized), graph)
                 self.assertEqual(WorkflowGraph.from_dict(serialized).to_dict(), serialized)
 

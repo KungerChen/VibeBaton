@@ -6,6 +6,9 @@ export const EN_TO_ZH_PRESET_TEXT: Record<string, string> = {
   'Starter 2-Tier Flow': '极简入门双层流',
   'Solo Coder 3-Tier Flow': '个人开发三层流',
   'Review-Only Audit': '只读审计流水线',
+  'Claude-Only 3-Tier Flow': 'Claude 专用三层工作流',
+  'Codex-Only 3-Tier Flow': 'Codex 专用三层工作流',
+  'DeepSeek API Bulk Factory': 'DeepSeek API 批量工厂',
 
   // Preset descriptions
   'Antigravity brainstorm & final sign-off -> Claude planning & milestone gate -> Codex critical execution & micro-review -> DeepSeek API parallel bulk execution. Built for commercial full-stack projects and overnight unattended runs.':
@@ -16,6 +19,12 @@ export const EN_TO_ZH_PRESET_TEXT: Record<string, string> = {
     'Claude 拆解任务，DeepSeek API 编写代码，Codex 审校，通过测试与审校后合入分支，由用户最终验收。',
   'Read-only audit pipeline: runs automated tests and lint checks, followed by Codex security micro-review and Claude Opus architecture review. Never modifies code; hands findings to a human for final sign-off.':
     '只读审计流水线：自动运行测试与静态检查，由 Codex 做安全微审、Claude Opus 做架构评审。全程只读、不改代码，审校结论交由用户最终确认。',
+  'Claude Fable plans the work. Claude Opus implements and reviews changes before merging for human sign-off.':
+    'Claude Fable 规划任务，Claude Opus 实现并审查变更。变更合入后由用户验收。',
+  'Codex Astra plans tasks and reviews the changes implemented by Codex Sol. Tested and reviewed changes merge for human sign-off.':
+    'Codex Astra 规划任务并审查 Codex Sol 实现的变更。通过测试与审查的变更合入后由用户验收。',
+  'DeepSeek API plans batches and executes them across parallel workers. Automated tests check each batch before human sign-off.':
+    'DeepSeek API 划分批次，再并行执行任务。自动测试逐批验证结果，再交由用户验收。',
 
   // flagship_4tier nodes
   'L0 Brainstorm (Antigravity)': 'L0 头脑风暴 (Antigravity)',
@@ -48,6 +57,20 @@ export const EN_TO_ZH_PRESET_TEXT: Record<string, string> = {
   'Security Micro-Review (Codex Astra)': '安全微审 (Codex Astra)',
   'Architecture Review (Claude Opus)': '架构评审 (Claude Opus)',
   'Human Audit Sign-Off': '人工审计确认',
+
+  // claude_only_3tier nodes
+  'Code Execution (Claude Opus)': '代码实现 (Claude Opus)',
+  'Code Review (Claude Opus)': '代码审校 (Claude Opus)',
+
+  // codex_only_3tier nodes
+  'Task Planning (Codex Astra)': '任务规划 (Codex Astra)',
+  'Code Execution (Codex Sol)': '代码实现 (Codex Sol)',
+
+  // deepseek_bulk_factory nodes
+  'Batch Planning (DeepSeek API)': '批次规划 (DeepSeek API)',
+  'Parallel Batch Workers (DeepSeek API)': '并行批量执行 (DeepSeek API)',
+  'Test Changes from DeepSeek API': '测试 DeepSeek API 生成的变更',
+  'DeepSeek API Batch Sign-Off': '验收 DeepSeek API 批量任务',
 };
 
 const ROLE_LABELS_EN: Record<string, string> = {

@@ -9,6 +9,10 @@
     "First Vibe Coding project",
     "Rapid prototyping"
   ],
+  "category": "small_project",
+  "required_providers": ["dsh_opencode"],
+  "cost_tier": "low",
+  "inspired_by": "VibeBaton Stage 1 single-provider workflow",
   "nodes": [
     {
       "id": "plan",

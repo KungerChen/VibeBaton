@@ -38,6 +38,28 @@
   white-space: nowrap;
 }
 
+.baton-node__readiness {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.baton-node__readiness--ready {
+  color: var(--emerald);
+}
+
+.baton-node__readiness--cooldown {
+  color: var(--amber);
+}
+
+.baton-node__readiness--missing {
+  color: var(--rose);
+}
+
 .baton-node__badge--active {
   animation: baton-badge-blink 1.15s ease-in-out infinite;
 }
@@ -165,4 +187,17 @@
   box-shadow:
     0 0 0 2.5px var(--ring),
     var(--shadow-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .baton-node,
+  .react-flow__handle.baton-node__handle {
+    transition: none;
+  }
+
+  .baton-node--active,
+  .baton-node--retrying,
+  .baton-node__badge--active {
+    animation: none;
+  }
 }

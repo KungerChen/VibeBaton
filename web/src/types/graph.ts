@@ -36,6 +36,10 @@ export interface WorkflowEdge {
   condition?: string;
 }
 
+export type PresetCategory = 'same_family' | 'bulk_batch' | 'small_project' | 'audit' | 'general';
+export type CostTier = 'low' | 'medium' | 'high';
+export type BudgetProfile = 'eco' | 'balanced' | 'max_quality';
+
 export interface WorkflowGraph {
   schema_version: string;
   id: string;
@@ -43,6 +47,10 @@ export interface WorkflowGraph {
   difficulty?: string;
   description?: string;
   recommended_for?: string[];
+  category?: PresetCategory;
+  required_providers?: string[];
+  cost_tier?: CostTier;
+  inspired_by?: string | null;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
 }
@@ -90,12 +98,76 @@ export interface PresetItem {
   difficulty: string;
   description: string;
   recommended_for: string[];
+  path?: string;
   node_count: number;
   edge_count: number;
+  // Catalog responses include this metadata. Bare graph summaries may omit it.
+  category?: PresetCategory;
+  required_providers?: string[];
+  cost_tier?: CostTier;
+  inspired_by?: string | null;
+  host_ready?: boolean;
+  missing_providers?: string[];
   valid: boolean;
   errors: string[];
   warnings: string[];
   graph: WorkflowGraph;
+}
+
+export interface ModelCapability {
+  provider: string;
+  model: string;
+  efforts: string[];
+  // The model catalog uses the allocator's cost tiers.
+  cost_tier: 'eco' | 'standard' | 'flagship';
+  ready: boolean;
+  detail: string;
+}
+
+export interface ProviderHealthSummary {
+  provider: string;
+  ok: boolean;
+  detail: string;
+  latency_ms?: number;
+  install_hint?: string;
+}
+
+export interface CredentialStatus {
+  provider_key: string;
+  configured: boolean;
+  source: 'env' | 'local_file' | 'none';
+  masked: string;
+}
+
+export interface RfcReadinessResult {
+  score: number;
+  safe_for_overnight: boolean;
+  missing_sections: string[];
+  warnings: string[];
+  detected_commands: string[];
+}
+
+export interface RfcBrainstormRequest {
+  goal: string;
+  constraints?: string;
+  acceptance_cmd?: string;
+  non_goals?: string;
+}
+
+export interface RfcBrainstormResult {
+  rfc_markdown: string;
+  readiness: RfcReadinessResult;
+}
+
+export interface DoctorRoleRequest {
+  provider?: string;
+  role?: string;
+  model?: string;
+}
+
+export interface DoctorRoleResult extends ProviderHealthSummary {
+  latency_ms: number;
+  install_hint: string;
 }
 
 export interface RoleConfig {
@@ -104,9 +176,14 @@ export interface RoleConfig {
   fallback: string[];
 }
 
-export interface RolesConfigResponse {
+export interface BudgetConfigResponse {
+  budget_profile: BudgetProfile;
+  model_catalog: ModelCapability[];
+}
+
+export interface RolesConfigResponse extends BudgetConfigResponse {
   config_path: string;
-  providers: Record<string, { max_concurrency: number; command: string }>;
+  providers: Record<string, { max_concurrency: number; command: string[] }>;
   roles: Record<string, RoleConfig>;
 }
 

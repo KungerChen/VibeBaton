@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import type { ApiMode, BatonApiClient } from '../api/client';
 import type {
+  BudgetProfile,
+  DoctorRoleResult,
   GraphTraceEvent,
   GraphValidationResult,
   NodeType,
@@ -8,9 +10,13 @@ import type {
   Scenario,
   WorkflowGraph,
 } from '../types/graph';
+import type { DoctorTargets, ModelPinFields } from './nodes/readiness';
 
 export interface LeftSidebarProps {
   presets: PresetItem[];
+  budgetProfile: BudgetProfile | null;
+  budgetProfileSaving: boolean;
+  onBudgetProfileChange(profile: BudgetProfile): void;
   currentGraphId: string;
   onSelectPreset(id: string): void;
   onAddNode(type: NodeType): void;
@@ -37,7 +43,7 @@ export interface PlaybackBarProps {
   disabled?: boolean;
 }
 
-export type NodePatch = {
+export type NodePatch = ModelPinFields & {
   label?: string;
   role?: string;
   provider?: string;
@@ -64,6 +70,11 @@ export interface RightInspectorProps {
   onJumpToStep(i: number): void;
   onToast(msg: string, kind?: 'ok' | 'err'): void;
 }
+
+export type NodeDoctorProps = {
+  doctorTargets?: DoctorTargets;
+  onDoctorResult(result: DoctorRoleResult, sequence: number, fallbackRole?: string): void;
+};
 
 export interface HeaderBarProps {
   mode: ApiMode;
