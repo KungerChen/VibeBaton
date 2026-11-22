@@ -396,6 +396,26 @@ def cmd_ui(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sandbox(args: argparse.Namespace) -> int:
+    """Write Docker Compose and Dev Container sandbox scaffolding into a repository."""
+    from .sandbox import init_sandbox_files
+
+    repo = Path(args.repo).resolve()
+    try:
+        written = init_sandbox_files(repo, force=args.force)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+
+    if not written:
+        print(f"[skip] Sandbox files already exist in {repo} (use --force to overwrite)")
+        return 0
+
+    for path in written:
+        print(f"[ok] Created sandbox file: {path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="baton",
@@ -490,6 +510,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_ui.add_argument("--port", type=int, default=7860)
     p_ui.add_argument("--no-open", action="store_true", help="Skip opening the default browser")
     p_ui.set_defaults(func=cmd_ui)
+
+    p_sandbox = sub.add_parser("sandbox", help="Generate sandbox scaffolding for isolated runs")
+    sandbox_sub = p_sandbox.add_subparsers(dest="sandbox_command", required=True)
+
+    p_sandbox_init = sandbox_sub.add_parser(
+        "init", help="Write Docker Compose and Dev Container templates"
+    )
+    p_sandbox_init.add_argument("--repo", default=".", help="Target repository path")
+    p_sandbox_init.add_argument(
+        "--force", action="store_true", help="Overwrite existing sandbox files"
+    )
+    p_sandbox_init.set_defaults(func=cmd_sandbox)
 
     return parser
 
