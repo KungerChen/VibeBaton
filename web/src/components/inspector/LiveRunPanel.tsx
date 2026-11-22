@@ -306,7 +306,7 @@ export function LiveRunPanel({
             id={`${panelId}-history`}
             value={selectedRunId ?? runId ?? ''}
             onChange={(event) => onSelectRunId(event.currentTarget.value)}
-            className="text-xs font-mono"
+            className="w-full max-w-full min-w-0 truncate text-xs font-mono"
           >
             {runsList.map((item) => {
               const itemStatus = messages.inspector.runStatuses[item.status] ?? item.status;

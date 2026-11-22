@@ -152,11 +152,13 @@ function AppContent() {
   }), [graph]);
   const getGraph = useEffectEvent(() => graph);
   const validation = checkedGraph?.structure === structure ? checkedGraph.result : null;
-  const trace = replayActive
-    ? getStage1ReplayTrace(locale)
-    : simulation?.validation === validation && simulation.scenario === scenario
-      ? simulation.trace
-      : emptyTrace;
+  const trace = liveViewActive
+    ? emptyTrace
+    : replayActive
+      ? getStage1ReplayTrace(locale)
+      : simulation?.validation === validation && simulation.scenario === scenario
+        ? simulation.trace
+        : emptyTrace;
   const stepIndex = Math.min(playback.stepIndex, trace.length);
   const playing = playback.playing && trace.length > 0;
   const resetPlayback = useCallback(() => setPlayback(initialPlayback), []);
@@ -345,7 +347,7 @@ function AppContent() {
   useEffect(() => {
     setSimulation(null);
     if (!replayActiveRef.current) resetPlayback();
-    if (!validation?.valid) return;
+    if (liveViewActive || !validation?.valid) return;
     let active = true;
     const validGraph = validation;
 
@@ -365,7 +367,7 @@ function AppContent() {
 
     void simulate();
     return () => { active = false; };
-  }, [client, push, resetPlayback, scenario, validation]);
+  }, [client, liveViewActive, push, resetPlayback, scenario, validation]);
 
   const stepCount = trace.length;
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { AlertTriangle, Sparkles } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { BatonApiClient } from '../../../api/client';
+import { checkRfcReadiness } from '../../../api/offlineRfc';
 import { useI18n } from '../../../i18n';
 import type { RfcBrainstormRequest, RfcReadinessResult } from '../../../types/graph';
 import { Badge } from '../../ui/badge';
@@ -64,7 +65,9 @@ export function useRfcDraft(client: BatonApiClient, active: boolean) {
     setOperation('skip');
     setSkipWarning(undefined);
     try {
-      const readiness = await client.checkRfc(markdown);
+      const readiness = markdown.trim()
+        ? await client.checkRfc(markdown)
+        : checkRfcReadiness(markdown);
       setChecked({ markdown, readiness });
       const decision = decideRfcSkip(readiness);
       if (decision.kind === 'confirm') setSkipWarning(decision.missingSections);
