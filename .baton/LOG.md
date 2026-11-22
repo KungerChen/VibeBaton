@@ -5,6 +5,19 @@
 | [20261121-051952-m1-graph-remediation](#20261121-051952-m1-graph-remediation) | 2026-11-21 | M1 入口识别、重试限额和旗舰预览汇合 | 已自测，待用户验收 |
 | [20261121-095252-m1-web-resume](#20261121-095252-m1-web-resume) | 2026-11-21 | M1 Web 暂停恢复与 daemon 启动 | 已自测，待用户验收 |
 | [20261121-105235-m2-dual-mode-parity](#20261121-105235-m2-dual-mode-parity) | 2026-11-21 | M2 双模式模拟一致性与旗舰节点层级 | 已自测，待用户验收 |
+| [20261121-212738-m2-subscription-readiness](#20261121-212738-m2-subscription-readiness) | 2026-11-21 | M2 订阅 CLI 认证与主机就绪判断 | 已自测，待用户验收 |
+
+## 20261121-212738-m2-subscription-readiness
+
+2026-11-21 21:27:38 PST。M2 复审授权修复订阅 CLI 的就绪判断和本地 Key 注入。分支为 `baton/25c18a/ms-m2-r1`，起始工作树干净，基准提交为 `4c6b7a1`。
+
+- 新增回归在基准实现上复现 17 个断言失败，涵盖无 Key 时的订阅探测与预设误判、登录提示、本地凭据文件异常和环境解析返回订阅厂商 Key。
+- `src/vibebaton/credentials.py` 按 CLI 原生认证状态判断订阅就绪。在 CLI 返回失败时提供手动登录提示。API 提供商继续校验必需的 Key。存储的 Key 仅用于对应 API 提供商的环境解析。
+- `GET /api/presets` 按 API 提供商映射复核密钥要求，覆盖缓存期间清除密钥的情况。就绪契约已写入 `.baton/00_RFC.md`。
+- `tests/test_web_server.py` 的订阅就绪 Golden Example `test_signed_in_subscription_presets_and_roles_are_ready_without_api_keys` 通过回环 HTTP 验证 Doctor、两个同家族预设和角色模型目录。`tests/test_credentials.py` 覆盖登录状态命令、失败提示、无效凭据文件和环境解析。
+- 三道门禁均返回 0。`python -m unittest discover -s tests -v` 通过 211 项，含静态资源集成测试。`python -m unittest tests.test_web_server tests.test_presets tests.test_graph_cli_mcp -v` 通过 83 项。`cmd /c "cd /d web && npx.cmd vitest run"` 通过 19 个文件、141 项。另通过 `tsc --noEmit` 和 Vite 构建。Python 进程使用本工作树的 `PYTHONPATH` 与 Git ignore 配置。
+- 初次 Vitest 因共享依赖目录不可写失败，替换 junction 的方案被工具策略拒绝，系统临时目录的父路径也触发 esbuild 访问错误。最终在工作树内的临时目录用现有依赖和逐文件核对的 95 个前端及预设文件运行原门禁。构建产物用于补跑静态资源用例，测试后已清理临时副本和产物。
+- 回退参考为 `4c6b7a1` 和当前工作树差异。真实账号验收可在已登录且对应 API Key 为空的主机检查 Doctor 的 `ok` 与同家族预设的 `host_ready`，预期均为 `true`。
 
 ## 20261121-105235-m2-dual-mode-parity
 

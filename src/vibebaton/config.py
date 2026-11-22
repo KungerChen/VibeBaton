@@ -6,7 +6,7 @@ import json
 import os
 import re
 import tomllib
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -141,7 +141,7 @@ def _role_targets(role: RoleConfig) -> Iterator[tuple[str, str]]:
 
 
 def build_model_catalog(
-    cfg: BatonConfig, provider_checks: dict[str, dict[str, Any]] | None = None
+    cfg: BatonConfig, provider_checks: Mapping[str, Mapping[str, Any]] | None = None
 ) -> list[ModelCapability]:
     """List distinct configured targets in role and fallback order.
 

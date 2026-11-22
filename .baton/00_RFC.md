@@ -97,6 +97,8 @@ New pure-stdlib smart-allocation helper module:
   - `list_credential_status(credentials_path=...)`: returns ONLY `{provider_key, configured: bool, source: "env" | "local_file" | "none", masked: str}` (never returns raw key!).
   - `save_credentials(updates: dict[str, str], credentials_path=...)`: writes safely with restrictive file permissions (`0o600` on POSIX) and returns masked statuses only.
   - `probe_role_or_provider(...)`: fast (~<=5s bounded) readiness check with injectable `health_checker` for deterministic testing.
+  - `claude_sub` and `codex_sub` derive readiness from `claude auth status` and `codex login status`, respectively. Doctor suggests the manual sign-in command when the CLI reports a failure.
+  - `dsh_deepseek` and `dsh_opencode` require their respective API keys. `resolve_env_for_provider` supplies stored key additions only for these API-key providers.
 
 #### 3. `src/vibebaton/web_server.py`
 Add REST endpoints cleanly (preserving all existing 14 routes and CORS/traversal safety):

@@ -3,6 +3,8 @@
 A workflow requires schema_version, id, name, nodes and edges. Each node
 requires id, type and label. Each edge requires id, source and target, with
 endpoints given by node IDs and handles defaulting to "out" and "in".
+A graph can include category, required_providers, cost_tier and inspired_by
+metadata.
 WorkflowGraph.from_dict also accepts source_handle, target_handle and maxLoops.
 WorkflowGraph.to_dict writes sourceHandle, targetHandle and max_loops and omits
 optional fields whose value is None.
@@ -88,10 +90,25 @@ class WorkflowGraph:
     difficulty: str = "pro"
     description: str = ""
     recommended_for: list[str] = field(default_factory=list)
+    category: str | None = None
+    required_providers: list[str] | None = None
+    cost_tier: str | None = None
+    inspired_by: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WorkflowGraph:
         _require_fields(data, "Workflow graph", schema_version=str, id=str, name=str, nodes=list, edges=list)
+        for field_name in ("category", "cost_tier", "inspired_by"):
+            value = data.get(field_name)
+            if value is not None and not isinstance(value, str):
+                raise SchemaValidationError(f"Workflow graph.{field_name} must be a string")
+        required_providers = data.get("required_providers")
+        if required_providers is not None and (
+            not isinstance(required_providers, list)
+            or any(not isinstance(provider, str) for provider in required_providers)
+        ):
+            raise SchemaValidationError("Workflow graph.required_providers must be a list of strings")
+
         return cls(
             schema_version=data["schema_version"],
             id=data["id"],
@@ -101,6 +118,10 @@ class WorkflowGraph:
             difficulty=data.get("difficulty", "pro"),
             description=data.get("description", ""),
             recommended_for=data.get("recommended_for", []),
+            category=data.get("category"),
+            required_providers=required_providers,
+            cost_tier=data.get("cost_tier"),
+            inspired_by=data.get("inspired_by"),
         )
 
     def to_dict(self) -> dict[str, Any]:

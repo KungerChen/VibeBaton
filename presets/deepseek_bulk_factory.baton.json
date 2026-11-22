@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "id": "deepseek_bulk_factory",
+  "name": "DeepSeek API Bulk Factory",
+  "difficulty": "intermediate",
+  "description": "DeepSeek API plans batches and executes them across parallel workers. Automated tests check each batch before human sign-off.",
+  "recommended_for": [
+    "Repository-wide migrations with DeepSeek API",
+    "Bulk test generation with DeepSeek API"
+  ],
+  "category": "bulk_batch",
+  "required_providers": ["dsh_opencode"],
+  "cost_tier": "low",
+  "nodes": [
+    {
+      "id": "plan",
+      "type": "planner_node",
+      "label": "Batch Planning (DeepSeek API)",
+      "role": "tactical_planner",
+      "position": { "x": 80, "y": 160 },
+      "config": { "provider": "dsh_opencode", "model": "deepseek-v4.1-flash@max" }
+    },
+    {
+      "id": "worker",
+      "type": "worker_node",
+      "label": "Parallel Batch Workers (DeepSeek API)",
+      "role": "bulk_worker",
+      "position": { "x": 380, "y": 160 },
+      "config": { "provider": "dsh_opencode", "model": "deepseek-v4.1-flash@max", "concurrency": 4 }
+    },
+    {
+      "id": "gate",
+      "type": "gate_node",
+      "label": "Test Changes from DeepSeek API",
+      "position": { "x": 680, "y": 160 },
+      "config": { "commands": ["python -m unittest discover -s tests"] }
+    },
+    {
+      "id": "human_final",
+      "type": "human_gate_node",
+      "label": "DeepSeek API Batch Sign-Off",
+      "position": { "x": 980, "y": 160 },
+      "config": {}
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "plan", "sourceHandle": "out", "target": "worker", "targetHandle": "in" },
+    { "id": "e2", "source": "worker", "sourceHandle": "out", "target": "gate", "targetHandle": "in" },
+    { "id": "e3", "source": "gate", "sourceHandle": "pass", "target": "human_final", "targetHandle": "in" },
+    { "id": "e4", "source": "gate", "sourceHandle": "fail", "target": "worker", "targetHandle": "fix", "max_loops": 2 }
+  ]
+}

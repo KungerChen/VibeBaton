@@ -28,6 +28,16 @@ PRESET_SUFFIX = ".baton.json"
 
 @dataclass
 class PresetSummary:
+    """Preset metadata with defaults for graphs that omit it.
+
+    The default category is ``audit`` for ``review_only_audit``, ``small_project``
+    for other beginner graphs, and ``general`` otherwise. Provider requirements
+    default to distinct nonempty provider IDs in node order, excluding
+    ``host_native``. The default cost tier is ``medium`` and the default
+    attribution is ``None``. Explicit metadata takes precedence, including an
+    empty provider list.
+    """
+
     id: str
     name: str
     difficulty: str
@@ -36,6 +46,10 @@ class PresetSummary:
     path: str
     node_count: int
     edge_count: int
+    category: str
+    required_providers: list[str]
+    cost_tier: str
+    inspired_by: str | None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -64,6 +78,14 @@ def list_presets(directory: str | Path | None = None) -> list[PresetSummary]:
                 path=str(path),
                 node_count=len(graph.nodes),
                 edge_count=len(graph.edges),
+                category=graph.category if graph.category is not None else _default_category(graph),
+                required_providers=(
+                    graph.required_providers
+                    if graph.required_providers is not None
+                    else _providers_from_nodes(graph)
+                ),
+                cost_tier=graph.cost_tier if graph.cost_tier is not None else "medium",
+                inspired_by=graph.inspired_by,
             )
         )
     return summaries
@@ -107,6 +129,20 @@ def validate_all_presets(
         graph = _load_graph(path)
         results[graph.id] = validate_graph(graph)
     return results
+
+
+def _default_category(graph: WorkflowGraph) -> str:
+    if graph.id == "review_only_audit":
+        return "audit"
+    return "small_project" if graph.difficulty == "beginner" else "general"
+
+
+def _providers_from_nodes(graph: WorkflowGraph) -> list[str]:
+    providers = (node.config.get("provider") for node in graph.nodes)
+    return list(dict.fromkeys(
+        provider for provider in providers
+        if isinstance(provider, str) and provider and provider != "host_native"
+    ))
 
 
 def _preset_paths(directory: str | Path | None = None) -> list[Path]:

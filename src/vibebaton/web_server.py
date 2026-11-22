@@ -13,19 +13,29 @@ import threading
 import time
 import tomllib
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable, Mapping, TypedDict
+from time import monotonic
+from typing import Any, Callable, Iterable, Mapping, Protocol, TypedDict
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, presets
-from .config import HotReloadConfig, RoleConfig, find_config_path
+from . import __version__, credentials, presets
+from .config import (
+    ALLOWED_BUDGET_PROFILES,
+    BatonConfig,
+    HotReloadConfig,
+    RoleConfig,
+    build_model_catalog,
+    find_config_path,
+)
 from .db import StateStore
 from .graph_engine import SCENARIOS, simulate_graph
 from .graph_schema import GraphValidationResult, WorkflowGraph, validate_graph
 from .mcp_server import _spawn_detached_daemon
 from .report import generate_battle_report
+from .rfc_checker import check_rfc_readiness, generate_structured_rfc
 from .schemas import RunStatus
 
 # Capture groups are passed to the handler as positional arguments. The full
@@ -38,6 +48,12 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(r"/api/graph/simulate"), "_post_graph_simulate"),
     ("GET", re.compile(r"/api/config/roles"), "_get_config_roles"),
     ("PUT", re.compile(r"/api/config/roles/([^/]+)"), "_put_config_role"),
+    ("PUT", re.compile(r"/api/config/budget"), "_put_config_budget"),
+    ("POST", re.compile(r"/api/doctor/role"), "_post_doctor_role"),
+    ("GET", re.compile(r"/api/credentials"), "_get_credentials"),
+    ("POST", re.compile(r"/api/credentials"), "_post_credentials"),
+    ("POST", re.compile(r"/api/rfc/check"), "_post_rfc_check"),
+    ("POST", re.compile(r"/api/rfc/brainstorm"), "_post_rfc_brainstorm"),
     ("GET", re.compile(r"/api/runs/latest"), "_get_latest_run"),
     ("GET", re.compile(r"/api/runs/stream"), "_get_run_stream"),
     ("GET", re.compile(r"/api/runs/([^/]+)"), "_get_run"),
@@ -47,11 +63,12 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(r"/api/runs/([^/]+)/resolve"), "_post_run_resolve"),
 ]
 
-_TOML_ROLE_KEY_LINE = re.compile(
-    r"""(?P<assignment>[ \t]*(?P<quote>["']?)(?P<key>provider|model)(?P=quote)[ \t]*=[ \t]*)"""
+_TOML_STRING_KEY_LINE = re.compile(
+    r"""(?P<assignment>[ \t]*(?P<quote>["']?)(?P<key>[\w-]+)(?P=quote)[ \t]*=[ \t]*)"""
     r"""(?:"{3}(?:[^\\]|\\.)*?"{3,5}|'{3}.*?'{3,5}|"(?:[^"\\]|\\.)*"|'[^']*'|[^#"']*?)"""
     r"""(?P<suffix>[ \t]*(?:#.*)?)"""
 )
+_PROBE_TTL_SEC = 60.0
 
 _STATIC_MIME_TYPES = {
     ".html": "text/html",
@@ -79,6 +96,68 @@ class _BadRequest(ValueError):
     """A request error serialized by the dispatcher as a JSON 400."""
 
 
+class _ProviderProbe(Protocol):
+    def __call__(
+        self,
+        config: BatonConfig,
+        /,
+        *,
+        provider: str | None = None,
+        role: str | None = None,
+        model: str | None = None,
+        credentials_path: Path | None = None,
+    ) -> credentials.ProbeResult: ...
+
+
+_ProviderProbeKey = tuple[Path, str, tuple[str, ...] | None]
+
+
+class _ProviderProbeCache:
+    """Share provider probes for the same credential store and CLI configuration."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._entries: dict[_ProviderProbeKey, tuple[float, credentials.ProbeResult]] = {}
+
+    def check(
+        self,
+        config: BatonConfig,
+        providers: Iterable[str],
+        credentials_path: Path,
+        probe: _ProviderProbe,
+    ) -> dict[str, credentials.ProbeResult]:
+        checks: dict[str, credentials.ProbeResult] = {}
+        missing: dict[str, _ProviderProbeKey] = {}
+        with self._lock:
+            now = monotonic()
+            self._entries = {key: entry for key, entry in self._entries.items() if entry[0] > now}
+            for provider in providers:
+                provider_config = config.providers.get(provider)
+                command = tuple(provider_config.command) if provider_config is not None else None
+                key = (credentials_path, provider, command)
+                if key in self._entries:
+                    checks[provider] = self._entries[key][1]
+                else:
+                    missing[provider] = key
+
+            if missing:
+                def run_probe(provider: str) -> credentials.ProbeResult:
+                    return probe(config, provider=provider, credentials_path=credentials_path)
+
+                with ThreadPoolExecutor() as pool:
+                    for (provider, key), result in zip(missing.items(), pool.map(run_probe, missing), strict=True):
+                        self._entries[key] = (monotonic() + _PROBE_TTL_SEC, result)
+                        checks[provider] = result
+        return checks
+
+    def invalidate(self, credentials_path: Path) -> None:
+        with self._lock:
+            self._entries = {key: entry for key, entry in self._entries.items() if key[0] != credentials_path}
+
+
+_PROCESS_PROVIDER_PROBES = _ProviderProbeCache()
+
+
 class _RunSnapshot(TypedDict):
     run: dict[str, Any] | None
     milestones: list[dict[str, Any]]
@@ -98,6 +177,14 @@ def _load_json(data: str | bytes | bytearray) -> Any:
     return json.loads(data, parse_constant=_parse_finite_float, parse_float=_parse_finite_float)
 
 
+def _text_field(payload: Mapping[str, Any], key: str, *, default: str | None = None) -> str:
+    value = payload.get(key, default)
+    if not isinstance(value, str) or (default is None and not value.strip()):
+        expected = "a non-empty string" if default is None else "a string"
+        raise _BadRequest(f"{key} must be {expected}")
+    return value
+
+
 def _find_preset(preset_id: str) -> presets.PresetSummary:
     for summary in presets.list_presets():
         if summary.id == preset_id:
@@ -113,10 +200,9 @@ def _role_payload(role: RoleConfig) -> dict[str, Any]:
     }
 
 
-def _config_roles_payload(loader: HotReloadConfig) -> dict[str, Any]:
-    config = loader.current
+def _config_roles_payload(config: BatonConfig, path: Path) -> dict[str, Any]:
     return {
-        "config_path": str(loader.path),
+        "config_path": str(path),
         "providers": {
             name: {"max_concurrency": provider.max_concurrency, "command": provider.command}
             for name, provider in config.providers.items()
@@ -125,27 +211,38 @@ def _config_roles_payload(loader: HotReloadConfig) -> dict[str, Any]:
     }
 
 
-def _set_toml_role_keys(text: str, role: str, updates: dict[str, str]) -> str:
-    """Replace role values in a TOML table while retaining its original formatting."""
-    lines = text.split("\n")
-    header = re.compile(rf"[ \t]*\[roles\.{re.escape(role)}\][ \t]*(?:#.*)?")
-    for index, line in enumerate(lines):
-        if header.fullmatch(line.removesuffix("\r")):
-            start = index
-            break
-    else:
-        raise ValueError(f"Missing [roles.{role}] section")
-
+def _set_toml_table_keys(
+    text: str, table: str, updates: dict[str, str], *, create: bool = False
+) -> str:
+    """Replace string values in a TOML table while retaining its formatting."""
     # JSON basic string escapes also work in TOML. TOML additionally requires escaping DEL.
     pending = {
         key: json.dumps(value, ensure_ascii=False).replace("\x7f", r"\u007f")
         for key, value in updates.items()
     }
+    lines = text.split("\n")
+    name = re.escape(table)
+    if "." not in table:
+        name = rf"""[ \t]*(?:{name}|"{name}"|'{name}')[ \t]*"""
+    header = re.compile(rf"[ \t]*\[{name}\][ \t]*(?:#.*)?")
+    for index, line in enumerate(lines):
+        if header.fullmatch(line.removesuffix("\r")):
+            start = index
+            break
+    else:
+        if not create:
+            raise ValueError(f"Missing [{table}] section")
+        newline = "\r\n" if "\r\n" in text else "\n"
+        if text:
+            text += newline if text.endswith("\n") else newline * 2
+        assignments = [f"{key} = {value}" for key, value in pending.items()]
+        return text + newline.join([f"[{table}]", *assignments, ""])
+
     for index in range(start + 1, len(lines)):
         line = lines[index]
         if line.lstrip(" \t").startswith("["):
             break
-        match = _TOML_ROLE_KEY_LINE.fullmatch(line.removesuffix("\r"))
+        match = _TOML_STRING_KEY_LINE.fullmatch(line.removesuffix("\r"))
         if match is None or match["key"] not in pending:
             continue
         value = pending.pop(match["key"])
@@ -157,6 +254,17 @@ def _set_toml_role_keys(text: str, role: str, updates: dict[str, str]) -> str:
         f"{key} = {value}{carriage_return}" for key, value in pending.items()
     ]
     return "\n".join(lines)
+
+
+def _set_toml_role_keys(text: str, role: str, updates: dict[str, str]) -> str:
+    return _set_toml_table_keys(text, f"roles.{role}", updates)
+
+
+def _local_config_path(repo: Path) -> Path:
+    path = (repo / ".baton" / "baton.toml").resolve()
+    if not path.is_relative_to(repo):
+        raise _BadRequest("The local configuration must be inside the repository")
+    return path
 
 
 def _replace_config_file(path: Path, contents: bytes) -> None:
@@ -234,6 +342,9 @@ class _CanvasHTTPServer(ThreadingHTTPServer):
     store: StateStore
     static_dir: Path
     daemon_spawner: Callable[[Path, Path, str], int] | None
+    credentials_path: Path
+    provider_probe: _ProviderProbe
+    provider_probe_cache: _ProviderProbeCache
 
     def __init__(self, address: tuple[str, int]) -> None:
         self.shutdown_event = threading.Event()
@@ -241,6 +352,11 @@ class _CanvasHTTPServer(ThreadingHTTPServer):
         self._lifecycle_lock = threading.Lock()
         self._serving = False
         super().__init__(address, _CanvasRequestHandler)
+
+    def provider_checks(
+        self, config: BatonConfig, providers: Iterable[str]
+    ) -> dict[str, credentials.ProbeResult]:
+        return self.provider_probe_cache.check(config, providers, self.credentials_path, self.provider_probe)
 
     def serve_forever(self, poll_interval: float = 0.5) -> None:
         try:
@@ -280,8 +396,9 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_json(self, status: int, payload: Mapping[str, Any]) -> None:
-        self._send_bytes(status, "application/json", json.dumps(dict(payload)).encode("utf-8"), cors=True)
+    def _send_json(self, status: int, payload: Mapping[str, Any] | list[credentials.CredentialStatus]) -> None:
+        data = dict(payload) if isinstance(payload, Mapping) else payload
+        self._send_bytes(status, "application/json", json.dumps(data).encode("utf-8"), cors=True)
 
     def _read_json_body(self) -> dict[str, Any]:
         try:
@@ -338,7 +455,8 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
 
     def _get_health(self) -> None:
         with self.server.config_lock:
-            config = _config_roles_payload(self.server.loader)
+            loader = self.server.loader
+            config = _config_roles_payload(loader.current, loader.path)
         self._send_json(
             200,
             {
@@ -352,13 +470,32 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         )
 
     def _get_presets(self) -> None:
+        summaries = presets.list_presets()
+        required = {provider for summary in summaries for provider in summary.required_providers}
+        with self.server.config_lock:
+            config = self.server.loader.current
+        checks = self.server.provider_checks(config, required)
+        try:
+            statuses = credentials.list_credential_status(self.server.credentials_path)
+        except (OSError, ValueError):
+            statuses = []
+        configured_keys = {status["provider_key"] for status in statuses if status["configured"]}
+        # Recheck API-key requirements in case the cached probe predates a local key change.
+        ready = {
+            provider for provider, check in checks.items()
+            if check["ok"] and configured_keys.issuperset(credentials.PROVIDER_KEY_MAP.get(provider, ()))
+        }
+
         rows = []
-        for summary in presets.list_presets():
+        for summary in summaries:
             graph = presets.load_preset(summary.path)
             validation = validate_graph(graph)
+            missing = [provider for provider in summary.required_providers if provider not in ready]
             rows.append(
                 {
                     **summary.to_dict(),
+                    "host_ready": not missing,
+                    "missing_providers": missing,
                     "valid": validation.valid,
                     "errors": validation.errors,
                     "warnings": validation.warnings,
@@ -423,8 +560,17 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
 
     def _get_config_roles(self) -> None:
         with self.server.config_lock:
-            payload = _config_roles_payload(self.server.loader)
-        self._send_json(200, payload)
+            loader = self.server.loader
+            config = loader.current
+            payload = _config_roles_payload(config, loader.path)
+        self._send_json(200, {**payload, **self._budget_config_payload(config)})
+
+    def _budget_config_payload(self, config: BatonConfig) -> dict[str, Any]:
+        checks = self.server.provider_checks(config, config.providers)
+        return {
+            "budget_profile": config.policies.budget_profile,
+            "model_catalog": [capability.to_dict() for capability in build_model_catalog(config, checks)],
+        }
 
     def _put_config_role(self, role_name: str) -> None:
         payload = self._read_json_body()
@@ -448,11 +594,8 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
 
             if loader.path.suffix.lower() != ".toml":
                 raise _BadRequest("Role editing requires a TOML configuration")
-            repo = self.server.repo_path
             try:
-                config_path = (repo / ".baton" / "baton.toml").resolve()
-                if not config_path.is_relative_to(repo):
-                    raise _BadRequest("The local configuration must be inside the repository")
+                config_path = _local_config_path(self.server.repo_path)
                 if loader.path != config_path and config_path.exists():
                     self._send_json(409, {"error": "A different repo-local baton.toml already exists"})
                     return
@@ -483,6 +626,105 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         self._send_json(
             200, {"role_name": role_name, "role": _role_payload(role), "config_path": str(loader.path)}
         )
+
+    def _put_config_budget(self) -> None:
+        profile = self._read_json_body().get("budget_profile")
+        if not isinstance(profile, str) or profile not in ALLOWED_BUDGET_PROFILES:
+            raise _BadRequest(f"budget_profile must be one of {', '.join(ALLOWED_BUDGET_PROFILES)}")
+
+        with self.server.config_lock:
+            loader = self.server.loader
+            if loader.path.suffix.lower() != ".toml":
+                raise _BadRequest("Budget editing requires a TOML configuration")
+            try:
+                config_path = _local_config_path(self.server.repo_path)
+                if loader.path != config_path and config_path.exists():
+                    self._send_json(409, {"error": "A different repo-local baton.toml already exists"})
+                    return
+
+                original = loader.path.read_bytes().decode("utf-8")
+                try:
+                    updated = _set_toml_table_keys(original, "policies", {"budget_profile": profile}, create=True)
+                    expected = tomllib.loads(original, parse_float=str)
+                    expected.setdefault("policies", {})["budget_profile"] = profile
+                    if tomllib.loads(updated, parse_float=str) != expected:
+                        raise ValueError("The edit did not change exactly policies.budget_profile")
+                    contents = updated.encode("utf-8")
+                except (TypeError, ValueError) as exc:
+                    raise _BadRequest(f"Cannot edit budget_profile ({exc})") from exc
+
+                _replace_config_file(config_path, contents)
+                if loader.path != config_path:
+                    loader = HotReloadConfig(config_path)
+                config = loader.reload(force=True)
+            except OSError as exc:
+                self._send_json(500, {"error": f"Cannot save the budget configuration ({exc})"})
+                return
+
+            if config.policies.budget_profile != profile:
+                self._send_json(500, {"error": "Reloaded budget_profile did not match the requested profile"})
+                return
+            self.server.loader = loader
+        self._send_json(200, self._budget_config_payload(config))
+
+    def _post_doctor_role(self) -> None:
+        payload = self._read_json_body()
+        provider = _text_field(payload, "provider", default="").strip() or None
+        role = _text_field(payload, "role", default="").strip() or None
+        model = _text_field(payload, "model", default="").strip() or None
+        if provider is None and role is None:
+            raise _BadRequest("Provide a provider or role")
+
+        with self.server.config_lock:
+            config = self.server.loader.current
+        result = self.server.provider_probe(
+            config, provider=provider, role=role, model=model, credentials_path=self.server.credentials_path
+        )
+        self._send_json(200, result)
+
+    def _get_credentials(self) -> None:
+        try:
+            statuses = credentials.list_credential_status(self.server.credentials_path)
+        except (OSError, ValueError):
+            self._send_json(500, {"error": "Local credentials could not be read"})
+            return
+        self._send_json(200, statuses)
+
+    def _post_credentials(self) -> None:
+        payload = self._read_json_body()
+        updates = payload.get("updates", payload)
+        if not isinstance(updates, dict):
+            raise _BadRequest("updates must map credential keys to strings")
+        try:
+            path = self.server.credentials_path.resolve()
+            if path.is_relative_to(self.server.repo_path):
+                raise ValueError("Credentials must be stored outside the repository")
+            name = path.name.lower()
+            if name == "baton.toml" or name.endswith(".baton.json"):
+                raise ValueError("Credentials require a dedicated local store")
+            statuses = credentials.save_credentials(updates, credentials_path=path)
+        except ValueError as exc:
+            raise _BadRequest(str(exc)) from exc
+        except (OSError, RuntimeError):
+            self._send_json(500, {"error": "Local credentials could not be saved"})
+            return
+
+        self.server.provider_probe_cache.invalidate(self.server.credentials_path)
+        self._send_json(200, statuses)
+
+    def _post_rfc_check(self) -> None:
+        markdown = _text_field(self._read_json_body(), "rfc_markdown")
+        self._send_json(200, check_rfc_readiness(markdown))
+
+    def _post_rfc_brainstorm(self) -> None:
+        payload = self._read_json_body()
+        result = generate_structured_rfc(
+            goal=_text_field(payload, "goal"),
+            constraints=_text_field(payload, "constraints", default=""),
+            acceptance_cmd=_text_field(payload, "acceptance_cmd", default=""),
+            non_goals=_text_field(payload, "non_goals", default=""),
+        )
+        self._send_json(200, result)
 
     def _get_latest_run(self) -> None:
         self._send_json(200, _latest_run_snapshot(self.server.store))
@@ -681,6 +923,9 @@ def create_server(
     static_dir: Path | None = None,
     config_path: Path | None = None,
     daemon_spawner: Callable[[Path, Path, str], int] | None = None,
+    *,
+    credentials_path: Path | None = None,
+    provider_probe: _ProviderProbe | None = None,
 ) -> ThreadingHTTPServer:
     """Bind a server for the repository and initialize its shared context."""
     repo_path = repo_path.resolve()
@@ -689,6 +934,7 @@ def create_server(
     if static_dir is None:
         static_dir = Path(__file__).resolve().parents[2] / "web" / "dist"
     static_dir = static_dir.resolve()
+    local_credentials_path = credentials.default_credentials_path(credentials_path).resolve()
 
     server = _CanvasHTTPServer((host, port))
     server.repo_path = repo_path
@@ -696,6 +942,9 @@ def create_server(
     server.store = store
     server.static_dir = static_dir
     server.daemon_spawner = daemon_spawner
+    server.credentials_path = local_credentials_path
+    server.provider_probe = credentials.probe_role_or_provider if provider_probe is None else provider_probe
+    server.provider_probe_cache = _PROCESS_PROVIDER_PROBES if provider_probe is None else _ProviderProbeCache()
     return server
 
 
@@ -710,8 +959,14 @@ class VibeBatonWebServer:
         static_dir: Path | None = None,
         config_path: Path | None = None,
         daemon_spawner: Callable[[Path, Path, str], int] | None = None,
+        *,
+        credentials_path: Path | None = None,
+        provider_probe: _ProviderProbe | None = None,
     ) -> None:
-        self.server = create_server(repo_path, host, port, static_dir, config_path, daemon_spawner)
+        self.server = create_server(
+            repo_path, host, port, static_dir, config_path, daemon_spawner,
+            credentials_path=credentials_path, provider_probe=provider_probe,
+        )
         self.url = f"http://{host}:{self.server.server_address[1]}"
 
     def serve_forever(self) -> None:
