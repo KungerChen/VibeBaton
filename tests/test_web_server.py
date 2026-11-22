@@ -4,26 +4,37 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import tempfile
 import threading
 import unittest
 from contextlib import redirect_stdout
+from functools import partial
 from html import unescape
 from http.client import HTTPMessage, HTTPResponse
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from vibebaton import __version__, cli
+from vibebaton import __version__, cli, credentials
+from vibebaton.config import BatonConfig, HotReloadConfig
 from vibebaton.db import StateStore
 from vibebaton.schemas import RunStatus
 from vibebaton.web_server import VibeBatonWebServer, _set_toml_role_keys, create_server
 
-PRESET_IDS = ("flagship_4tier", "review_only_audit", "solo_coder_3tier", "starter_2tier")
+PRESET_IDS = (
+    "claude_only_3tier",
+    "codex_only_3tier",
+    "deepseek_bulk_factory",
+    "flagship_4tier",
+    "review_only_audit",
+    "solo_coder_3tier",
+    "starter_2tier",
+)
 NON_FINITE_JSON_NUMBERS = ("NaN", "Infinity", "-Infinity", "1e400", "-1e400")
 
 
@@ -54,6 +65,26 @@ def _cycle_json_with_loop_limit(token: str) -> str:
     return json.dumps(graph).replace('"__loop_limit__"', token)
 
 
+def _fake_provider_probe(
+    config: BatonConfig,
+    *,
+    provider: str | None = None,
+    role: str | None = None,
+    model: str | None = None,
+    credentials_path: Path | None = None,
+) -> credentials.ProbeResult:
+    role_config = config.roles.get(role) if role is not None else None
+    target = provider or (role_config.provider if role_config else "")
+    ok = target in {"codex_sub", "dsh_opencode", "host_native"}
+    return {
+        "ok": ok,
+        "provider": target,
+        "detail": "CLI available" if ok else "CLI unavailable",
+        "latency_ms": 0.25,
+        "install_hint": "" if ok else "Check PATH",
+    }
+
+
 class WebServerTestCase(unittest.TestCase):
     """Run each test against a fresh loopback server and a temporary repository."""
 
@@ -66,16 +97,31 @@ class WebServerTestCase(unittest.TestCase):
         self.example_path = Path(__file__).resolve().parents[1] / "baton.example.toml"
         shutil.copy2(self.example_path, self.config_path)
         self.spawn_calls: list[tuple[Path, Path, str]] = []
+        self.credentials_path = Path(self.enterContext(tempfile.TemporaryDirectory())) / "credentials.json"
+        self.enterContext(patch.dict(os.environ))
+        for key in credentials.SUPPORTED_KEYS:
+            os.environ.pop(key, None)
+        self.provider_probe = Mock(side_effect=_fake_provider_probe)
 
         self.server = self._create_server()
-        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
-        self.thread = threading.Thread(
-            target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
-        )
-        self.thread.start()
+        self.base = self.start_server(self.server)
+
+    def start_server(self, server: ThreadingHTTPServer) -> str:
+        self.addCleanup(server.server_close)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, timeout=5)
+        self.addCleanup(server.shutdown)
+        return f"http://127.0.0.1:{server.server_address[1]}"
 
     def _create_server(self) -> ThreadingHTTPServer:
-        return create_server(self.repo, port=0, daemon_spawner=self.fake_spawner)
+        return create_server(
+            self.repo,
+            port=0,
+            daemon_spawner=self.fake_spawner,
+            credentials_path=self.credentials_path,
+            provider_probe=self.provider_probe,
+        )
 
     def fake_spawner(self, repo_path: Path, config_path: Path, run_id: str) -> int:
         self.spawn_calls.append((repo_path, config_path, run_id))
@@ -117,11 +163,6 @@ class WebServerTestCase(unittest.TestCase):
         )
         return self._request(request)
 
-    def tearDown(self) -> None:
-        self.server.shutdown()
-        self.server.server_close()
-        self.thread.join(timeout=5)
-
 
 class TestWebApi(WebServerTestCase):
     def test_health(self) -> None:
@@ -142,7 +183,7 @@ class TestWebApi(WebServerTestCase):
         self.assertEqual(set(role), {"provider", "model", "fallback"})
         self.assertEqual(set(role["fallback"][0]), {"provider", "model"})
 
-    def test_lists_four_presets_with_graphs_and_validation(self) -> None:
+    def test_lists_seven_presets_with_graphs_and_validation(self) -> None:
         status, _, body = self.get("/api/presets")
         self.assertEqual(status, 200)
         self.assertCountEqual([row["id"] for row in body["presets"]], PRESET_IDS)
@@ -154,6 +195,73 @@ class TestWebApi(WebServerTestCase):
                 self.assertIs(row["valid"], True)
                 self.assertEqual(row["errors"], [])
                 self.assertIsInstance(row["warnings"], list)
+
+    def test_preset_readiness_requires_health_and_keys_for_api_providers(self) -> None:
+        status, _, body = self.get("/api/presets")
+
+        self.assertEqual(status, 200)
+        readiness = {
+            row["id"]: (row["host_ready"], row["missing_providers"]) for row in body["presets"]
+        }
+        self.assertEqual(readiness["codex_only_3tier"], (True, []))
+        self.assertEqual(readiness["claude_only_3tier"], (False, ["claude_sub"]))
+        self.assertEqual(readiness["deepseek_bulk_factory"], (False, ["dsh_opencode"]))
+        self.assertEqual(readiness["flagship_4tier"], (False, ["claude_sub", "dsh_opencode"]))
+
+    def test_signed_in_subscription_presets_and_roles_are_ready_without_api_keys(self) -> None:
+        self.provider_probe.side_effect = partial(
+            credentials.probe_role_or_provider, health_checker=Mock(return_value=(True, "Logged in")),
+        )
+
+        status, _, presets = self.get("/api/presets")
+        self.assertEqual(status, 200)
+        presets_by_id = {row["id"]: row for row in presets["presets"]}
+        status, _, config = self.get("/api/config/roles")
+        self.assertEqual(status, 200)
+
+        cases = (
+            ("claude_sub", "claude_only_3tier", "tactical_planner"),
+            ("codex_sub", "codex_only_3tier", "micro_orchestrator"),
+        )
+        for provider, preset_id, role in cases:
+            with self.subTest(provider=provider):
+                preset = presets_by_id[preset_id]
+                self.assertIs(preset["host_ready"], True)
+                self.assertEqual(preset["missing_providers"], [])
+                catalog = [row for row in config["model_catalog"] if row["provider"] == provider]
+                self.assertTrue(catalog)
+                for row in catalog:
+                    self.assertIs(row["ready"], True, row)
+
+                status, _, doctor = self.send_json("/api/doctor/role", {"role": role})
+                self.assertEqual(status, 200)
+                self.assertEqual(doctor["provider"], provider)
+                self.assertIs(doctor["ok"], True)
+                self.assertEqual(doctor["install_hint"], "")
+
+        self.assertEqual(presets_by_id["deepseek_bulk_factory"]["missing_providers"], ["dsh_opencode"])
+
+    def test_default_provider_probes_are_cached_across_servers_for_sixty_seconds(self) -> None:
+        with (
+            patch.object(credentials, "probe_role_or_provider", side_effect=_fake_provider_probe) as probe,
+            patch("vibebaton.web_server.monotonic", return_value=100.0) as clock,
+        ):
+            first, second = (
+                self.start_server(create_server(self.repo, port=0, credentials_path=self.credentials_path))
+                for _ in range(2)
+            )
+            self.assertEqual(self._request(Request(first + "/api/config/roles"))[0], 200)
+            self.assertCountEqual([call.kwargs["provider"] for call in probe.call_args_list], [
+                "claude_sub", "codex_sub", "dsh_opencode",
+            ])
+
+            clock.return_value = 159.999
+            self.assertEqual(self._request(Request(second + "/api/presets"))[0], 200)
+            self.assertEqual(probe.call_count, 3)
+
+            clock.return_value = 160.0
+            self.assertEqual(self._request(Request(second + "/api/config/roles"))[0], 200)
+            self.assertEqual(probe.call_count, 6)
 
     def test_flagship_preset_details(self) -> None:
         status, _, body = self.get("/api/presets/flagship_4tier")
@@ -383,10 +491,27 @@ class TestRoleConfigApi(WebServerTestCase):
         status, headers, body = self.get("/api/config/roles")
         self.assertEqual(status, 200)
         self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
-        self.assertEqual(set(body), {"config_path", "providers", "roles"})
+        self.assertEqual(set(body), {"config_path", "providers", "roles", "budget_profile", "model_catalog"})
         self.assertEqual(body["config_path"], str(self.config_path))
         self.assertEqual(set(body["providers"]["codex_sub"]), {"max_concurrency", "command"})
         self.assertEqual(set(body["roles"]["bulk_worker"]), {"provider", "model", "fallback"})
+        self.assertEqual(body["budget_profile"], "balanced")
+        self.assertIn({
+            "provider": "codex_sub",
+            "model": "gpt-6.2-sol@max",
+            "efforts": ["low", "high", "max"],
+            "cost_tier": "standard",
+            "ready": True,
+            "detail": "CLI available",
+        }, body["model_catalog"])
+        self.assertIn({
+            "provider": "claude_sub",
+            "model": "fable@high",
+            "efforts": ["low", "high", "max"],
+            "cost_tier": "flagship",
+            "ready": False,
+            "detail": "CLI unavailable",
+        }, body["model_catalog"])
 
     def test_put_persists_the_bulk_worker_model_and_preserves_other_lines(self) -> None:
         header = b"[roles.bulk_worker]"
@@ -463,6 +588,254 @@ class TestExampleConfigApi(WebServerTestCase):
         self.assertEqual(current["config_path"], str(self.config_path))
         self.assertEqual(current["roles"], {**initial["roles"], "bulk_worker": result["role"]})
 
+    def test_budget_put_creates_a_local_override_from_the_active_toml(self) -> None:
+        self.assertFalse(self.config_path.exists())
+        example = self.example_path.read_bytes()
+        _, _, initial = self.get("/api/config/roles")
+
+        status, _, result = self.send_json("/api/config/budget", {"budget_profile": "eco"}, method="PUT")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(result, {"budget_profile": "eco", "model_catalog": initial["model_catalog"]})
+        self.assertEqual(self.example_path.read_bytes(), example)
+        newline = b"\r\n" if b"\r\n" in example else b"\n"
+        self.assertEqual(self.config_path.read_bytes(), example.replace(
+            b"[policies]" + newline, b"[policies]" + newline + b'budget_profile = "eco"' + newline, 1,
+        ))
+        current = self.get("/api/config/roles")[2]
+        self.assertEqual(current, {**initial, "config_path": str(self.config_path), "budget_profile": "eco"})
+
+
+class TestBudgetConfigApi(WebServerTestCase):
+    def test_budget_put_replaces_only_the_profile_value_and_reloads(self) -> None:
+        old_line = b"\t'budget_profile'\t= 'eco' \t# budget comment"
+        source = self.config_path.read_bytes().replace(b"\r\n", b"\n").replace(b"[policies]", (
+            b'[ "policies" ] # policy comment\n' + old_line
+        ), 1)
+        source += b"\n[policies.other]\n" + old_line + b"\n"
+        source = source.replace(b"\n", b"\r\n")
+        self.config_path.write_bytes(source)
+
+        status, headers, result = self.send_json(
+            "/api/config/budget", {"budget_profile": "max_quality"}, method="PUT"
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+        self.assertEqual(set(result), {"budget_profile", "model_catalog"})
+        self.assertEqual(result["budget_profile"], "max_quality")
+        self.assertEqual(self.config_path.read_bytes(), source.replace(
+            old_line, b'\t\'budget_profile\'\t= "max_quality" \t# budget comment', 1,
+        ))
+        self.assertEqual(HotReloadConfig(self.config_path).current.policies.budget_profile, "max_quality")
+        current = self.get("/api/config/roles")[2]
+        self.assertEqual(current["budget_profile"], "max_quality")
+        self.assertEqual(current["model_catalog"], result["model_catalog"])
+
+    def test_budget_put_appends_a_missing_policy_table(self) -> None:
+        source = b'# existing config\r\n[daemon]\r\npoll_interval_sec = 0.5 # keep this'
+        self.config_path.write_bytes(source)
+
+        status, _, result = self.send_json(
+            "/api/config/budget", {"budget_profile": "balanced"}, method="PUT"
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(result, {"budget_profile": "balanced", "model_catalog": []})
+        self.assertEqual(self.config_path.read_bytes(), source + (
+            b'\r\n\r\n[policies]\r\nbudget_profile = "balanced"\r\n'
+        ))
+
+    def test_budget_put_rejects_missing_or_invalid_values_without_writing(self) -> None:
+        original = self.config_path.read_bytes()
+        for payload in ({}, {"budget_profile": None}, {"budget_profile": True}, {"budget_profile": "fast"}):
+            with self.subTest(payload=payload):
+                status, _, body = self.send_json("/api/config/budget", payload, method="PUT")
+                self.assertEqual(status, 400)
+                self.assertIn("budget_profile", body["error"])
+        self.assertEqual(self.config_path.read_bytes(), original)
+        self.provider_probe.assert_not_called()
+
+
+class TestDoctorApi(WebServerTestCase):
+    def test_doctor_passes_the_selected_provider_role_and_model_to_a_fresh_probe(self) -> None:
+        self.get("/api/config/roles")
+        self.provider_probe.reset_mock()
+        request = {"provider": "codex_sub", "role": "bulk_worker", "model": "gpt-6.2-sol@max"}
+
+        status, _, result = self.send_json("/api/doctor/role", request)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(result, {
+            "ok": True,
+            "provider": "codex_sub",
+            "detail": "CLI available",
+            "latency_ms": 0.25,
+            "install_hint": "",
+        })
+        self.provider_probe.assert_called_once()
+        self.assertEqual(self.provider_probe.call_args.kwargs, {**request, "credentials_path": self.credentials_path})
+
+    def test_doctor_accepts_a_role_or_a_provider_and_reports_probe_failure(self) -> None:
+        for request in ({"role": "tactical_planner"}, {"provider": "claude_sub"}):
+            with self.subTest(request=request):
+                status, _, result = self.send_json("/api/doctor/role", request)
+                self.assertEqual(status, 200)
+                self.assertEqual(result, {
+                    "ok": False,
+                    "provider": "claude_sub",
+                    "detail": "CLI unavailable",
+                    "latency_ms": 0.25,
+                    "install_hint": "Check PATH",
+                })
+
+    def test_doctor_rejects_missing_selectors_and_non_string_fields(self) -> None:
+        for payload, field in (
+            ({}, "provider or role"),
+            ({"model": "codex_sub:gpt-6.2-sol"}, "provider or role"),
+            ({"provider": " ", "role": ""}, "provider or role"),
+            ({"provider": 1}, "provider"),
+            ({"role": []}, "role"),
+            ({"role": "bulk_worker", "model": False}, "model"),
+        ):
+            with self.subTest(payload=payload):
+                status, _, body = self.send_json("/api/doctor/role", payload)
+                self.assertEqual(status, 400)
+                self.assertIn(field, body["error"])
+        self.provider_probe.assert_not_called()
+
+
+class TestCredentialsApi(WebServerTestCase):
+    def test_credentials_get_reports_an_empty_store(self) -> None:
+        status, headers, result = self.get("/api/credentials")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+        self.assertEqual(result, [
+            {"provider_key": key, "configured": False, "source": "none", "masked": ""}
+            for key in credentials.SUPPORTED_KEYS
+        ])
+        self.assertFalse(self.credentials_path.exists())
+
+    def test_credentials_post_masks_both_sources_and_keeps_secrets_in_the_local_store(self) -> None:
+        raw = "sk-file-credential-1234"
+        env = "sk-environment-5678"
+        os.environ["OPENAI_API_KEY"] = env
+        config = self.config_path.read_bytes()
+        workflow_path = self.repo / "example.baton.json"
+        workflow_path.write_text(json.dumps(_graph_payload()), encoding="utf-8")
+        workflow = workflow_path.read_bytes()
+
+        status, _, saved = self.send_json("/api/credentials", {"updates": {
+            "OPENAI_API_KEY": raw, "OPENCODE_API_KEY": raw,
+        }})
+
+        self.assertEqual(status, 200)
+        self.assertIn({
+            "provider_key": "OPENAI_API_KEY", "configured": True, "source": "env", "masked": "sk-e••••5678",
+        }, saved)
+        self.assertIn({
+            "provider_key": "OPENCODE_API_KEY", "configured": True, "source": "local_file", "masked": "sk-f••••1234",
+        }, saved)
+        self.assertEqual(self.get("/api/credentials")[2], saved)
+        self.assertNotIn(raw, json.dumps(saved))
+        self.assertNotIn(env, json.dumps(saved))
+        self.assertEqual(json.loads(self.credentials_path.read_text(encoding="utf-8")), {
+            "OPENAI_API_KEY": raw, "OPENCODE_API_KEY": raw,
+        })
+
+        status, _, cleared = self.send_json("/api/credentials", {"OPENCODE_API_KEY": ""})
+        self.assertEqual(status, 200)
+        self.assertIn({
+            "provider_key": "OPENCODE_API_KEY", "configured": False, "source": "none", "masked": "",
+        }, cleared)
+        self.assertEqual(self.get("/api/credentials")[2], cleared)
+        self.assertEqual(self.config_path.read_bytes(), config)
+        self.assertEqual(workflow_path.read_bytes(), workflow)
+
+    def test_credentials_post_rejects_invalid_updates_without_writing_or_echoing(self) -> None:
+        raw = "test-secret-value"
+        for payload in (
+            {"updates": {"OPENAI_API_KEY": raw, "UNKNOWN_KEY": raw}},
+            {"updates": []},
+            {"OPENAI_API_KEY": 123},
+            {"OPENAI_API_KEY": raw + "\0"},
+        ):
+            with self.subTest(payload=payload):
+                status, _, body = self.send_json("/api/credentials", payload)
+                self.assertEqual(status, 400)
+                self.assertEqual(set(body), {"error"})
+                self.assertNotIn(raw, body["error"])
+        self.assertFalse(self.credentials_path.exists())
+
+    def test_credentials_post_refreshes_the_cached_provider_checks(self) -> None:
+        self.get("/api/config/roles")
+        self.provider_probe.reset_mock()
+
+        self.assertEqual(self.send_json("/api/credentials", {"OPENAI_API_KEY": "test-credential"})[0], 200)
+        self.assertEqual(self.get("/api/config/roles")[0], 200)
+        self.assertEqual(self.provider_probe.call_count, 3)
+
+    def test_credentials_post_cannot_write_into_the_served_repository(self) -> None:
+        original = self.config_path.read_bytes()
+        self.base = self.start_server(create_server(self.repo, port=0, credentials_path=self.config_path))
+
+        status, _, body = self.send_json("/api/credentials", {"OPENAI_API_KEY": "test-credential"})
+
+        self.assertEqual(status, 400)
+        self.assertIn("outside the repository", body["error"])
+        self.assertEqual(self.config_path.read_bytes(), original)
+
+
+class TestRFCApi(WebServerTestCase):
+    def test_brainstorm_generates_a_document_that_the_check_endpoint_can_score(self) -> None:
+        request = {
+            "goal": "Integrate local service configuration and verify its persistence after a reload.",
+            "constraints": "Use the standard library and preserve TOML comments.",
+            "acceptance_cmd": "python -m unittest discover -s tests -v",
+            "non_goals": "Rewrite the canvas frontend.",
+        }
+        status, _, generated = self.send_json("/api/rfc/brainstorm", request)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(set(generated), {"rfc_markdown", "readiness"})
+        for value in request.values():
+            self.assertIn(value, generated["rfc_markdown"])
+        status, _, readiness = self.send_json("/api/rfc/check", {"rfc_markdown": generated["rfc_markdown"]})
+        self.assertEqual(status, 200)
+        self.assertEqual(readiness, generated["readiness"])
+        self.assertEqual(readiness, {
+            "score": 100,
+            "safe_for_overnight": True,
+            "missing_sections": [],
+            "warnings": [],
+            "detected_commands": ["python -m unittest"],
+        })
+
+    def test_rfc_routes_accept_incomplete_drafts_and_goal_only_brainstorms(self) -> None:
+        status, _, result = self.send_json("/api/rfc/check", {"rfc_markdown": "# Draft\n\nTODO"})
+        self.assertEqual(status, 200)
+        self.assertIs(result["safe_for_overnight"], False)
+        self.assertEqual(result["missing_sections"], ["goal", "constraints", "acceptance"])
+
+        status, _, result = self.send_json("/api/rfc/brainstorm", {"goal": "Add tests"})
+        self.assertEqual(status, 200)
+        self.assertIn("Add tests", result["rfc_markdown"])
+        self.assertIs(result["readiness"]["safe_for_overnight"], False)
+
+    def test_rfc_routes_reject_missing_or_invalid_fields(self) -> None:
+        for route, required in (("check", "rfc_markdown"), ("brainstorm", "goal")):
+            for payload in ({}, {required: "  "}, {required: []}):
+                with self.subTest(route=route, payload=payload):
+                    status, _, body = self.send_json(f"/api/rfc/{route}", payload)
+                    self.assertEqual(status, 400)
+                    self.assertIn(required, body["error"])
+        for field in ("constraints", "acceptance_cmd", "non_goals"):
+            with self.subTest(field=field):
+                status, _, body = self.send_json("/api/rfc/brainstorm", {"goal": "Add tests", field: []})
+                self.assertEqual(status, 400)
+                self.assertIn(field, body["error"])
+
 
 class TestTomlRoleEditor(unittest.TestCase):
     def test_inserts_a_missing_key_after_the_exact_header_and_keeps_crlf(self) -> None:
@@ -504,7 +877,10 @@ class TestRunApi(WebServerTestCase):
     def test_latest_has_an_empty_snapshot_before_the_first_run(self) -> None:
         status, _, snapshot = self.get("/api/runs/latest")
         self.assertEqual(status, 200)
-        self.assertEqual(snapshot, {"run": None, "milestones": [], "tasks": [], "events": [], "quotas": []})
+        self.assertEqual(
+            snapshot,
+            {"run": None, "milestones": [], "tasks": [], "events": [], "quotas": [], "telemetry": None},
+        )
 
     def test_start_writes_rfc_and_records_mode_overrides_and_daemon_spawn(self) -> None:
         overrides = {"bulk_worker": "codex_sub:some-model"}
@@ -513,7 +889,9 @@ class TestRunApi(WebServerTestCase):
 
         status, _, snapshot = self.get(f"/api/runs/{run_id}")
         self.assertEqual(status, 200)
-        self.assertEqual(set(snapshot), {"run", "milestones", "tasks", "events", "quotas"})
+        self.assertEqual(set(snapshot), {"run", "milestones", "tasks", "events", "quotas", "telemetry"})
+        self.assertIsNotNone(snapshot["telemetry"])
+        self.assertIn("elapsed_sec", snapshot["telemetry"])
         run = snapshot["run"]
         self.assertEqual(run["id"], run_id)
         self.assertEqual(run["repo_path"], str(self.repo))
@@ -581,6 +959,24 @@ class TestRunApi(WebServerTestCase):
         self.assertEqual(set(report), {"run_id", "battle_report_markdown"})
         self.assertEqual(report["run_id"], run_id)
         self.assertTrue(report["battle_report_markdown"].startswith("# VibeBaton Run Report"))
+
+        status_zh, _, report_zh = self.get(f"/api/runs/{run_id}/report?lang=zh")
+        self.assertEqual(status_zh, 200)
+        self.assertIn("# VibeBaton 运行战报", report_zh["battle_report_markdown"])
+        self.assertIn("## 效率与防线战绩", report_zh["battle_report_markdown"])
+
+    def test_list_runs_returns_recent_runs_with_counts_and_elapsed(self) -> None:
+        first = self._start_run()
+        second = self._start_run()
+        status, _, payload = self.get("/api/runs")
+        self.assertEqual(status, 200)
+        ids = [row["id"] for row in payload["runs"]]
+        self.assertIn(first, ids)
+        self.assertIn(second, ids)
+        for row in payload["runs"]:
+            self.assertIn("elapsed_sec", row)
+            self.assertIn("passed_tasks", row)
+            self.assertIn("total_tasks", row)
 
     def test_control_pauses_and_resumes_and_rejects_other_actions(self) -> None:
         run_id = self._start_run()
@@ -675,7 +1071,7 @@ class TestRunApi(WebServerTestCase):
         self.assertTrue(data.startswith("data: "))
         self.assertEqual(ending, ["", ""])
         snapshot = json.loads(data.removeprefix("data: "))
-        self.assertEqual(set(snapshot), {"run", "milestones", "tasks", "events", "quotas"})
+        self.assertEqual(set(snapshot), {"run", "milestones", "tasks", "events", "quotas", "telemetry"})
         self.assertEqual(snapshot["run"]["id"], run_id)
 
     def _read_sse_frame(self, stream: HTTPResponse) -> tuple[bytes, dict[str, Any]]:

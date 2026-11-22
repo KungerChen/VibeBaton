@@ -1,10 +1,14 @@
-import { useState, type FormEvent } from 'react';
+import { LoaderCircle } from 'lucide-react';
+import { useId, useState, type FormEvent } from 'react';
+import type { BatonApiClient } from '../../api/client';
 import { useI18n } from '../../i18n';
-import type { WorkflowEdge, WorkflowNode } from '../../types/graph';
-import type { RightInspectorProps } from '../types';
+import type { DoctorRoleRequest, DoctorRoleResult, WorkflowEdge, WorkflowNode } from '../../types/graph';
+import { resolveDoctorTarget, serializeModelPin } from '../nodes/readiness';
+import type { NodeDoctorProps, RightInspectorProps } from '../types';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input, Label } from '../ui/input';
+import { Switch } from '../ui/switch';
 
 type EditableFieldProps = {
   name: string;
@@ -51,17 +55,122 @@ function EditableField(props: EditableFieldProps) {
   );
 }
 
-type NodeEditorProps = Pick<RightInspectorProps, 'mode' | 'client' | 'onUpdateNode' | 'onToast'> & {
+const DOCTOR_DEADLINE_MS = 5000;
+let doctorSequence = 0;
+
+export async function probeDoctorRole(
+  client: Pick<BatonApiClient, 'doctorRole'>,
+  request: DoctorRoleRequest,
+): Promise<DoctorRoleResult | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const probe = client.doctorRole(request);
+    const deadline = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), DOCTOR_DEADLINE_MS);
+    });
+    return await Promise.race([probe, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+type DoctorFeedback =
+  | { state: 'pending' }
+  | { state: 'timeout' }
+  | { state: 'error'; detail: string }
+  | { state: 'result'; result: DoctorRoleResult };
+
+function DoctorControl({ client, request, onDoctorResult }: Pick<NodeDoctorProps, 'onDoctorResult'> & {
+  client: BatonApiClient;
+  request: DoctorRoleRequest;
+}) {
+  const { locale, messages: { nodeReadiness } } = useI18n();
+  const [feedback, setFeedback] = useState<DoctorFeedback | null>(null);
+  const pending = feedback?.state === 'pending';
+  const result = feedback?.state === 'result' ? feedback.result : null;
+
+  async function runDoctor() {
+    const sequence = ++doctorSequence;
+    setFeedback({ state: 'pending' });
+    try {
+      const result = await probeDoctorRole(client, request);
+      if (!result) {
+        setFeedback({ state: 'timeout' });
+        return;
+      }
+      const provider = result.provider || request.provider;
+      const usesRoleProvider = !request.provider && !request.model?.includes(':');
+      if (provider) onDoctorResult({ ...result, provider }, sequence, usesRoleProvider ? request.role : undefined);
+      setFeedback({ state: 'result', result });
+    } catch (error) {
+      setFeedback({ state: 'error', detail: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  return (
+    <div className="grid gap-1.5">
+      <Button
+        type="button"
+        className="justify-self-start"
+        disabled={pending || (!request.provider && !request.role)}
+        aria-busy={pending}
+        onClick={() => void runDoctor()}
+      >
+        {pending && <LoaderCircle size={14} className="motion-safe:animate-spin" aria-hidden="true" />}
+        {nodeReadiness.doctorButton}
+      </Button>
+      <div role="status" className="grid gap-1 break-words text-xs text-muted-foreground empty:hidden">
+        {result && (
+          <>
+            {(result.ok || !result.install_hint) && (
+              <strong className="text-foreground">{nodeReadiness.latency(result.latency_ms)}</strong>
+            )}
+            {result.detail && <span>{result.detail}</span>}
+            {!result.ok && result.install_hint && (
+              <span><strong className="text-foreground">{nodeReadiness.installHint}</strong> · {result.install_hint}</span>
+            )}
+          </>
+        )}
+        {feedback?.state === 'timeout' && (locale === 'zh' ? '探测在 5 秒后超时。' : 'Probe timed out after 5 seconds.')}
+        {feedback?.state === 'error' && feedback.detail}
+      </div>
+    </div>
+  );
+}
+
+type NodeEditorProps = Pick<RightInspectorProps, 'mode' | 'client' | 'onUpdateNode' | 'onToast'> & NodeDoctorProps & {
   node: WorkflowNode;
   providerListId: string;
 };
 
-export function NodeEditor({ node, mode, client, providerListId, onUpdateNode, onToast }: NodeEditorProps) {
+export function NodeEditor({
+  node, mode, client, providerListId, onUpdateNode, onToast, doctorTargets, onDoctorResult,
+}: NodeEditorProps) {
   const { messages } = useI18n();
   const [saving, setSaving] = useState(false);
+  const pinId = useId();
   const { id, type, label, role, config } = node;
-  const { provider, model, max_loops: maxLoops } = config ?? {};
+  const { provider, model, max_loops: maxLoops, pinned, assigned_model } = config ?? {};
+  const modelFields = {
+    role,
+    provider: typeof provider === 'string' ? provider : undefined,
+    model: typeof model === 'string' ? model : undefined,
+  };
+  const isPinned = pinned === true;
+  const assignedModel = typeof assigned_model === 'string' ? assigned_model.trim() || undefined : undefined;
+  const target = resolveDoctorTarget({ ...modelFields, pinned: isPinned, assigned_model: assignedModel }, doctorTargets);
+  const { request } = target;
   const hasLoopField = type === 'gate_node' || type === 'reviewer_node' || maxLoops !== undefined;
+
+  function updateModel(patch: Pick<DoctorRoleRequest, 'provider' | 'model'>) {
+    const next = resolveDoctorTarget({
+      ...modelFields,
+      model: isPinned ? request.model : modelFields.model,
+      ...patch,
+    }, doctorTargets);
+    const pin = isPinned ? serializeModelPin(true, { provider: next.provider, model: next.request.model }) : {};
+    onUpdateNode(id, { ...patch, ...pin });
+  }
 
   async function saveRole(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -108,16 +217,42 @@ export function NodeEditor({ node, mode, client, providerListId, onUpdateNode, o
           <EditableField
             name="provider"
             label={messages.inspector.fields.provider}
-            value={typeof provider === 'string' ? provider : undefined}
+            value={modelFields.provider}
             list={mode === 'local' ? providerListId : undefined}
-            onCommit={(value) => onUpdateNode(id, { provider: value })}
+            onCommit={(value) => updateModel({ provider: value })}
           />
           <EditableField
             name="model"
             label={messages.inspector.fields.model}
-            value={typeof model === 'string' ? model : undefined}
+            value={modelFields.model}
             placeholder="deepseek-v4.1-flash@max"
-            onCommit={(value) => onUpdateNode(id, { model: value })}
+            onCommit={(value) => updateModel({ model: value })}
+          />
+          <div className="flex items-center justify-between gap-2">
+            <div className="grid min-w-0 gap-0.5">
+              <Label htmlFor={pinId}>{messages.nodeReadiness.pinModelOverride}</Label>
+              {isPinned && assignedModel && (
+                <code className="truncate text-[11px] text-muted-foreground" title={assignedModel}>
+                  {assignedModel}
+                </code>
+              )}
+            </div>
+            <Switch
+              id={pinId}
+              checked={isPinned}
+              disabled={!isPinned && !request.model}
+              className="motion-reduce:transition-none motion-reduce:[&>span]:transition-none"
+              onCheckedChange={(checked) => onUpdateNode(id, serializeModelPin(checked, {
+                provider: target.provider,
+                model: request.model,
+              }))}
+            />
+          </div>
+          <DoctorControl
+            key={JSON.stringify([mode, request.provider, request.role, request.model])}
+            client={client}
+            request={request}
+            onDoctorResult={onDoctorResult}
           />
           {hasLoopField && (
             <EditableField

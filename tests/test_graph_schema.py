@@ -81,24 +81,57 @@ class TestWorkflowGraph(unittest.TestCase):
                 self.assertEqual(serialized["edges"][1], canonical)
                 self.assertEqual(WorkflowGraph.from_dict(serialized).to_dict(), serialized)
 
-    def test_defaults_and_none_fields(self) -> None:
+    def test_metadata_round_trips(self) -> None:
+        metadata = {
+            "category": "general",
+            "required_providers": ["codex_sub", "claude_sub"],
+            "cost_tier": "high",
+            "inspired_by": "solo_coder_3tier",
+        }
+        graph = WorkflowGraph.from_dict({**_graph_payload(), **metadata})
+        self.assertEqual(graph.category, "general")
+        self.assertEqual(graph.required_providers, ["codex_sub", "claude_sub"])
+        self.assertEqual(graph.cost_tier, "high")
+        self.assertEqual(graph.inspired_by, "solo_coder_3tier")
+        serialized = graph.to_dict()
+        self.assertEqual({key: serialized[key] for key in metadata}, metadata)
+        self.assertEqual(WorkflowGraph.from_dict(serialized), graph)
+
+    def test_metadata_validates_field_types(self) -> None:
+        for field, value in (
+            ("category", 1),
+            ("required_providers", "claude_sub"),
+            ("required_providers", ["claude_sub", 1]),
+            ("cost_tier", True),
+            ("inspired_by", {}),
+        ):
+            with self.subTest(field=field, value=value):
+                with self.assertRaisesRegex(SchemaValidationError, field):
+                    WorkflowGraph.from_dict({**_graph_payload(), field: value})
+
+    def test_defaults_and_none_fields_preserve_legacy_serialization(self) -> None:
         data = _graph_payload()
         data["nodes"][0].update(role=None, position=None, config={"note": None})
         data["edges"][0].update(maxLoops=None, condition=None)
-        serialized = WorkflowGraph.from_dict(data).to_dict()
-        self.assertEqual(serialized["difficulty"], "pro")
-        self.assertEqual(serialized["description"], "")
-        self.assertEqual(serialized["recommended_for"], [])
-        self.assertEqual(
-            serialized["nodes"][0],
-            {"id": "A", "type": "worker_node", "label": "Worker", "config": {"note": None}},
-        )
-        self.assertIs(type(serialized["nodes"][0]["type"]), str)
-        self.assertEqual(serialized["nodes"][1]["config"], {})
-        self.assertEqual(
-            serialized["edges"][0],
-            {"id": "ab", "source": "A", "target": "B", "sourceHandle": "out", "targetHandle": "in"},
-        )
+        expected = {
+            **data,
+            "nodes": [
+                {"id": "A", "type": "worker_node", "label": "Worker", "config": {"note": None}},
+                {"id": "B", "type": "gate_node", "label": "Gate", "config": {}},
+            ],
+            "edges": [
+                {"id": "ab", "source": "A", "target": "B", "sourceHandle": "out", "targetHandle": "in"},
+            ],
+            "difficulty": "pro",
+            "description": "",
+            "recommended_for": [],
+        }
+        null_metadata = dict.fromkeys(("category", "required_providers", "cost_tier", "inspired_by"))
+        for metadata in ({}, null_metadata):
+            with self.subTest(metadata=metadata):
+                serialized = WorkflowGraph.from_dict({**data, **metadata}).to_dict()
+                self.assertEqual(json.dumps(serialized), json.dumps(expected))
+                self.assertIs(type(serialized["nodes"][0]["type"]), str)
 
     def test_missing_required_fields(self) -> None:
         required_fields = {

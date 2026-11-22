@@ -7,6 +7,10 @@ export const review_only_audit: WorkflowGraph = {
   difficulty: 'beginner',
   description: 'Read-only audit pipeline: runs automated tests and lint checks, followed by Codex security micro-review and Claude Opus architecture review. Never modifies code; hands findings to a human for final sign-off.',
   recommended_for: ['Code audit', 'Security review', 'PR verification'],
+  category: 'audit',
+  required_providers: ['codex_sub', 'claude_sub'],
+  cost_tier: 'medium',
+  inspired_by: 'VibeBaton mechanical gate principle',
   nodes: [
     {
       id: 'audit_gate',

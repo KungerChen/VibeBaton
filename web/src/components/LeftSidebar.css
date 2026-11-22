@@ -28,6 +28,10 @@
   text-transform: uppercase;
 }
 
+[aria-busy='true'] .left-sidebar__budget-segment {
+  cursor: progress;
+}
+
 .left-sidebar__presets {
   display: flex;
   flex-direction: column;
@@ -38,7 +42,7 @@
 .left-sidebar__preset {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.3rem;
   width: 100%;
   min-width: 0;
 }
@@ -79,6 +83,24 @@
 
 .left-sidebar__validation-toggle[aria-expanded='true'] .left-sidebar__validation-chevron {
   transform: rotate(180deg);
+}
+
+.left-sidebar__validation-toggle[aria-expanded='true'] .left-sidebar__validation-chevron {
+  transform: rotate(180deg);
+}
+
+.left-sidebar__live-pulse {
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: currentColor;
+  animation: baton-live-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes baton-live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.8); }
 }
 
 :is(.left-sidebar__preset, .left-sidebar__node, .left-sidebar__validation-toggle):focus-visible {

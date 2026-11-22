@@ -46,12 +46,14 @@ function layoutDepths(graph: WorkflowGraph): Map<string, number> {
 }
 
 function editableConfig(config: WorkflowNode['config']) {
-  const { provider, model, max_loops, concurrency } = config ?? {};
+  const { provider, model, max_loops, concurrency, pinned, assigned_model } = config ?? {};
   return {
     provider: typeof provider === 'string' ? provider : undefined,
     model: typeof model === 'string' ? model : undefined,
     max_loops: typeof max_loops === 'number' ? max_loops : undefined,
     concurrency: typeof concurrency === 'number' ? concurrency : undefined,
+    pinned: typeof pinned === 'boolean' ? pinned : undefined,
+    assigned_model: typeof assigned_model === 'string' ? assigned_model : undefined,
   };
 }
 
@@ -111,8 +113,8 @@ export function flowToGraph(base: WorkflowGraph, nodes: BatonFlowNode[], edges: 
       const original = editableConfig(baseConfig);
       const config = { ...baseConfig };
       // Only replace fields that the canvas can represent or that were edited there.
-      for (const key of ['provider', 'model', 'max_loops'] as const) {
-        if (data[key] !== undefined || original[key] !== undefined) config[key] = data[key];
+      for (const key of ['provider', 'model', 'max_loops', 'pinned', 'assigned_model'] as const) {
+        if (Object.hasOwn(data, key) || original[key] !== undefined) config[key] = data[key];
       }
       omitUndefined(config);
 

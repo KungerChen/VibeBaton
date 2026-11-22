@@ -9,6 +9,10 @@
     "Security review",
     "PR verification"
   ],
+  "category": "audit",
+  "required_providers": ["codex_sub", "claude_sub"],
+  "cost_tier": "medium",
+  "inspired_by": "VibeBaton mechanical gate principle",
   "nodes": [
     {
       "id": "audit_gate",

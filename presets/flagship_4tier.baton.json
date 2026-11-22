@@ -9,6 +9,10 @@
     "Multi-module backends & CLI tools",
     "Overnight unattended runs"
   ],
+  "category": "general",
+  "required_providers": ["claude_sub", "codex_sub", "dsh_opencode"],
+  "cost_tier": "high",
+  "inspired_by": "VibeBaton Stage 1 four-tier workflow",
   "nodes": [
     {
       "id": "l0_brainstorm",

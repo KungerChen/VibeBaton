@@ -449,6 +449,7 @@ class StateStore:
         milestone_id: str | None = None,
         payload: dict[str, Any] | None = None,
     ) -> None:
+        now = time.time()
         with self._connect() as conn:
             conn.execute(
                 """
@@ -463,9 +464,10 @@ class StateStore:
                     actor,
                     message,
                     json.dumps(payload or {}, ensure_ascii=False),
-                    time.time(),
+                    now,
                 ),
             )
+            conn.execute("UPDATE runs SET updated_at = ? WHERE id = ?", (now, run_id))
 
     def get_events(
         self,

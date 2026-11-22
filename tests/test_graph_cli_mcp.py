@@ -13,7 +13,15 @@ from typing import Any
 from vibebaton import cli
 from vibebaton.mcp_server import VibeBatonMCPServer
 
-PRESET_IDS = ("flagship_4tier", "review_only_audit", "solo_coder_3tier", "starter_2tier")
+PRESET_IDS = (
+    "claude_only_3tier",
+    "codex_only_3tier",
+    "deepseek_bulk_factory",
+    "flagship_4tier",
+    "review_only_audit",
+    "solo_coder_3tier",
+    "starter_2tier",
+)
 FLAGSHIP_PRESET_PATH = "presets/flagship_4tier.baton.json"
 UNBOUNDED_CYCLE_GRAPH: dict[str, Any] = {
     "schema_version": "1.0",
@@ -47,7 +55,7 @@ def _run_cli(argv: list[str]) -> tuple[int, str]:
 
 
 class TestPresetCommands(unittest.TestCase):
-    def test_lists_all_four_presets(self) -> None:
+    def test_lists_all_seven_presets(self) -> None:
         exit_code, output = _run_cli(["presets"])
         self.assertEqual(exit_code, 0, output)
         for preset_id in PRESET_IDS:
@@ -57,14 +65,13 @@ class TestPresetCommands(unittest.TestCase):
     def test_validate_exits_zero(self) -> None:
         exit_code, output = _run_cli(["presets", "--validate"])
         self.assertEqual(exit_code, 0, output)
-        self.assertEqual(output.count("valid=True"), 4)
+        self.assertEqual(output.count("valid=True"), len(PRESET_IDS))
 
-    def test_json_outputs_four_entries(self) -> None:
+    def test_json_outputs_seven_entries(self) -> None:
         exit_code, output = _run_cli(["presets", "--json"])
         self.assertEqual(exit_code, 0, output)
         rows = json.loads(output)
         self.assertIsInstance(rows, list)
-        self.assertEqual(len(rows), 4)
         self.assertEqual(sorted(row["id"] for row in rows), list(PRESET_IDS))
 
 
@@ -127,9 +134,9 @@ class TestMCPGraphTools(unittest.TestCase):
         self.assertIn("baton_list_presets", names)
         self.assertIn("baton_validate_graph", names)
 
-    def test_list_presets_tool_returns_four_valid_presets(self) -> None:
+    def test_list_presets_tool_returns_seven_valid_presets(self) -> None:
         payload = self._call_tool("baton_list_presets", {})
-        self.assertEqual(payload["count"], 4)
+        self.assertEqual(payload["count"], len(PRESET_IDS))
         self.assertEqual(
             sorted(preset["id"] for preset in payload["presets"]), list(PRESET_IDS)
         )

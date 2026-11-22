@@ -1,12 +1,16 @@
 import './RightInspector.css';
 import './ui/ui.css';
 import { useEffect, useEffectEvent, useId, useRef, useState } from 'react';
+import { DEMO_ROLES_CONFIG } from '../data/demoConfig';
 import { useI18n } from '../i18n';
 import { translateHandle, translatePresetText } from '../i18n/presets';
 import { cn } from '../lib/utils';
+import { updateWorkspaceReadiness, useWorkspaceReadiness } from './CanvasWorkspace';
 import { EdgeEditor, NodeEditor } from './inspector/GraphEditor';
 import { LiveRunPanel } from './inspector/LiveRunPanel';
-import type { RightInspectorProps } from './types';
+import { LaunchGraphContext } from './inspector/wizard/PreflightStep';
+import { getPresetProviderHealth } from './nodes/readiness';
+import type { NodeDoctorProps, RightInspectorProps } from './types';
 import { Badge, type BadgeProps } from './ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 
@@ -17,6 +21,7 @@ const DIFFICULTY_BADGE: Record<string, BadgeProps['variant']> = {
   intermediate: 'info',
   pro: 'violet',
   expert: 'warning',
+  live: 'info',
 };
 
 function GraphDetails({ graph }: Pick<RightInspectorProps, 'graph'>) {
@@ -77,6 +82,7 @@ function GraphDetails({ graph }: Pick<RightInspectorProps, 'graph'>) {
 export function RightInspector({
   mode, client, graph, selectedNodeId, selectedEdgeId, onUpdateNode, onUpdateEdge,
   trace, stepIndex, onJumpToStep, onToast,
+  liveSnapshot, recentRuns, selectedRunId, liveReconnecting, onSelectRunId, onRefreshLiveRun,
 }: RightInspectorProps) {
   const { locale, messages } = useI18n();
   const tabs: readonly { id: InspectorTab; label: string }[] = [
@@ -84,7 +90,11 @@ export function RightInspector({
     { id: 'trace', label: messages.inspector.tabTrace },
   ];
   const [tab, setTab] = useState<InspectorTab>('inspector');
-  const [providers, setProviders] = useState<string[]>([]);
+  const { doctorTargets } = useWorkspaceReadiness();
+  const providers = Object.keys(doctorTargets?.providers ?? {}).sort();
+  const activeWorkspace = useRef<(Pick<RightInspectorProps, 'client' | 'mode'> & {
+    doctorSequenceByProvider: Map<string, number>;
+  }) | null>(null);
   const id = useId();
   const providerListId = `${id}-providers`;
   const activeRow = useRef<HTMLButtonElement>(null);
@@ -96,22 +106,81 @@ export function RightInspector({
   });
 
   useEffect(() => {
-    if (mode !== 'local') return;
+    activeWorkspace.current = { client, mode, doctorSequenceByProvider: new Map() };
     let active = true;
+
+    updateWorkspaceReadiness((current) => {
+      const providerHealth = new Map(current.providerHealth);
+      const quotas = client.health?.quotas;
+      if (mode === 'local' && Array.isArray(quotas)) {
+        for (const quota of quotas as unknown[]) {
+          if (!quota || typeof quota !== 'object' || !('provider' in quota) || !('cooldown_until' in quota)) continue;
+          const { provider, cooldown_until } = quota;
+          if (typeof provider !== 'string' || typeof cooldown_until !== 'number' || !Number.isFinite(cooldown_until)) continue;
+          const previous = providerHealth.get(provider);
+          providerHealth.set(provider, { provider, ok: false, detail: '', ...previous, cooldown_until });
+        }
+      }
+      return { providerHealth, doctorTargets: mode === 'demo' ? DEMO_ROLES_CONFIG : undefined };
+    });
+
+    void client.listPresets().then((presets) => {
+      if (!active) return;
+      updateWorkspaceReadiness((current) => {
+        const providerHealth = new Map(current.providerHealth);
+        for (const [provider, health] of getPresetProviderHealth(presets)) {
+          const previous = providerHealth.get(provider);
+          // A Doctor response replaces the catalog summary for this workspace session.
+          if (previous?.latency_ms === undefined) {
+            providerHealth.set(provider, { ...health, cooldown_until: previous?.cooldown_until });
+          }
+        }
+        return { ...current, providerHealth };
+      });
+    }, () => {
+      // The workspace already reports catalog request failures in the sidebar.
+    });
 
     async function loadProviders() {
       try {
         const config = await client.getRoles();
-        if (active) setProviders(Object.keys(config?.providers ?? {}).sort());
+        if (active && config) {
+          updateWorkspaceReadiness((current) => ({ ...current, doctorTargets: config }));
+        }
       } catch (error) {
         if (active) onRolesError(error);
       }
     }
 
-    setProviders([]);
-    void loadProviders();
-    return () => { active = false; };
+    if (mode === 'local') void loadProviders();
+    return () => {
+      active = false;
+      activeWorkspace.current = null;
+      updateWorkspaceReadiness();
+    };
   }, [client, mode]);
+
+  const onDoctorResult: NodeDoctorProps['onDoctorResult'] = (result, sequence, fallbackRole) => {
+    const workspace = activeWorkspace.current;
+    if (workspace?.client !== client || workspace.mode !== mode) return;
+    if ((workspace.doctorSequenceByProvider.get(result.provider) ?? 0) > sequence) return;
+    workspace.doctorSequenceByProvider.set(result.provider, sequence);
+    updateWorkspaceReadiness((current) => {
+      const providerHealth = new Map(current.providerHealth);
+      const cooldown_until = providerHealth.get(result.provider)?.cooldown_until;
+      providerHealth.set(result.provider, { ...result, cooldown_until });
+      const targets = current.doctorTargets;
+      if (!targets || !fallbackRole || !Object.hasOwn(targets.roles, fallbackRole)) {
+        return { ...current, providerHealth };
+      }
+
+      const roles = {
+        ...targets.roles,
+        [fallbackRole]: { ...targets.roles[fallbackRole], provider: result.provider },
+      };
+      return { providerHealth, doctorTargets: { ...targets, roles } };
+    });
+  };
 
   useEffect(() => {
     if (tab === 'trace') activeRow.current?.scrollIntoView({ block: 'nearest' });
@@ -193,6 +262,8 @@ export function RightInspector({
             providerListId={providerListId}
             onUpdateNode={onUpdateNode}
             onToast={onToast}
+            doctorTargets={doctorTargets}
+            onDoctorResult={onDoctorResult}
           />
         ) : edge ? (
           <EdgeEditor key={`${graph.id}:${edge.id}`} edge={edge} onUpdateEdge={onUpdateEdge} />
@@ -264,7 +335,21 @@ export function RightInspector({
             </ol>
           )}
         </section>
-        {mode === 'local' && <LiveRunPanel client={client} onToast={onToast} visible={tab === 'trace'} />}
+        {mode === 'local' && (
+          <LaunchGraphContext.Provider value={graph}>
+            <LiveRunPanel
+              client={client}
+              onToast={onToast}
+              visible={tab === 'trace'}
+              liveSnapshot={liveSnapshot}
+              recentRuns={recentRuns}
+              selectedRunId={selectedRunId}
+              liveReconnecting={liveReconnecting}
+              onSelectRunId={onSelectRunId}
+              onRefreshLiveRun={onRefreshLiveRun}
+            />
+          </LaunchGraphContext.Provider>
+        )}
       </section>
     </aside>
   );

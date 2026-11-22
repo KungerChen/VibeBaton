@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest';
+import { serializeModelPin } from '../components/nodes/readiness';
 import { EMBEDDED_PRESETS } from '../data/presets';
 import type { WorkflowGraph } from '../types/graph';
 import { flowToGraph, graphToFlow } from './flowAdapter';
@@ -9,6 +10,89 @@ test.each(positionedPresets)('round-trips $id with its positions and config', (g
   const { nodes, edges } = graphToFlow(graph);
 
   expect(flowToGraph(graph, nodes, edges)).toStrictEqual(graph);
+});
+
+test('exports a pinned worker, restores it from JSON, and removes the override when unpinned', () => {
+  const graph: WorkflowGraph = {
+    schema_version: '1.0',
+    id: 'pinned-worker',
+    name: 'Pinned worker',
+    nodes: [{
+      id: 'build',
+      type: 'worker_node',
+      label: 'Build',
+      role: 'critical_executor',
+      position: { x: 0, y: 0 },
+      config: { provider: 'codex_sub', model: 'gpt-6.2-sol@max', concurrency: 2 },
+    }],
+    edges: [],
+  };
+  const { nodes: [worker], edges } = graphToFlow(graph);
+  worker.data = {
+    ...worker.data,
+    ...serializeModelPin(true, worker.data),
+    providerHealth: new Map([['codex_sub', { provider: 'codex_sub', ok: true, detail: 'Ready.' }]]),
+  };
+
+  const exported = flowToGraph(graph, [worker], edges);
+
+  expect(exported.nodes[0].config).toStrictEqual({
+    ...graph.nodes[0].config,
+    pinned: true,
+    assigned_model: 'codex_sub:gpt-6.2-sol@max',
+  });
+  expect(exported.nodes[0]).not.toHaveProperty('providerHealth');
+
+  const imported = JSON.parse(JSON.stringify(exported)) as WorkflowGraph;
+  const restored = graphToFlow(imported);
+  const [restoredWorker] = restored.nodes;
+  expect(restoredWorker.data).toMatchObject({ pinned: true, assigned_model: 'codex_sub:gpt-6.2-sol@max' });
+  expect(flowToGraph(imported, restored.nodes, restored.edges)).toStrictEqual(imported);
+
+  restoredWorker.data = { ...restoredWorker.data, ...serializeModelPin(false, restoredWorker.data) };
+  expect(flowToGraph(imported, restored.nodes, restored.edges)).toStrictEqual(graph);
+});
+
+test('preserves a planner assignment explicitly marked as unpinned', () => {
+  const graph: WorkflowGraph = {
+    schema_version: '1.0',
+    id: 'suggested-model',
+    name: 'Suggested model',
+    nodes: [{
+      id: 'build',
+      type: 'worker_node',
+      label: 'Build',
+      position: { x: 0, y: 0 },
+      config: { pinned: false, assigned_model: 'codex_sub:gpt-6.2-sol' },
+    }],
+    edges: [],
+  };
+
+  const { nodes, edges } = graphToFlow(graph);
+
+  expect(nodes[0].data).toMatchObject(graph.nodes[0].config!);
+  expect(flowToGraph(graph, nodes, edges)).toStrictEqual(graph);
+});
+
+test('removes a null assignment when the imported pin is explicitly cleared', () => {
+  const graph: WorkflowGraph = {
+    schema_version: '1.0',
+    id: 'empty-pin',
+    name: 'Empty pin',
+    nodes: [{
+      id: 'build',
+      type: 'worker_node',
+      label: 'Build',
+      position: { x: 0, y: 0 },
+      config: { model: 'default', pinned: true, assigned_model: null },
+    }],
+    edges: [],
+  };
+  const { nodes: [worker], edges } = graphToFlow(graph);
+
+  expect(flowToGraph(graph, [worker], edges)).toStrictEqual(graph);
+  worker.data = { ...worker.data, ...serializeModelPin(false, worker.data) };
+  expect(flowToGraph(graph, [worker], edges).nodes[0].config).toStrictEqual({ model: 'default' });
 });
 
 test('lays out missing positions by breadth-first depth and lane', () => {

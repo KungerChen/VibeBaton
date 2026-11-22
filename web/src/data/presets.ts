@@ -1,17 +1,36 @@
 import { validateGraph } from '../engine/localSimulator';
 import type { PresetItem, WorkflowGraph } from '../types/graph';
+import { claude_only_3tier } from './presets/claude_only_3tier';
+import { codex_only_3tier } from './presets/codex_only_3tier';
+import { deepseek_bulk_factory } from './presets/deepseek_bulk_factory';
 import { flagship_4tier } from './presets/flagship_4tier';
 import { review_only_audit } from './presets/review_only_audit';
 import { solo_coder_3tier } from './presets/solo_coder_3tier';
 import { starter_2tier } from './presets/starter_2tier';
 
-export { flagship_4tier, solo_coder_3tier, starter_2tier, review_only_audit };
+export {
+  flagship_4tier,
+  solo_coder_3tier,
+  starter_2tier,
+  review_only_audit,
+  claude_only_3tier,
+  codex_only_3tier,
+  deepseek_bulk_factory,
+};
 
+// These four graphs have baseline simulator parity fixtures.
 export const EMBEDDED_PRESETS: WorkflowGraph[] = [
   flagship_4tier,
   solo_coder_3tier,
   starter_2tier,
   review_only_audit,
+];
+
+export const PRESET_REGISTRY: readonly WorkflowGraph[] = [
+  ...EMBEDDED_PRESETS,
+  claude_only_3tier,
+  codex_only_3tier,
+  deepseek_bulk_factory,
 ];
 
 export function presetToItem(graph: WorkflowGraph): PresetItem {
@@ -32,5 +51,5 @@ export function presetToItem(graph: WorkflowGraph): PresetItem {
 }
 
 export function findPreset(id: string): WorkflowGraph | undefined {
-  return EMBEDDED_PRESETS.find((graph) => graph.id === id);
+  return PRESET_REGISTRY.find((graph) => graph.id === id);
 }

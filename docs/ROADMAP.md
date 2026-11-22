@@ -30,30 +30,22 @@
 
 ---
 
-## 🚧 Stage 3 · `v0.9-beta`（正在自举构建中：智能配给、场景配方生态与硬核对比实测）
+## ✅ Stage 3 · `v0.9.0-beta`（已完成自举与体验精修，待 L0 终审合入 `main`）
 
-详见完整技术草案：[RFC_STAGE3_DRAFT.md](RFC_STAGE3_DRAFT.md)。核心五大特性：
+详见技术规格与新手教程：[RFC_STAGE3_DRAFT.md](RFC_STAGE3_DRAFT.md) · [新手保姆级教程 TUTORIAL.md](TUTORIAL.md)。核心落地特性与精修：
 
-1. **场景化 & 单厂商全家桶配方广场（Scenario & Same-Family Recipes）**
-   - 按 `same_family`（纯 Claude / 纯 Codex / 纯 DeepSeek）、`bulk_batch`、`small_project`、`audit_only` 分类，并标注 `required_providers`、`cost_tier` 与 `inspired_by`（社区验证范式出处，开放 `recipes/` PR）。
-   - 结合 `baton doctor` 结果自动高亮标绿“本机开箱可用”的配方。
+1. **场景化 & 单厂商全家桶配方广场（Recipe Plaza · 7 套预设）**
+   - 支持 `same_family`（`claude_only_3tier` / `codex_only_3tier` / `deepseek_bulk_factory`）、`bulk_batch`、`small_project`、`audit` 分类，结合 `baton doctor` 自动标绿「本机就绪」预设。
 2. **✨ 统一智能配给模式（Unified Smart Allocation）**
-   - 一套机制同时解决**中等项目**（单模型按复杂度动态调节 `@low / @high / @max` 思考深度）与**重型项目**（跨厂商模型 + 思考深度联合配给）：
-     - 提供 **3 档预算偏置**：`Eco（省钱极速）` / `Balanced（均衡默认）` / `Max Quality（极致质量）`；
-     - **受约束候选池**：基于 `baton doctor` 与 `baton.toml` 生成可用能力目录，禁止 AI 幻觉出不存在的模型；
-     - **规划期一次配给 + 运行期零成本阶梯升档**：失败时自动升档（如 `flash@low → flash@max → gpt-6.2-sol@max`），且支持画布侧边栏单节点锁定覆写（Pin）。
-3. **交互式头脑风暴入口 + RFC 机械体检（Brainstorm Gate）**
-   - 在 `baton ui` 发车向导前置 2~3 轮对话式头脑风暴，自动收敛出结构化 `00_RFC.md`；
-   - 允许用户点击“跳过”，但跳过前必经 RFC 机械体检（检查是否缺失可自动化验收命令或范围边界），给出**具体风险提示**后再确认放行（命令行/MCP 无头自动化模式保持畅通不阻塞）。
-4. **前置配置体检 + API Key 引导 + 节点 5 秒一键测活（Preflight & Click-to-Doctor）**
-   - 发车前自动检测 CLI/Key 就绪状态并在节点显示 `🟢 / 🟡 / 🔴`；
-   - 支持界面引导填写 OpenAI 兼容 / DeepSeek / OpenCode Go API Key 并现场 5 秒测通；**明确不尝试自动安装或静默 OAuth 登录第三方闭源订阅 CLI**，缺失时提供可复制的官方命令并自动推荐“本机已就绪的替代配方”。
-5. **公开可复现 3 组对照 Benchmark（`benchmarks/`）**
-   - 选取**中型多模块 + 严格契约**战场，以所有组均不可见的 **Hidden Eval Suite（隐藏验收测试集）** 客观对比：
-     - 组 A：纯廉价单模型
-     - 组 B：纯旗舰单模型串行
-     - 组 C：VibeBaton 四层混编
-   - 输出可复现仓库与真实“测试通过率 × 高阶调用占比 × 总耗时”数据看板。
+   - `eco` / `balanced` / `max_quality` 三档预算策略 + 受约束候选目录 + 运行期零成本阶梯升档（`@low → @max → flagship`）与单节点 Pin 锁定。
+3. **交互式头脑风暴与 RFC 机械体检 + 5 秒一键测活（Preflight & Brainstorm Gate）**
+   - 发车向导前置 3 步闭环（本机 CLI 与 API Key 就绪检查 / 5 秒 Doctor / 结构化头脑风暴与 `safe_for_overnight` 评分 / **发车前分工与安全护栏总览**）。
+4. **体验精修（实时画布、阶段耗时、双语战报与小白教程）**
+   - **实时画布联动**：左侧新增「实时运行工作流」入口，点击即可把当前运行/历史运行的真实 `01_PLAN` / 里程碑 / 任务 DAG 与流光脉冲同步到主画布。
+   - **全链路耗时统计**：引擎埋点 `role_completed` 与动态时间戳，输出 **Stage Timing（`01_PLAN` 与 M1~M4）** 与 **Model Runtime（含 `DeepSeek API` 展示名）**；支持 **历史运行下拉切换** 与 **任务行展开审校/门禁/白名单详情**。
+   - **完整 `EN | 中文` 双语战报 & 零基础教程**：`generate_battle_report` 支持中英文切换并在界面开关切换时自动重拉；内置引导弹窗新增第 3 标签页 **「详细教程」** 并沉淀独立文档 `docs/TUTORIAL.md`。
+5. **公开可复现 3 组对照 Benchmark Harness（`benchmarks/`）**
+   - 提供对比剧本与 Hidden Eval Runner，记录通过率 × 高阶调用占比 × 阶段耗时基准。
 
 ---
 

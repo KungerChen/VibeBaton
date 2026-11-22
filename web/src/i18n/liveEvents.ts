@@ -8,6 +8,10 @@ const EVENT_KIND_LABELS: Record<string, { en: string; zh: string }> = {
   plan_generated: { en: 'Plan Generated', zh: '生成计划' },
   plan_registered: { en: 'Plan Registered', zh: '注册任务图' },
   role_invoked: { en: 'Role Invoked', zh: '调用角色' },
+  role_completed: { en: 'Role Completed', zh: '角色完成' },
+  task_model_allocated: { en: 'Model Allocated', zh: '模型配给' },
+  task_step_up: { en: 'Step-Up Escalation', zh: '智能升档' },
+  budget_profile_changed: { en: 'Budget Profile', zh: '预算档位变更' },
   task_started: { en: 'Task Started', zh: '任务开始' },
   task_passed: { en: 'Task Passed', zh: '任务通过' },
   task_failed: { en: 'Task Failed', zh: '任务失败' },
@@ -95,6 +99,19 @@ export function formatLiveEventMessage(
       summary: locale === 'en'
         ? `Invoking ${roleLabel} (${displayTarget})`
         : `调用 ${roleLabel}（${displayTarget}）`,
+    };
+  }
+
+  match = /^Completed\s+([a-z0-9_]+)\s*\(([^)]+)\)\s+in\s+([\d.]+)s(?:\s*\(([^)]+)\))?\s*$/i.exec(trimmed);
+  if (match) {
+    const [, role, target, durationSec, statusLabel] = match;
+    const roleLabel = translateRole(role, locale);
+    const displayTarget = target.replace(/^dsh_opencode\//i, 'DeepSeek API/');
+    const statusSuffix = statusLabel ? ` · ${statusLabel}` : '';
+    return {
+      summary: locale === 'en'
+        ? `Completed ${roleLabel} (${displayTarget}) in ${durationSec}s${statusSuffix}`
+        : `完成 ${roleLabel}（${displayTarget}），用时 ${durationSec} 秒${statusSuffix}`,
     };
   }
 

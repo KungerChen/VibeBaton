@@ -7,6 +7,10 @@ export const solo_coder_3tier: WorkflowGraph = {
   difficulty: 'intermediate',
   description: 'Claude plans tasks, DeepSeek API implements code, and Codex reviews changes before merging for final human sign-off.',
   recommended_for: ['Personal apps', 'CLI tools', 'Small full-stack projects'],
+  category: 'general',
+  required_providers: ['claude_sub', 'dsh_opencode', 'codex_sub'],
+  cost_tier: 'medium',
+  inspired_by: 'VibeBaton Stage 1 Golden Example',
   nodes: [
     {
       id: 'plan',

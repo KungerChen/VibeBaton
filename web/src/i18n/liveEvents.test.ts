@@ -54,6 +54,11 @@ describe('liveEvents i18n', () => {
     expect(translateTier('routine', 'en')).toBe('Routine');
     expect(formatLiveEventMessage('role_invoked', 'Invoking bulk_worker (dsh_opencode/deepseek-v4.1-flash@max)', 'en').summary).toContain('DeepSeek API/deepseek-v4.1-flash@max');
     expect(formatLiveEventMessage('role_invoked', 'Invoking bulk_worker (dsh_opencode/deepseek-v4.1-flash@max)', 'zh').summary).toContain('DeepSeek API/deepseek-v4.1-flash@max');
+    expect(translateEventKind('role_completed', 'en')).toBe('Role Completed');
+    expect(translateEventKind('role_completed', 'zh')).toBe('角色完成');
+    expect(
+      formatLiveEventMessage('role_completed', 'Completed bulk_worker (dsh_opencode/deepseek-v4.1-flash@max) in 42.3s (OK)', 'zh').summary,
+    ).toContain('DeepSeek API/deepseek-v4.1-flash@max');
   });
 
   test('Chinese mode localizes all engine event kinds and messages without leaking English phrases', () => {

@@ -10,3 +10,5 @@ Rules:
    - `MAJOR_REWORK`: Fundamentally broken approach — triggers immediate circuit-breaker escalation to the Specialist tier.
    - `PLAN_AMENDMENT`: Task specification contradicts existing architecture.
 3. Never reject for stylistic nitpicks alone. Output ONLY valid JSON matching the ReviewVerdict schema.
+4. On review round 2 and later, a `MINOR_FIX` verdict MUST NOT introduce new requirements that are not already in the task's `acceptance_criteria`/contract; only previously reported defects may be re-raised.
+5. Every review finding MUST cite the acceptance criterion it maps to.

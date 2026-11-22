@@ -1,16 +1,24 @@
 import type { ReactNode } from 'react';
 import type { ApiMode, BatonApiClient } from '../api/client';
 import type {
+  BudgetProfile,
+  DoctorRoleResult,
   GraphTraceEvent,
   GraphValidationResult,
+  LiveRunSnapshot,
   NodeType,
   PresetItem,
+  RunListItem,
   Scenario,
   WorkflowGraph,
 } from '../types/graph';
+import type { DoctorTargets, ModelPinFields } from './nodes/readiness';
 
 export interface LeftSidebarProps {
   presets: PresetItem[];
+  budgetProfile: BudgetProfile | null;
+  budgetProfileSaving: boolean;
+  onBudgetProfileChange(profile: BudgetProfile): void;
   currentGraphId: string;
   onSelectPreset(id: string): void;
   onAddNode(type: NodeType): void;
@@ -18,6 +26,9 @@ export interface LeftSidebarProps {
   onExport(): void;
   onShare?: () => void;
   validation: GraphValidationResult | null;
+  liveSnapshot?: LiveRunSnapshot | null;
+  liveViewActive?: boolean;
+  onSelectLiveRun?: () => void;
 }
 
 export interface PlaybackBarProps {
@@ -37,7 +48,7 @@ export interface PlaybackBarProps {
   disabled?: boolean;
 }
 
-export type NodePatch = {
+export type NodePatch = ModelPinFields & {
   label?: string;
   role?: string;
   provider?: string;
@@ -63,7 +74,18 @@ export interface RightInspectorProps {
   stepIndex: number;
   onJumpToStep(i: number): void;
   onToast(msg: string, kind?: 'ok' | 'err'): void;
+  liveSnapshot?: LiveRunSnapshot | null;
+  recentRuns?: RunListItem[];
+  selectedRunId?: string | null;
+  liveReconnecting?: boolean;
+  onSelectRunId?: (runId: string) => void;
+  onRefreshLiveRun?: () => Promise<void> | void;
 }
+
+export type NodeDoctorProps = {
+  doctorTargets?: DoctorTargets;
+  onDoctorResult(result: DoctorRoleResult, sequence: number, fallbackRole?: string): void;
+};
 
 export interface HeaderBarProps {
   mode: ApiMode;

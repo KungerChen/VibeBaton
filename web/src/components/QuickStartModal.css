@@ -31,3 +31,27 @@
 .quick-start__dismiss input {
   accent-color: var(--primary);
 }
+
+.quick-start__tutorial-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.quick-start__tutorial-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+}
+
+.quick-start__tutorial-points {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding-inline-start: 1.15rem;
+  font-size: 0.775rem;
+  line-height: 1.55;
+  color: var(--foreground);
+}

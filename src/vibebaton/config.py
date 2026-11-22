@@ -4,10 +4,23 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tomllib
-from dataclasses import dataclass, field
+from collections.abc import Iterator, Mapping
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+
+ALLOWED_BUDGET_PROFILES = ("eco", "balanced", "max_quality")
+_DYNAMIC_EFFORTS = ("low", "high", "max")
+CostTier = Literal["eco", "standard", "flagship"]
+
+# Match whole tokens in the base model name, in table order. Other models are standard.
+_MODEL_COST_TIERS: tuple[tuple[CostTier, tuple[str, ...]], ...] = (
+    ("eco", ("flash", "haiku", "lite", "mini", "nano")),
+    ("flagship", ("astra", "fable", "flagship", "opus", "pro")),
+)
 
 
 @dataclass
@@ -30,6 +43,7 @@ class PolicySettings:
     require_human_approval_at: list[str] = field(
         default_factory=lambda: ["rfc_signoff", "plan_amendment", "final_merge"]
     )
+    budget_profile: str = "balanced"
 
 
 @dataclass
@@ -44,6 +58,21 @@ class ProviderConfig:
     env: dict[str, str] = field(default_factory=dict)
     stall_timeout_sec: int | None = None
     hard_timeout_sec: int | None = None
+
+
+@dataclass
+class ModelCapability:
+    """A configured model spec and the efforts available for its base model."""
+
+    provider: str
+    model: str
+    efforts: list[str]
+    cost_tier: CostTier
+    ready: bool
+    detail: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -105,6 +134,60 @@ class BatonConfig:
         return resolved_role, self.providers[provider_name]
 
 
+def _role_targets(role: RoleConfig) -> Iterator[tuple[str, str]]:
+    yield role.provider, role.model
+    for target in role.fallback:
+        yield target.provider, target.model
+
+
+def build_model_catalog(
+    cfg: BatonConfig, provider_checks: Mapping[str, Mapping[str, Any]] | None = None
+) -> list[ModelCapability]:
+    """List distinct configured targets in role and fallback order.
+
+    An effort suffix or an effort-aware CLI template enables the CLI ladder.
+    Explicit suffixes such as xhigh remain available. With a check mapping,
+    providers omitted from the mapping are unverified and marked unready.
+    """
+    catalog: dict[tuple[str, str], ModelCapability] = {}
+    for role in cfg.roles.values():
+        for provider, model in _role_targets(role):
+            if provider not in cfg.providers or not model.strip() or (provider, model) in catalog:
+                continue
+            provider_config = cfg.providers[provider]
+            base_model, _, effort = model.partition("@")
+            efforts: list[str] = []
+            if provider_config.type == "cli" and (
+                effort or any("{effort}" in token for token in provider_config.command)
+            ):
+                efforts.extend(_DYNAMIC_EFFORTS)
+            if effort and effort not in efforts:
+                efforts.append(effort)
+
+            words = set(re.findall(r"[a-z0-9]+", base_model.lower()))
+            cost_tier = next(
+                (tier for tier, markers in _MODEL_COST_TIERS if words.intersection(markers)),
+                "standard",
+            )
+            check = None if provider_checks is None else provider_checks.get(provider, {})
+            catalog[provider, model] = ModelCapability(
+                provider=provider,
+                model=model,
+                efforts=efforts,
+                cost_tier=cost_tier,
+                ready=check is None or check.get("ok") is True,
+                detail="" if check is None else check.get("detail", ""),
+            )
+    return list(catalog.values())
+
+
+def _validate_budget_profile(value: object) -> str:
+    if not isinstance(value, str) or value not in ALLOWED_BUDGET_PROFILES:
+        allowed = ", ".join(ALLOWED_BUDGET_PROFILES)
+        raise ValueError(f"Invalid policies.budget_profile {value!r}. Expected one of {allowed}.")
+    return value
+
+
 def _load_raw_mapping(path: Path) -> dict[str, Any]:
     suffix = path.suffix.lower()
     raw_bytes = path.read_bytes()
@@ -155,6 +238,7 @@ def parse_config_dict(raw: dict[str, Any], source_path: Path | None = None) -> B
                 ["rfc_signoff", "plan_amendment", "final_merge"],
             )
         ],
+        budget_profile=_validate_budget_profile(p_raw.get("budget_profile", PolicySettings.budget_profile)),
     )
 
     providers: dict[str, ProviderConfig] = {}
