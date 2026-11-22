@@ -161,6 +161,7 @@ export function LeftSidebar({
             </span>
           </div>
           <Card
+            data-tour-id="live-run-card"
             className={cn(
               'min-w-0 transition-colors',
               liveViewActive
@@ -205,7 +206,7 @@ export function LeftSidebar({
         </section>
       )}
 
-      <fieldset className="m-0 min-w-0 border-0 p-0" disabled={budgetProfile === null} aria-busy={budgetProfileSaving}>
+      <fieldset className="m-0 min-w-0 border-0 p-0" disabled={budgetProfile === null} aria-busy={budgetProfileSaving} data-tour-id="budget-profile">
         <legend className="left-sidebar__title">{budget.label}</legend>
         <div className="mt-2 grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/65 p-1">
           {BUDGET_PROFILES.map((profile) => {
@@ -231,7 +232,7 @@ export function LeftSidebar({
         </div>
       </fieldset>
 
-      <section className="left-sidebar__section">
+      <section className="left-sidebar__section" data-tour-id="recipe-plaza">
         <div className="flex items-center justify-between gap-2">
           <h2 className="left-sidebar__title">{plaza.title}</h2>
           <output className="text-[11px] font-mono text-muted-foreground" aria-label={plaza.title}>

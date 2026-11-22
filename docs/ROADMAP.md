@@ -56,4 +56,12 @@
 3. **Docker / DevContainer 隔离运行模板与 `baton sandbox init`**：为运行不可信第三方仓库提供最小权限 OS 级容器沙箱（见 [SECURITY.md](SECURITY.md)）。
 4. **Windows 一键安装脚本、Web Studio 成本与冲突看板、`v1.0.0` 正式发版**（`scripts/install.ps1`、`CHANGELOG.md`、`docs/RELEASE_NOTES_v1.0.md` 与国内外公开发布文档）。
 
-> **发布状态**：`v1.0.0` 已于 2026-11-22 正式发布。完整变更见 [CHANGELOG.md](../CHANGELOG.md) 与 [RELEASE_NOTES_v1.0.md](RELEASE_NOTES_v1.0.md)。
+> `v1.0.0` 已于 2026-11-22 正式发布，并在 `ecab208` 合入 `main`。完整变更见 [CHANGELOG.md](../CHANGELOG.md) 与 [RELEASE_NOTES_v1.0.md](RELEASE_NOTES_v1.0.md)。
+
+---
+
+## ✅ Stage 4.5 · `v1.0.1`（Studio 体验升级，已交付）
+
+1. 左侧栏和右检查器支持鼠标与键盘调整宽度，并记住用户设置。可展开的任务卡集中显示门禁、审校和路径白名单详情。
+2. 实时遥测提供服务端时间与阶段、模型和任务的计时锚点。画布、实时运行卡与检查器的活动计时每秒刷新，历史运行显示记录值。
+3. 双语聚光导览从快速开始或详细教程启动。带运行记录的本地模式走七步，离线演示走六步。内置教程提供三幅随主题切换的 SVG 图，独立教程提供接力流程和工作树守卫的 Mermaid 图。[教程](TUTORIAL.md)

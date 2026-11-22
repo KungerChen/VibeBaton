@@ -19,6 +19,8 @@ import {
   readPaneWidths,
   writePaneWidths,
 } from './components/splitPane';
+import { GuidedTourOverlay } from './components/tour/GuidedTourOverlay';
+import { resolveAvailableTourSteps, tourSelector, type TourStep } from './components/tour/tourSteps';
 import type { EdgePatch, NodePatch } from './components/types';
 import { ToastHost, useToasts } from './components/ui/Toast';
 import { findPreset, flagship_4tier, starter_2tier } from './data/presets';
@@ -132,6 +134,11 @@ function AppContent() {
   const [guideOpen, setGuideOpen] = useState<boolean>(
     () => typeof window !== 'undefined' && !window.location.hash.startsWith('#recipe=') && !readGuideDismissed(),
   );
+  const [tourState, setTourState] = useState<{ open: boolean; stepIndex: number; steps: TourStep[] }>({
+    open: false,
+    stepIndex: 0,
+    steps: [],
+  });
   const [completedGuideSteps, setCompletedGuideSteps] = useState<Set<QuickStartStepId>>(() => new Set());
   const [playback, setPlayback] = useState(initialPlayback);
   const [speed, setSpeed] = useState(1);
@@ -678,6 +685,29 @@ function AppContent() {
     });
   }
 
+  function onStartTour() {
+    const steps = resolveAvailableTourSteps(
+      mode ?? 'demo',
+      Boolean(liveSnapshot),
+      (id) => document.querySelector(tourSelector(id)) !== null,
+    );
+    setGuideOpen(false);
+    setTourState({ open: steps.length > 0, stepIndex: 0, steps });
+  }
+
+  function onRequirePane(requiredPane: TourStep['requiredPane'], tab: TourStep['requiredInspectorTab']) {
+    if (requiredPane) setPane(requiredPane);
+    if (tab === 'live') {
+      // RightInspector owns the tab state, so use the same selection path as a user click.
+      const liveTab = document.querySelector<HTMLButtonElement>(tourSelector('inspector-live-tab'));
+      if (liveTab?.getAttribute('aria-selected') === 'false') liveTab.click();
+    }
+  }
+
+  const onCloseTour = useCallback(() => {
+    setTourState((current) => ({ ...current, open: false }));
+  }, []);
+
   function onGuideTryStarter() {
     markGuideStep('starter');
     latestPresetRequest.current += 1;
@@ -847,7 +877,17 @@ function AppContent() {
         onTryStarter={onGuideTryStarter}
         onWatchReplay={onGuideWatchReplay}
         onInspectWorker={onGuideInspectWorker}
+        onStartTour={onStartTour}
       />
+      {tourState.open && (
+        <GuidedTourOverlay
+          steps={tourState.steps}
+          stepIndex={tourState.stepIndex}
+          onStepChange={(stepIndex) => setTourState((current) => ({ ...current, stepIndex }))}
+          onClose={onCloseTour}
+          onRequirePane={onRequirePane}
+        />
+      )}
       <ToastHost toasts={toasts} />
     </div>
   );

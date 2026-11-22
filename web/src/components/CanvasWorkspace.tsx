@@ -162,7 +162,7 @@ export function CanvasWorkspace({
 
   return (
     <ReactFlowProvider>
-      <div className="canvas-workspace">
+      <div className="canvas-workspace" data-tour-id="canvas-workspace">
         <ReactFlow<BatonFlowNode>
           nodes={styledNodes}
           edges={styledEdges}

@@ -203,6 +203,8 @@ export function RightInspector({
                 type="button"
                 role="tab"
                 id={`${id}-${key}-tab`}
+                data-tour-id="inspector-live-tab"
+                {...(key !== 'trace' && { 'data-tour-id': undefined })}
                 aria-controls={`${id}-${key}`}
                 aria-selected={isSelected}
                 tabIndex={isSelected ? 0 : -1}

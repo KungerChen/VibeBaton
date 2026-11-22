@@ -341,7 +341,7 @@ export function LiveRunPanel({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="default" size="sm" onClick={() => setStartOpen(true)}>
+        <Button variant="default" size="sm" onClick={() => setStartOpen(true)} data-tour-id="start-real-run-btn">
           {messages.inspector.startRealRun}
         </Button>
         {runId && (

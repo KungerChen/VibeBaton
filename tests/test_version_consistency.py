@@ -13,7 +13,7 @@ from pathlib import Path
 from vibebaton import __version__
 
 REPO = Path(__file__).resolve().parents[1]
-RELEASE_VERSION = "1.0.0"
+RELEASE_VERSION = "1.0.1"
 
 
 class TestVersionConsistency(unittest.TestCase):
@@ -22,14 +22,14 @@ class TestVersionConsistency(unittest.TestCase):
             project_version = tomllib.load(manifest)["project"]["version"]
         package_version = json.loads((REPO / "web" / "package.json").read_text(encoding="utf-8"))["version"]
         changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
-        releases = re.findall(r"^## \[v([^\]]+)\] - \d{4}-\d{2}-\d{2}$", changelog, re.MULTILINE)
-        self.assertTrue(releases, "CHANGELOG.md must contain a dated release heading")
+        releases = re.findall(r"^## \[v(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$", changelog, re.MULTILINE)
+        self.assertTrue(releases, "CHANGELOG.md must contain a dated stable release heading")
 
         versions = {
             "pyproject.toml": project_version,
             "src/vibebaton/__init__.py": __version__,
             "web/package.json": package_version,
-            "CHANGELOG.md": releases[-1],  # Release headings are ordered oldest first.
+            "CHANGELOG.md": max(releases, key=lambda version: tuple(map(int, version.split(".")))),
         }
         for source, version in versions.items():
             with self.subTest(source=source):
