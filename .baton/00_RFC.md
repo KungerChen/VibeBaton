@@ -147,6 +147,7 @@ Add REST endpoints cleanly (preserving all existing 14 routes and CORS/traversal
      - **Arm B**: Flagship single model sequential (`opus@high` / `gpt-6.2-sol@max`)
      - **Arm C**: VibeBaton 4-tier hybrid (`Claude + Codex + DeepSeek API` with path whitelist + mechanical gates)
    - Supports `--mock` (deterministic offline simulation computing metrics + running `hidden_eval` cleanly in CI) and `--live` (optional real CLI invocation). Exports `benchmarks/results/latest.json` and `benchmarks/results/latest.md` scoreboard comparing Hidden Eval Pass Rate, Contract Violations, Wall-Clock Time, and Flagship Invocation Share.
+   - Each arm uses the same hidden test denominator. An evaluation timeout or invalid summary gives that arm zero passes and records an evaluation error in both scoreboards. The runner still evaluates the remaining arms and exports all results.
 4. **`tests/test_benchmark_harness.py`**:
    - Unit tests verifying `--mock` runner executes all 3 arms into temporary dirs without dirtying the repo, validates hidden eval pass/fail detection, and emits valid JSON + Markdown scoreboard output.
    - Milestone M4 Final Gate runs full Python (`python -m unittest discover -s tests -v`) AND full Frontend (`cd web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build`). (Always set `reviewer_role: null` on `critical` tasks.)

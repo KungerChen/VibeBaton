@@ -6,6 +6,89 @@
 | [20261121-095252-m1-web-resume](#20261121-095252-m1-web-resume) | 2026-11-21 | M1 Web 暂停恢复与 daemon 启动 | 已自测，待用户验收 |
 | [20261121-105235-m2-dual-mode-parity](#20261121-105235-m2-dual-mode-parity) | 2026-11-21 | M2 双模式模拟一致性与旗舰节点层级 | 已自测，待用户验收 |
 | [20261121-212738-m2-subscription-readiness](#20261121-212738-m2-subscription-readiness) | 2026-11-21 | M2 订阅 CLI 认证与主机就绪判断 | 已自测，待用户验收 |
+| [20261121-231817-m4-t1-benchmark-contracts](#20261121-231817-m4-t1-benchmark-contracts) | 2026-11-21 | M4-T1 适配器契约、评估入口与 KV Memory 示例 | 已自测，待用户验收 |
+| [20261122-000739-m4-t5-benchmark-runner](#20261122-000739-m4-t5-benchmark-runner) | 2026-11-22 | M4-T5 三臂 runner、计分板与门禁 | 已自测，待用户验收 |
+| [20261122-002235-m4-t5-scoreboard-acl](#20261122-002235-m4-t5-scoreboard-acl) | 2026-11-22 | M4-T5 Windows 计分板权限回归修复 | 已自测，待用户验收 |
+| [20261122-004033-m4-hidden-eval-remediation](#20261122-004033-m4-hidden-eval-remediation) | 2026-11-22 | M4 隐藏评估失败按臂计分并继续导出 | 已自测，待用户验收 |
+
+## 20261122-004033-m4-hidden-eval-remediation
+
+2026-11-22 00:40:33 PST。M4 复审授权修复隐藏评估超时或摘要损坏时三臂计分板无法导出的阻塞。分支为 `baton/25c18a/ms-m4-r1`，起始工作树干净，基准提交为 `fa20f65`。
+
+- `tests/test_benchmark_harness.py` 通过本地 CLI 夹具在基准实现上复现两个失败。B 臂的适配器阻塞或直接写文件描述符 1 时，runner 均返回 1，未导出报告。
+- `benchmarks/run_benchmark.py` 将超时和无效摘要计为 `0/109`。JSON 写入 `eval_error`，Markdown 标记受影响的臂，计分板均包含 A、B、C。回归验证 A 臂保持满分、C 臂完成评估并得到有效分数，同时拒绝总数为 1 的摘要。独立参考评估核对分母。
+- 评估器使用单独的系统临时目录。Mock B 臂与 live 使用相同的模型命名格式，mock 导出仅列出选中的实现。评估契约已写入 `.baton/00_RFC.md`，基准 README 说明了 provider 读取隐藏测试和参考解的条件。三条历史记录已原文归档到本日志并加入索引。
+- `python -m unittest discover -s tests -v` 通过 220 项，包含本地 CLI 回归与真实回环 HTTP 的静态资源集成测试。独立运行隐藏契约通过 109 项。Seed 42 的默认 mock 成绩为 `74/109`、`98/109`、`109/109`。用户指定的计分板检查输出 `scoreboard ok`，报告位于 `benchmarks/results/latest.json` 与 `benchmarks/results/latest.md`。
+- 直接运行前端门禁时，Vite 写入指向工作树外的依赖 junction 返回 `EPERM`。在工作树内使用本地依赖副本和经 SHA-256 核对的 115 个前端及预设文件执行原命令。Vitest 通过 26 个文件、259 项，TypeScript 检查和 Vite 构建通过，构建有产物体积告警。全量 Python 使用该构建产物，验证结束后已清理副本及临时构建。
+- 本地夹具覆盖 live 调度和评估，真实模型调用待验收。回退参考为 `fa20f65` 与当前工作树差异。
+
+## 20261122-002235-m4-t5-scoreboard-acl
+
+The M4-T5 controller rerun on 2026-11-22 PST hit `PermissionError` while
+snapshotting `benchmarks/results/latest.json` on `baton/25c18a/m4-t5`.
+Reports from the previous runner kept the private Windows ACL of the staging
+directory after the move. The runner now creates each staging file in the
+output directory and replaces its report after closing the file.
+
+The harness still compares paths and readable file contents before and after
+temporary-output runs. For either unreadable legacy report, it compares file
+identity, size, and modification time. The regression covers metadata changes,
+read errors on source files, and replacement of existing reports.
+
+- The exact verification command exited `0` in a temporary copy of 198 inputs
+  checked with SHA-256. The ten hidden contract modules passed all 109 tests,
+  and Python discovery passed all 218 tests. Vitest passed 259 tests in 26 files,
+  TypeScript checking passed, and Vite built with a chunk-size warning.
+- The first frontend copy omitted the repository presets. The next run placed
+  temporary test credentials inside the repository and hit the credential
+  storage guard. The passing run copied the presets and frontend dependencies
+  and used system temporary storage for test data.
+- The seed-42 reports in this worktree match the gate results apart from the
+  JSON generation time. Windows ACL checks showed inherited permissions on
+  both reports. The live tests covered provider configuration guidance and
+  dispatch through local CLI fixtures.
+
+Status is self-tested and pending user acceptance. Real live provider calls
+remain unverified. `ec1f46a` is the Git baseline before M4-T5.
+
+## 20261122-000739-m4-t5-benchmark-runner
+
+On 2026-11-22 PST, M4-T5 added the runner, scoreboards, and reference package
+exports on `baton/25c18a/m4-t5` from base `ec1f46a`. Status is self-tested and
+pending user acceptance. The base commit is the reference for reviewing and
+reverting the changes.
+
+- The aggregate reference suite passed 109 tests across all ten contract
+  modules. The seed-42 mock produced 74/109, 98/109, and 109/109 passes, with
+  two frozen-file changes in arm A and zero in B and C.
+- `python -m unittest discover -s tests -v` passed 217 tests. The harness tests
+  covered reproducible scores, unchanged benchmark sources, a broken adapter,
+  unconfigured live mode, and live dispatch through local CLI fixtures. The
+  fixtures verified that path and public test failures stop arm C before review.
+  Real model calls remain unverified.
+- The full verification sequence returned zero from a byte-verified copy of
+  192 project inputs. Vitest passed 259 tests in 26 files, `tsc --noEmit` passed,
+  and Vite built the production bundle with a chunk-size warning. The worktree's
+  shared dependency directory resolves outside the sandbox's writable root.
+  Esbuild could not read a parent of the system temporary copy, so the passing
+  run used a temporary directory inside the worktree with local dependencies.
+
+## 20261121-231817-m4-t1-benchmark-contracts
+
+M4-T1 added the starter interfaces, task prompt, target loader, and KV Memory
+example on `baton/25c18a/m4-t1` from base `63d6957`. Status is self-tested and
+pending user acceptance.
+
+- The direct and aggregate evaluators each passed 8 tests. An alternate target
+  ran the same suite. Target validation rejected invalid paths and a cached
+  package from a different target.
+- `python -m unittest discover -s tests -v` passed 212 tests in a byte-verified
+  temporary copy. In the worktree, the sandbox blocked Vite's config write
+  through the shared `node_modules` junction. The temporary copy used assets
+  built from this worktree with `vite build --configLoader runner`.
+- Python 3.13.2 ran the tests. A separate check verified Python 3.11 syntax and
+  standard-library imports. Base `63d6957` is the Git reference for reviewing
+  and rolling back these additions.
 
 ## 20261121-212738-m2-subscription-readiness
 
