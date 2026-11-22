@@ -254,11 +254,25 @@
 @media (max-width: 40rem) {
   .header-bar {
     flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: 0.45rem;
+    padding-inline: 0.75rem;
+  }
+
+  .header-bar__right {
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    min-width: 0;
+    max-width: 100%;
+    gap: 0.35rem;
+  }
+
+  .header-bar__divider {
+    display: none;
   }
 
   .header-bar__graph-name {
-    order: 1;
+    order: 2;
     flex-basis: 100%;
     padding-inline-start: 0;
     border-inline-start: 0;
