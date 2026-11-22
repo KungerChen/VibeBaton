@@ -89,6 +89,9 @@
   --edge-retry-traversed: #d97706;
   --edge-escalate-active: #be123c;
   --edge-escalate-traversed: #e11d48;
+
+  color: var(--text);
+  background: var(--bg);
 }
 
 html {

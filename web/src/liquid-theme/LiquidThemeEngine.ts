@@ -109,7 +109,7 @@ export function createLiquidThemeController(options: LiquidRevealOptions): Liqui
 
     const direction: LiquidDirection = nextTheme === 'dark' ? 'to-dark' : 'to-light';
 
-    if (prefersReducedMotion()) {
+    if (options.respectReducedMotion !== false && prefersReducedMotion()) {
       interrupt(false);
       void options.audio?.unlock();
       options.onCommitTheme(nextTheme);

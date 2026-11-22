@@ -33,6 +33,15 @@ export function readStoredTheme(): Theme {
   }
 }
 
+export function shouldRespectReducedMotion(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return new URLSearchParams(window.location.search).get('motion') !== 'full';
+  } catch {
+    return true;
+  }
+}
+
 export interface ThemeContextValue {
   theme: Theme;
   setTheme(next: Theme, origin?: LiquidOrigin): void;
@@ -96,6 +105,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   if (!controllerRef.current) {
     controllerRef.current = createLiquidThemeController({
       durationMs: 1150,
+      respectReducedMotion: shouldRespectReducedMotion(),
       audio: audioRef.current,
       getSourceRoot: () => document.getElementById('root') ?? document.body,
       prepareClone: (cloneRoot, targetTheme) => {

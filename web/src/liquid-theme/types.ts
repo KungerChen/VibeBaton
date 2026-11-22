@@ -38,6 +38,8 @@ export interface LiquidRevealOptions {
   getMountTarget?: () => HTMLElement | null;
   /** Transition duration in milliseconds (default `1150`). */
   durationMs?: number;
+  /** Respect OS `prefers-reduced-motion: reduce` (default `true`). */
+  respectReducedMotion?: boolean;
   /** Optional custom attribute/theme applicator inside the reveal overlay root. */
   prepareClone?: (cloneRoot: HTMLElement, targetTheme: LiquidTheme) => void;
   /** Commit the active theme cleanly once liquid covers the viewport. */

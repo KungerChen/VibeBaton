@@ -156,6 +156,8 @@ export function createRevealOverlay(
   ].join(';');
 
   cloneRoot.style.margin = '0';
+  cloneRoot.style.width = '100%';
+  cloneRoot.style.height = '100%';
   cloneViewportFrame.append(cloneRoot);
   overlay.append(cloneViewportFrame);
 

@@ -22,6 +22,7 @@ import {
 const audio = new LiquidWebAudioEngine();
 const controller = createLiquidThemeController({
   durationMs: 1150,
+  respectReducedMotion: true, // Default true; pass false or open `?motion=full` to preview full fluid motion on OSes with reduced-motion enabled.
   audio,
   getSourceRoot: () => document.getElementById('root'),
   prepareClone: (cloneRoot, targetTheme) => {
