@@ -17,13 +17,19 @@ export const NODE_TYPES: readonly NodeType[] = [
   'human_gate_node',
 ];
 
+export type NodeTimingConfig = {
+  duration_sec?: number;
+  started_at?: number | null;
+  is_timing_active?: boolean;
+};
+
 export interface WorkflowNode {
   id: string;
   type: NodeType;
   label: string;
   role?: string;
   position?: { x: number; y: number };
-  config?: Record<string, unknown>;
+  config?: Record<string, unknown> & NodeTimingConfig;
 }
 
 export interface WorkflowEdge {

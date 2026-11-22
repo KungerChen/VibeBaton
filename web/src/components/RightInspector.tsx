@@ -83,6 +83,7 @@ export function RightInspector({
   mode, client, graph, selectedNodeId, selectedEdgeId, onUpdateNode, onUpdateEdge,
   trace, stepIndex, onJumpToStep, onToast,
   liveSnapshot, recentRuns, selectedRunId, liveReconnecting, onSelectRunId, onRefreshLiveRun,
+  liveNowSec,
 }: RightInspectorProps) {
   const { locale, messages } = useI18n();
   const tabs: readonly { id: InspectorTab; label: string }[] = [
@@ -347,6 +348,7 @@ export function RightInspector({
               liveReconnecting={liveReconnecting}
               onSelectRunId={onSelectRunId}
               onRefreshLiveRun={onRefreshLiveRun}
+              liveNowSec={liveNowSec}
             />
           </LaunchGraphContext.Provider>
         )}

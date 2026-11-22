@@ -27,6 +27,8 @@ export interface LeftSidebarProps {
   onShare?: () => void;
   validation: GraphValidationResult | null;
   liveSnapshot?: LiveRunSnapshot | null;
+  /** Workspace clock in epoch seconds. */
+  liveNowSec?: number;
   liveViewActive?: boolean;
   onSelectLiveRun?: () => void;
 }
@@ -75,6 +77,8 @@ export interface RightInspectorProps {
   onJumpToStep(i: number): void;
   onToast(msg: string, kind?: 'ok' | 'err'): void;
   liveSnapshot?: LiveRunSnapshot | null;
+  /** Workspace clock in epoch seconds. */
+  liveNowSec?: number;
   recentRuns?: RunListItem[];
   selectedRunId?: string | null;
   liveReconnecting?: boolean;

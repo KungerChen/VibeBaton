@@ -24,7 +24,8 @@ import { ToastHost, useToasts } from './components/ui/Toast';
 import { findPreset, flagship_4tier, starter_2tier } from './data/presets';
 import { getStage1ReplayTrace } from './data/stage1Replay';
 import { flowToGraph, graphToFlow } from './engine/flowAdapter';
-import { buildLiveRunGraph, deriveLiveRoleStates } from './engine/liveRunGraph';
+import { isRunStatusActive, useLiveClock } from './engine/liveClock';
+import { buildLiveRunGraph, deriveLiveRoleStates, projectLiveRunCanvas } from './engine/liveRunGraph';
 import { deriveStates, stepIntervalMs } from './engine/playback';
 import { buildShareUrl, decodeRecipeHash, encodeRecipeHash } from './engine/shareUrl';
 import { I18nProvider, useI18n } from './i18n';
@@ -144,6 +145,8 @@ function AppContent() {
     trace: GraphTraceEvent[];
   } | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<LiveRunSnapshot | null>(null);
+  const isSelectedRunActive = isRunStatusActive(liveSnapshot?.run?.status);
+  const liveNowSec = useLiveClock(isSelectedRunActive, liveSnapshot?.telemetry?.server_now);
   const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const selectedRunIdRef = useRef<string | null>(null);
@@ -398,36 +401,41 @@ function AppContent() {
     return () => clearInterval(timer);
   }, [playing, speed, stepCount]);
 
-  const liveGraphView = useMemo(
-    () => (liveViewActive && liveSnapshot?.run ? buildLiveRunGraph(liveSnapshot, locale) : null),
-    [liveSnapshot, liveViewActive, locale],
-  );
+  const liveGraphView = useMemo(() => {
+    if (!liveViewActive || !liveSnapshot?.run) return null;
+    const { graph, ...liveState } = buildLiveRunGraph(liveSnapshot, locale);
+    return { ...projectLiveRunCanvas(graph), ...liveState };
+  }, [liveSnapshot, liveViewActive, locale]);
+  const liveNodeTimings = baseGraph.id === liveGraphView?.graph.id ? liveGraphView.nodeTimings : undefined;
+  const serverNow = liveSnapshot?.telemetry?.server_now;
+  const canvasNow = isSelectedRunActive ? liveNowSec : undefined;
+  const liveCanvasTiming = useMemo(() => liveNodeTimings && {
+    nodeTimings: liveNodeTimings,
+    server_now: serverNow,
+    now_epoch_sec: canvasNow,
+  }, [liveNodeTimings, serverNow, canvasNow]);
 
   useEffect(() => {
-    if (!liveViewActive || !liveGraphView) {
+    if (!liveGraphView) {
       lastLiveCanvasRef.current = null;
       return;
     }
     const runId = typeof liveSnapshot?.run?.id === 'string' ? liveSnapshot.run.id : null;
-    const signature = JSON.stringify({
-      name: liveGraphView.graph.name,
-      nodes: liveGraphView.graph.nodes.map((node) => [node.id, node.label, node.role, node.config]),
-      edges: liveGraphView.graph.edges.map((edge) => edge.id),
-    });
+    const { graph: canvasGraph, signature } = liveGraphView;
     if (lastLiveCanvasRef.current?.runId === runId && lastLiveCanvasRef.current?.signature === signature) {
       return;
     }
     const isNewRun = lastLiveCanvasRef.current?.runId !== runId;
     lastLiveCanvasRef.current = { runId, signature };
-    const flow = graphToFlow(liveGraphView.graph, liveGraphView.nodeStates);
-    setBaseGraph(liveGraphView.graph);
+    const flow = graphToFlow(canvasGraph, liveGraphView.nodeStates);
+    setBaseGraph(canvasGraph);
     setNodes(flow.nodes);
     setEdges(flow.edges);
     if (isNewRun) {
       setSelection(emptySelection);
       setCanvasKey((key) => key + 1);
     }
-  }, [liveGraphView, liveSnapshot?.run?.id, liveViewActive, setEdges, setNodes]);
+  }, [liveGraphView, liveSnapshot?.run?.id, setEdges, setNodes]);
 
   const simDerived = useMemo(
     () => deriveStates(graph, trace, trace[stepIndex - 1]?.seq ?? -1),
@@ -752,6 +760,7 @@ function AppContent() {
           onShare={onShare}
           validation={validation}
           liveSnapshot={liveSnapshot}
+          liveNowSec={liveNowSec}
           liveViewActive={liveViewActive}
           onSelectLiveRun={onSelectLiveRun}
         />
@@ -771,6 +780,7 @@ function AppContent() {
           key={canvasKey}
           nodes={nodes}
           edges={edges}
+          liveTiming={liveCanvasTiming}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -820,6 +830,7 @@ function AppContent() {
           onJumpToStep={onJumpToStep}
           onToast={push}
           liveSnapshot={liveSnapshot}
+          liveNowSec={liveNowSec}
           recentRuns={recentRuns}
           selectedRunId={selectedRunId}
           liveReconnecting={liveReconnecting}

@@ -75,6 +75,42 @@
   }
 }
 
+.baton-node-timing {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Consolas, monospace;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+}
+
+.baton-node-timing[data-active='true'] {
+  border-color: color-mix(in srgb, var(--emerald) 45%, var(--border));
+  background: color-mix(in srgb, var(--emerald) 10%, var(--card));
+  color: var(--emerald);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--sky) 22%, transparent);
+  animation: baton-node-timing-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes baton-node-timing-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.8;
+  }
+}
+
 .baton-node__port-tag {
   padding: 1px 6px;
   border-radius: 5px;
@@ -197,7 +233,8 @@
 
   .baton-node--active,
   .baton-node--retrying,
-  .baton-node__badge--active {
+  .baton-node__badge--active,
+  .baton-node-timing[data-active='true'] {
     animation: none;
   }
 }

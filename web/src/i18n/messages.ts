@@ -57,6 +57,10 @@ export interface Messages {
   nodeCard: {
     parallelWorkersTitle: string;
   };
+  liveClock: {
+    live: string;
+    liveBadgeLabel: string;
+  };
   playback: {
     scenarioAria: string;
     scenarios: Record<Scenario, string>;
@@ -365,6 +369,10 @@ export const MESSAGES: Record<Locale, Messages> = {
     },
     nodeCard: {
       parallelWorkersTitle: 'Parallel workers',
+    },
+    liveClock: {
+      live: 'LIVE',
+      liveBadgeLabel: 'Live timer running',
     },
     playback: {
       scenarioAria: 'Scenario',
@@ -764,6 +772,10 @@ export const MESSAGES: Record<Locale, Messages> = {
     },
     nodeCard: {
       parallelWorkersTitle: '并发执行数',
+    },
+    liveClock: {
+      live: '实时计时',
+      liveBadgeLabel: '计时进行中',
     },
     playback: {
       scenarioAria: '仿真场景',

@@ -1,6 +1,6 @@
 import { ChevronRight } from 'lucide-react';
 import { useEffect, useEffectEvent, useId, useRef, useState } from 'react';
-import { formatDurationSec } from '../../engine/liveRunGraph';
+import { computeLiveSeconds, formatDurationSec, isRunStatusActive } from '../../engine/liveClock';
 import { useI18n } from '../../i18n';
 import { formatLiveEventMessage, translateEventKind, translateTier } from '../../i18n/liveEvents';
 import type { Locale } from '../../i18n/messages';
@@ -104,7 +104,7 @@ type LiveRunPanelProps = Pick<
   | 'liveReconnecting'
   | 'onSelectRunId'
   | 'onRefreshLiveRun'
-> & { visible: boolean };
+> & { visible: boolean; liveNowSec?: number };
 
 type RunAction = 'pause' | 'resume' | 'approve' | 'reject';
 
@@ -118,6 +118,7 @@ export function LiveRunPanel({
   liveReconnecting,
   onSelectRunId,
   onRefreshLiveRun,
+  liveNowSec,
 }: LiveRunPanelProps) {
   const { locale, messages } = useI18n();
   const panelId = useId();
@@ -140,6 +141,17 @@ export function LiveRunPanel({
   const runId = typeof snapshot.run?.id === 'string' ? snapshot.run.id : undefined;
   const status = display(snapshot.run?.status, 'UNKNOWN');
   const telemetry = snapshot.telemetry ?? null;
+  const serverNow = telemetry?.server_now;
+  const isActive = isRunStatusActive(snapshot.run?.status) && liveNowSec !== undefined && Number.isFinite(serverNow);
+  const now = liveNowSec ?? 0;
+  // telemetry.elapsed_sec already covers in-flight work up to server_now, so advance
+  // from the snapshot timestamp to avoid double-counting the current stage.
+  const totalLiveDuration = computeLiveSeconds(telemetry?.elapsed_sec ?? 0, serverNow, isActive, now);
+  const modelTimings = (telemetry?.models ?? []).map((item) => {
+    const active = isActive && Number.isFinite(item.active_started_at);
+    return { active, durationSec: computeLiveSeconds(item.duration_sec, serverNow, active, now) };
+  });
+  const modelLiveTotal = modelTimings.reduce((sum, { durationSec }) => sum + durationSec, 0);
   const billing = telemetry?.billing?.has_exact_billing === true ? telemetry.billing : null;
   const onStreamError = useEffectEvent((error: unknown) => {
     onToast(error instanceof Error ? error.message : String(error), 'err');
@@ -391,7 +403,7 @@ export function LiveRunPanel({
                   {messages.inspector.stageTimingTitle}
                 </h3>
                 <span className="font-mono text-[11px] text-foreground">
-                  {messages.inspector.totalElapsed(formatDurationSec(telemetry.elapsed_sec, locale))}
+                  {messages.inspector.totalElapsed(formatDurationSec(totalLiveDuration, locale, isActive))}
                 </span>
               </div>
               <div className="grid min-w-0 grid-cols-1 gap-1.5">
@@ -400,6 +412,13 @@ export function LiveRunPanel({
                     ? (locale === 'en' ? '01_PLAN' : '01_PLAN · 规划')
                     : `${stage.id} · ${stage.title}`;
                   const stageStatus = messages.inspector.runStatuses[stage.status] ?? stage.status;
+                  const stageActive = isActive && stage.is_active === true;
+                  const stageLiveSec = computeLiveSeconds(
+                    stage.wall_sec,
+                    serverNow,
+                    stageActive,
+                    now,
+                  );
                   return (
                     <div
                       key={stage.id}
@@ -414,8 +433,14 @@ export function LiveRunPanel({
                           {stage.total_tasks > 0 ? ` · ${stage.passed_tasks}/${stage.total_tasks}` : ''}
                         </div>
                       </div>
-                      <span className="shrink-0 font-mono text-[11px] font-semibold text-foreground">
-                        {formatDurationSec(stage.wall_sec, locale)}
+                      <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-semibold text-foreground">
+                        {stageActive && <span className="live-dot" aria-hidden="true" />}
+                        {formatDurationSec(stageLiveSec, locale, stageActive)}
+                        {stageActive && (
+                          <span className="text-[9.5px] font-semibold uppercase tracking-wide text-[var(--emerald)]">
+                            {messages.liveClock.live}
+                          </span>
+                        )}
                       </span>
                     </div>
                   );
@@ -444,9 +469,15 @@ export function LiveRunPanel({
                 </div>
               )}
               <div className="grid min-w-0 grid-cols-1 gap-2">
-                {telemetry.models.map((item) => {
+                {telemetry.models.map((item, index) => {
                   const providerName = formatProviderDisplay(item.display_provider || item.provider);
                   const modelTitle = item.model ? `${providerName} / ${item.model}` : providerName;
+                  // Server share_pct uses total model runtime as the denominator; mirror that
+                  // after advancing each active model to liveNowSec.
+                  const { active, durationSec } = modelTimings[index];
+                  const sharePct = isActive
+                    ? (modelLiveTotal > 0 ? (durationSec / modelLiveTotal) * 100 : 0)
+                    : item.share_pct;
                   return (
                     <div
                       key={item.actor}
@@ -457,20 +488,20 @@ export function LiveRunPanel({
                           {modelTitle}
                         </span>
                         <span className="shrink-0 font-mono text-[11px] text-foreground">
-                          {formatDurationSec(item.duration_sec, locale)}
+                          {formatDurationSec(durationSec, locale, active)}
                           {item.estimated ? ` (${messages.inspector.estimatedTag})` : ''}
                         </span>
                       </div>
                       <div className="right-inspector__telemetry-bar-track" aria-hidden="true">
                         <div
                           className="right-inspector__telemetry-bar-fill"
-                          style={{ width: `${Math.min(100, Math.max(3, item.share_pct))}%` }}
+                          style={{ width: `${Math.min(100, Math.max(3, sharePct))}%` }}
                         />
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-1 text-[10.5px] text-muted-foreground">
                         <span>{translateRole(item.role, locale)}</span>
                         <span className="font-mono">
-                          {messages.inspector.callCount(item.calls)} · {messages.inspector.avgDuration(formatDurationSec(item.avg_sec, locale))} · {item.share_pct.toFixed(1)}%
+                          {messages.inspector.callCount(item.calls)} · {messages.inspector.avgDuration(formatDurationSec(item.avg_sec, locale))} · {sharePct.toFixed(1)}%
                         </span>
                       </div>
                       {billing && item.cost_usd != null && (
@@ -499,9 +530,14 @@ export function LiveRunPanel({
               const taskAssignee = display(task.current_role ?? task.assignee_role);
               const isExpanded = expandedTaskId === taskId;
               const taskPanelId = `${panelId}-task-${index}`;
+              const taskTiming = telemetry?.task_timings?.[taskId];
+              const taskActive = isActive && taskTiming?.is_active === true && Number.isFinite(taskTiming.started_at);
               const taskDuration = formatDurationSec(
-                telemetry?.task_timings?.[taskId]?.duration_sec ?? asNumber(task.duration_sec),
+                taskTiming
+                  ? computeLiveSeconds(taskTiming.duration_sec, serverNow, taskActive, now)
+                  : asNumber(task.duration_sec),
                 locale,
+                taskActive,
               );
               const taskEvents = isExpanded
                 ? snapshot.events.filter((ev) => display(ev.task_id, '') === taskId)

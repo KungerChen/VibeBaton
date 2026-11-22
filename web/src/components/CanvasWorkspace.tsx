@@ -14,9 +14,9 @@ import {
   type OnSelectionChangeFunc,
 } from '@xyflow/react';
 import { useTheme } from '../theme';
-import { tierForNodeType } from '../types/graph';
+import { tierForNodeType, type NodeTimingConfig } from '../types/graph';
 import { BatonEdge, EDGE_TONE_COLORS, edgeSemanticTone } from './edges/BatonEdge';
-import { BatonNode, TIER_COLORS, type BatonFlowNode } from './nodes/BatonNode';
+import { BatonNode, TIER_COLORS, type BatonFlowNode, type BatonNodeData } from './nodes/BatonNode';
 import { resolveDoctorTarget, type DoctorTargets, type ProviderHealthMap } from './nodes/readiness';
 
 const NODE_TYPES_MAP = { baton: BatonNode };
@@ -53,6 +53,9 @@ export function updateWorkspaceReadiness(update?: (current: WorkspaceReadiness) 
 export type CanvasWorkspaceProps = {
   nodes: BatonFlowNode[];
   edges: Edge[];
+  liveTiming?: Pick<BatonNodeData, 'server_now' | 'now_epoch_sec'> & {
+    nodeTimings: ReadonlyMap<string, NodeTimingConfig>;
+  };
   onNodesChange: OnNodesChange<BatonFlowNode>;
   onEdgesChange: OnEdgesChange;
   onConnect: OnConnect;
@@ -91,6 +94,7 @@ export function useReadinessTime(providerHealth: ProviderHealthMap) {
 export function CanvasWorkspace({
   nodes,
   edges,
+  liveTiming,
   onNodesChange,
   onEdgesChange,
   onConnect,
@@ -103,15 +107,21 @@ export function CanvasWorkspace({
   const { providerHealth, doctorTargets } = useWorkspaceReadiness();
   const readinessTime = useReadinessTime(providerHealth);
 
-  const styledNodes = useMemo(() => nodes.map((node) => ({
-    ...node,
-    data: {
-      ...node.data,
-      providerHealth,
-      readinessProvider: resolveDoctorTarget(node.data, doctorTargets).provider,
-      readinessTime,
-    },
-  })), [nodes, providerHealth, doctorTargets, readinessTime]);
+  const styledNodes = useMemo(() => nodes.map((node) => {
+    const timing = liveTiming?.nodeTimings.get(node.id);
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        ...timing,
+        server_now: timing ? liveTiming?.server_now : undefined,
+        now_epoch_sec: timing ? liveTiming?.now_epoch_sec : undefined,
+        providerHealth,
+        readinessProvider: resolveDoctorTarget(node.data, doctorTargets).provider,
+        readinessTime,
+      },
+    };
+  }), [nodes, liveTiming, providerHealth, doctorTargets, readinessTime]);
 
   const styledEdges = useMemo(() => edges.map((edge) => {
     const active = activeEdgeIds.has(edge.id);
