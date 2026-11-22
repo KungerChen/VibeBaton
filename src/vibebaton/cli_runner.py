@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +27,10 @@ class CLIResult:
     command: list[str]
     retry_after_sec: float | None = None
     output_file_text: str | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_tokens: int = 0
+    cost_usd: float | None = None
 
 
 _RETRY_AFTER_RE = re.compile(
@@ -292,4 +297,52 @@ async def run_provider_cli(
         duration_sec=duration,
         command=cmd,
         output_file_text=out_file_text,
+    )
+
+
+async def invoke_provider(
+    provider: ProviderConfig,
+    *,
+    prompt: str,
+    model: str,
+    effort: str | None,
+    output_file: Path | None,
+    cwd: Path,
+    credentials_path: Path | None = None,
+    cli_executor: Callable[..., Awaitable[CLIResult]] | None = None,
+    **kwargs,
+) -> CLIResult:
+    """Dispatch HTTP with explicit effort or CLI with the original model spec.
+
+    CLI calls require an output path and pass ``prompt_file`` in ``kwargs``.
+    ``cli_executor`` preserves caller-supplied CLI execution hooks.
+    HTTP uses the explicit timeout, provider timeout, or caller default in that order.
+    """
+    if provider.type == "http":
+        from . import http_provider
+
+        hard_timeout_sec = kwargs.get("hard_timeout_sec")
+        if hard_timeout_sec is None:
+            hard_timeout_sec = provider.hard_timeout_sec or kwargs.get("default_hard_timeout")
+        return await http_provider.run_http_provider(
+            provider,
+            prompt=prompt,
+            model=model,
+            effort=effort,
+            output_file=output_file,
+            cwd=cwd,
+            credentials_path=credentials_path,
+            hard_timeout_sec=hard_timeout_sec,
+        )
+
+    if output_file is None:
+        raise ValueError("CLI providers require an output file.")
+    execute_cli = run_provider_cli if cli_executor is None else cli_executor
+    return await execute_cli(
+        provider,
+        prompt=prompt,
+        model=model,
+        output_file=output_file,
+        workdir=cwd,
+        **kwargs,
     )

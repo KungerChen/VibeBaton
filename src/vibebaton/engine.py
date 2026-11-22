@@ -13,8 +13,9 @@ from itertools import count
 from pathlib import Path
 from typing import Any, Iterator
 
+from . import cli_runner
 from .allocation import compute_step_up_target, parse_model_spec, resolve_task_allocation
-from .cli_runner import CLIResult, run_provider_cli
+from .cli_runner import CLIResult, invoke_provider
 from .config import (
     BatonConfig,
     HotReloadConfig,
@@ -50,6 +51,11 @@ from .schemas import (
 )
 
 
+async def run_provider_cli(provider: ProviderConfig, **kwargs: Any) -> CLIResult:
+    """Keep the engine's CLI hook backed by the shared runner."""
+    return await cli_runner.run_provider_cli(provider, **kwargs)
+
+
 @contextmanager
 def windows_wake_lock(enabled: bool) -> Iterator[None]:
     """Prevent Windows from entering sleep mode while unattended pipelines are active."""
@@ -77,11 +83,14 @@ class OrchestrationEngine:
         config_loader: HotReloadConfig,
         store: StateStore,
         package_root: Path | None = None,
+        *,
+        credentials_path: Path | None = None,
     ) -> None:
         self.repo_path = repo_path.resolve()
         self.config_loader = config_loader
         self.store = store
         self.package_root = (package_root or Path(__file__).resolve().parents[2]).resolve()
+        self.credentials_path = credentials_path
         self._semaphores: dict[str, tuple[int, asyncio.Semaphore]] = {}
         self._merge_lock = asyncio.Lock()
 
@@ -174,13 +183,21 @@ class OrchestrationEngine:
                     milestone_id=milestone_id,
                     message=f"Invoking {role_name} ({active_provider.name}/{active_model})",
                 )
-                res = await run_provider_cli(
+                transport_model = active_model
+                effort: str | None = None
+                if active_provider.type == "http":
+                    transport_model, _, effort_suffix = active_model.partition("@")
+                    effort = effort_suffix or None
+                res = await invoke_provider(
                     active_provider,
-                    model=active_model,
+                    model=transport_model,
+                    effort=effort,
                     prompt=full_prompt,
-                    workdir=workdir,
+                    cwd=workdir,
                     prompt_file=prompt_file,
                     output_file=output_file,
+                    credentials_path=self.credentials_path,
+                    cli_executor=run_provider_cli,
                     default_stall_timeout=cfg.daemon.default_stall_timeout_sec,
                     default_hard_timeout=cfg.daemon.default_hard_timeout_sec,
                     extra_env={
@@ -190,6 +207,22 @@ class OrchestrationEngine:
                         "VIBEBATON_MILESTONE_ID": milestone_id or "",
                     },
                 )
+                payload: dict[str, str | int | float] = {
+                    "role": role_name,
+                    "provider": active_provider.name,
+                    "model": active_model,
+                    "duration_sec": round(float(res.duration_sec), 3),
+                    "status": res.status,
+                    "exit_code": res.exit_code,
+                }
+                if res.prompt_tokens > 0:
+                    payload["prompt_tokens"] = res.prompt_tokens
+                if res.completion_tokens > 0:
+                    payload["completion_tokens"] = res.completion_tokens
+                if res.cached_tokens > 0:
+                    payload["cached_tokens"] = res.cached_tokens
+                if res.cost_usd is not None:
+                    payload["cost_usd"] = res.cost_usd
                 self.store.log_event(
                     run_id,
                     "role_completed",
@@ -200,14 +233,7 @@ class OrchestrationEngine:
                         f"Completed {role_name} ({active_provider.name}/{active_model}) "
                         f"in {float(res.duration_sec):.1f}s ({res.status})"
                     ),
-                    payload={
-                        "role": role_name,
-                        "provider": active_provider.name,
-                        "model": active_model,
-                        "duration_sec": round(float(res.duration_sec), 3),
-                        "status": res.status,
-                        "exit_code": res.exit_code,
-                    },
+                    payload=payload,
                 )
 
             if res.status == "rate_limited":

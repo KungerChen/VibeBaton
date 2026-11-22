@@ -58,6 +58,10 @@ class ProviderConfig:
     env: dict[str, str] = field(default_factory=dict)
     stall_timeout_sec: int | None = None
     hard_timeout_sec: int | None = None
+    base_url: str = "https://api.openai.com/v1"
+    api_key_env: str = "OPENAI_API_KEY"
+    headers: dict[str, str] = field(default_factory=dict)
+    model_pricing: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 @dataclass
@@ -260,6 +264,13 @@ def parse_config_dict(raw: dict[str, Any], source_path: Path | None = None) -> B
             hard_timeout_sec=(
                 int(item["hard_timeout_sec"]) if item.get("hard_timeout_sec") is not None else None
             ),
+            base_url=str(item.get("base_url", ProviderConfig.base_url)),
+            api_key_env=str(item.get("api_key_env", ProviderConfig.api_key_env)),
+            headers={str(k): str(v) for k, v in item.get("headers", {}).items()},
+            model_pricing={
+                str(model): {str(rate): float(value) for rate, value in rates.items()}
+                for model, rates in item.get("model_pricing", {}).items()
+            },
         )
 
     roles: dict[str, RoleConfig] = {}
