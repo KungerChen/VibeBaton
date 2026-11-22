@@ -1,149 +1,171 @@
-# Master RFC: VibeBaton Stage 4 (`v1.0.0`) — Native HTTP Provider & Token Billing, Auto-Conflict-Resolver, Container Sandbox & v1.0 Release
+# Master RFC: VibeBaton Stage 4.5 (`v1.0.1`) — Resizable Panes & Task Accordions, 1-Second Live Telemetry Clocks, Interactive Spotlight Tour & Visual Tutorial
 
 ## 1. Goal
 
-Upgrade VibeBaton from `v0.9.0-beta` to **`v1.0.0`** (Production Release) across 4 self-contained, verified milestones:
-1. **Native OpenAI-Compatible HTTP Provider & Exact Token/USD Billing (`M1`)** — zero-dependency `urllib.request` client supporting direct `/chat/completions` calls (OpenAI, DeepSeek API, OpenCode Go, vLLM/Ollama local servers), parsing `usage` tokens & USD pricing tables, feeding `role_completed` + telemetry + bilingual Battle Reports with real token and USD cost breakdowns, while reusing SQLite 429 cooldown scheduling.
-2. **Auto-Conflict-Resolver for Concurrent Worktree Merges (`M2`)** — upgrade `git_ops.py`, `config.py`, and `engine.py` so squash-merge conflicts inside isolated integration worktrees automatically invoke a specialist resolver role with bounded retries, validate zero conflict markers + passing mechanical gates before committing, and escalate cleanly to `WAITING_HUMAN` only when automated resolution is exhausted.
-3. **Docker / DevContainer OS-Level Sandbox Templates & CLI (`M3`)** — fulfill `docs/SECURITY.md` with least-privilege container templates (`sandbox/Dockerfile`, `sandbox/docker-compose.yml`, `.devcontainer/devcontainer.json`), a pure-stdlib scaffolding module (`src/vibebaton/sandbox.py`), and `baton sandbox init` CLI command (`src/vibebaton/cli.py`).
-4. **Windows One-Click Installer, Web Studio Cost/Conflict Panels & `v1.0.0` Release (`M4`)** — turnkey PowerShell setup script (`scripts/install.ps1`), Web Studio frontend telemetry extensions (token counts, USD cost badges, conflict-resolution event localization in pure EN + `EN | 中文`), version bump to `1.0.0` across Python & frontend manifests, `CHANGELOG.md` + release announcement draft, and full-stack verification.
+Deliver the **`v1.0.1`** Studio UX Upgrade across **3 cohesive milestones** on top of the verified `v1.0.0` baseline:
+1. **Resizable Dual Sidebars, Adaptive Task Accordion Cards & Backend Live Timing Anchors (`M1`)** — extend `compute_run_telemetry` with `server_now`, stage/model active start anchors, and per-task timing objects; replace the cramped horizontal-scroll 5-column tasks table in `LiveRunPanel.tsx` with full-width collapsible Task Accordion cards; make both Left Sidebar (`220px..440px`) and Right Inspector (`320px..720px`) smoothly resizable via accessible split handles persisted in `localStorage`.
+2. **Real-Time 1-Second Live Clocks Across Canvas Nodes, Live Card & Right Inspector Telemetry (`M2`)** — add a single lightweight `useLiveClock` timer (active only for running runs, zero timers on historical runs) synchronized with `telemetry.server_now` so active canvas nodes (`01_PLAN`, active tasks, active milestone reviewers), top-left `Live Run Workflow` card, total elapsed, active stage row, active model runtime + percentage bar, and active task cards all tick up live every second.
+3. **Interactive 7-Step Spotlight Guided Tour, Theme-Adaptive Inline SVG Diagrams, Updated Tutorial Doc & `v1.0.1` Release (`M3`)** — build a zero-dependency SVG-mask Spotlight Guided Tour highlighting 7 core controls with click-target progression and bidirectional `EN | 中文` support, add 3 theme-adaptive inline SVG architectural diagrams to `QuickStartModal`'s `Tutorial` / `详细教程` tab plus Mermaid diagrams in `docs/TUTORIAL.md`, and bump release metadata cleanly to `1.0.1`.
 
 ---
 
 ## 2. Hard Constraints & Invariants (CRITICAL)
 
-- **Zero New Python Runtime Dependencies**: Python backend MUST use Python 3.11+ standard library only (`pyproject.toml` `dependencies = []` unchanged). Only use stdlib modules such as `urllib.request`, `urllib.error`, `http.server`, `json`, `sqlite3`, `asyncio`, `tomllib`, and `unittest`.
+- **Zero New Python Runtime Dependencies**: Python backend MUST use Python 3.11+ standard library only (`pyproject.toml` `dependencies = []` unchanged).
 - **Pre-Installed Frontend Toolchain (CRITICAL — DO NOT run `npm install`)**:
-  - `web/package.json` dependencies and `web/node_modules/` are pre-installed and auto-mounted into every task worktree via junction.
-  - **DO NOT** invoke `npm install` or add/remove npm packages. Use only existing packages already in `web/package.json`.
+  - `web/package.json` dependencies and `web/node_modules/` are pre-installed and automatically mounted into every task worktree via junction.
+  - **DO NOT** run `npm install`, `pnpm`, `yarn`, or modify `dependencies`/`devDependencies` in `web/package.json`. Use only React 19, TypeScript, Tailwind CSS v4, `@xyflow/react`, `lucide-react`, `vitest`, and existing utilities.
 - **Windows Gate Commands**:
-  - Never write `/dev/null` in shell/test commands; use `os.devnull` in Python or `NUL` in Windows cmd.
+  - Never use `/dev/null` in commands; use `os.devnull` in Python or `NUL` on Windows.
   - Always invoke `npm.cmd` and `npx.cmd` on Windows.
   - Python gate: `python -m unittest discover -s tests -v`
   - Frontend gate: `cmd /c "cd /d web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build"`
 - **Orchestration & Testing Hygiene**:
-  - Set `reviewer_role: null` on every `critical` task so `Claude Opus` milestone gate audits the integrated result cleanly without redundant micro-review loops.
-  - Every milestone's `gate_commands` MUST run full regression tests plus cross-module integration tests for that milestone.
+  - Set `reviewer_role: null` on every `critical` task so `Claude Opus` milestone review serves as the quality gate without redundant micro-reviews.
+  - Every milestone's `gate_commands` MUST execute full regression tests plus integration tests covering that milestone's modules.
 - **UI / i18n / Brand / Secret Hygiene Invariants**:
-  - Pure English default (`MESSAGES.en` contains zero CJK characters) + complete `EN | 中文` parity (`MESSAGES.zh` every leaf string / callback output contains Chinese Han characters, per `web/src/i18n/i18n.test.ts`).
-  - User-facing UI labels and presets display **`DeepSeek API`** (never leak `"opencode"` substring in `MESSAGES`), while preserving `dsh_opencode` backend keys seamlessly.
-  - Preserve shadcn/ui + Tailwind CSS v4 + React Flow UI (`BaseNode`) Studio design, `web/src/liquid-theme/`, and Web Audio controls.
-  - Never commit or hardcode real API keys, tokens, or secrets into repository files or logs; credentials stay in env vars or user-home `~/.vibebaton/credentials.json`.
+  - Pure English default UI (`MESSAGES.en` contains ZERO CJK characters) + complete `EN | 中文` parity (`MESSAGES.zh` every leaf string and function return value MUST contain at least one Chinese Han character to satisfy `web/src/i18n/i18n.test.ts`).
+  - Never include the substring `"opencode"` anywhere inside `web/src/i18n/messages.ts` (`i18n.test.ts` fails if matched); display **`DeepSeek API`** cleanly in all user-facing copy.
+  - Preserve shadcn/ui + Tailwind CSS v4 + React Flow UI (`BaseNode`) Studio design, `web/src/liquid-theme/`, Web Audio controls, and mobile `< 960px` zero-overflow tab layout (`375×667`).
+  - Do not commit secrets, stray root scratch files (`CLAUDE.md`, `LOG.md`, `LOG-INDEX.md`), or build artifacts (`web/dist/`).
 - **100% Backward Compatibility**:
-  - Preserve existing CLI commands, all 9 MCP tools, existing `baton.toml` / `baton.example.toml` compatibility when new optional HTTP/pricing/conflict sections are omitted, existing `test_report_without_allocation_events_matches_legacy_bytes` exact byte parity, all existing 223 Python tests, and all existing 264 frontend Vitest tests.
+  - Preserve existing `compute_run_telemetry` keys (`elapsed_sec`, `stages`, `models`, `billing`, optional `conflicts`), exact legacy bytes in `generate_battle_report` (`test_report_without_allocation_events_matches_legacy_bytes`), and all `v1.0.0` entries in `CHANGELOG.md`, `README.md`, and `docs/ROADMAP.md` (`tests/test_release_collateral.py`).
 
 ---
 
 ## 3. Milestones & Module Deliverables (Contract-First)
 
-### Milestone M1: Native OpenAI-Compatible HTTP Provider & Exact Token/USD Billing
+### Milestone M1: Live Timing Anchors API, Resizable Dual Sidebars & Adaptive Task Accordions
 
-#### 1. `src/vibebaton/http_provider.py`
-New pure-stdlib async/sync wrapper around OpenAI-compatible `POST {base_url}/chat/completions`:
-- Support configuration fields on `ProviderConfig` (`type = "http"` in `config.py`):
-  - `base_url: str = "https://api.openai.com/v1"`
-  - `api_key_env: str = "OPENAI_API_KEY"`
-  - `model_pricing: dict[str, dict[str, float]] = {}` (per-1M-token USD rates, e.g., `input_per_1m`, `output_per_1m`, optional `cached_input_per_1m`)
-  - Optional `headers: dict[str, str] = {}`
-- Resolve API keys securely from `os.environ` OR `credentials.load_credentials(credentials_path)` without ever logging the secret key.
-- Execute HTTPS/HTTP JSON POST with configurable `hard_timeout_sec`, return normalized `CLIResult` (extended with optional default fields `prompt_tokens: int = 0`, `completion_tokens: int = 0`, `cached_tokens: int = 0`, `cost_usd: float | None = None`).
-- Handle HTTP `429` + JSON `rate_limit` / quota errors cleanly (`status="rate_limited"`, parsing `Retry-After` response header or body with `parse_retry_after_seconds`), and map `timeout` / HTTP `4xx`/`5xx` / malformed JSON cleanly to `"timeout"` or `"error"` without crashing the worker loop.
-- Include deterministic cost helper `compute_token_cost_usd(model: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0, pricing_table: Mapping[str, Mapping[str, float]] | None = None) -> float | None` using configured pricing plus sensible built-in fallback rates for well-known models when explicit pricing is present.
-- Include a provider probe helper `probe_http_provider(provider_cfg, credentials_path=...)` integrated into `credentials.py` / `build_model_catalog()` so `type = "http"` providers report accurate readiness (API key configured + base_url valid) without spawning subprocess binaries!
+#### 1. Backend Live Timing Anchors (`src/vibebaton/report.py` & `tests/test_report_telemetry.py`)
+Extend `compute_run_telemetry(store, run_id, *, now_ts=None)` strictly additively (keep all existing keys intact):
+- Top-level `"server_now": round(now, 3)`.
+- Each entry in `telemetry["stages"]` adds:
+  - `"started_at": float | None` (epoch seconds when that stage began if currently active, or initial start timestamp)
+  - `"is_active": bool` (`True` when stage status is active such as `"PLANNING"`, `"RUNNING"`, `"IN_PROGRESS"`, `"REVIEWING"`, or `"GATE_CHECKING"` while run itself is active; `False` for completed/pending/terminal runs)
+- Each entry in `telemetry["models"]` adds:
+  - `"active_started_at": float | None` (earliest unpaired `role_invoked.created_at` still in flight while run status is `"PLANNING"` or `"RUNNING"`, else `None`)
+- New top-level `"task_timings": dict[str, dict[str, Any]]` mapping each task ID to:
+  - `"duration_sec": float` (recorded `task.duration_sec` or fallback sum of completed/elapsed work)
+  - `"started_at": float | None` (epoch timestamp of the currently running unpaired invocation when `task.status` is `"RUNNING"`, `"REVIEWING"`, `"GATE_CHECKING"`, or `"COOLDOWN"` and run is active, else `None`)
+  - `"is_active": bool`
+- Add unit tests in `tests/test_report_telemetry.py` covering active `server_now`, stage `is_active` + `started_at`, model `active_started_at` on unpaired `role_invoked`, per-task `task_timings`, and ensuring finished runs set `is_active=False` and `started_at=None` / `active_started_at=None`.
 
-#### 2. `src/vibebaton/config.py`, `src/vibebaton/cli_runner.py`, `src/vibebaton/credentials.py`
-- Extend `ProviderConfig` with optional HTTP fields (`base_url`, `api_key_env`, `headers`, `model_pricing`) keeping `type = "cli"` defaults 100% intact.
-- Extend `CLIResult` in `cli_runner.py` with default-initialized telemetry attributes (`prompt_tokens: int = 0`, `completion_tokens: int = 0`, `cached_tokens: int = 0`, `cost_usd: float | None = None`).
-- Route `invoke_provider(...)` (called from `engine.py` `_invoke_role`) cleanly: when `provider.type == "http"`, invoke `run_http_provider(...)` instead of subprocess `run_provider_cli(...)`; mockable cleanly for tests.
+#### 2. Frontend Resizable Dual Sidebars (`web/src/components/splitPane.ts`, `splitPane.test.ts`, `SplitHandle.tsx`, `web/src/index.css`, `web/src/components/LeftSidebar.css`, `web/src/App.tsx`)
+- Create pure helper module `web/src/components/splitPane.ts` (`clampPaneWidth`, `readPaneWidths`, `writePaneWidths`, constants `DEFAULT_SIDEBAR_WIDTH = 288`, `MIN_SIDEBAR_WIDTH = 220`, `MAX_SIDEBAR_WIDTH = 440`, `DEFAULT_INSPECTOR_WIDTH = 376`, `MIN_INSPECTOR_WIDTH = 320`, `MAX_INSPECTOR_WIDTH = 720`, storage key `'vibebaton.paneWidths'`).
+- Create `web/src/components/SplitHandle.tsx` (+ CSS styling in `web/src/index.css`): thin interactive `role="separator"` divider (`6px` hit target, subtle `1px` border highlight on hover/drag, `col-resize` cursor) supporting Pointer Events (`setPointerCapture`), ArrowLeft/ArrowRight keyboard steps (`16px`), Home/End clamping, and double-click to reset width cleanly.
+- Update `.app` grid in `web/src/index.css`: desktop uses `grid-template-columns: var(--sidebar-w, 288px) 6px minmax(360px, 1fr) 6px var(--inspector-w, 376px)`; update `LeftSidebar.css` from fixed `width: 288px` to `flex: 1 1 auto; width: 100%`; hide `SplitHandle` separators on `< 960px` mobile breakpoint so existing mobile tab switcher (`375×667`) keeps working cleanly.
+- Wire persisted widths and `<SplitHandle>` dividers in `web/src/App.tsx` (passing inline CSS variables `--sidebar-w` and `--inspector-w` on `.app`).
+- Write thorough unit tests in `web/src/components/splitPane.test.ts`.
 
-#### 3. `src/vibebaton/engine.py` & `src/vibebaton/report.py`
-- In `engine.py` `_invoke_role`: emit `prompt_tokens`, `completion_tokens`, `cached_tokens`, `cost_usd` inside the `"role_completed"` audit event `payload` whenever > 0 or non-None.
-- In `report.py`:
-  - Extend `compute_run_telemetry` output cleanly while preserving all existing keys (`elapsed_sec`, `stages`, `models`):
-    - Add top-level `"billing"` dict (`total_prompt_tokens`, `total_completion_tokens`, `total_cached_tokens`, `total_tokens`, `total_cost_usd`, `has_exact_billing: bool`) and optional per-model fields (`prompt_tokens`, `completion_tokens`, `cost_usd`) on each entry in `telemetry["models"]`.
-  - In `generate_battle_report(..., lang=...)`: append a localized **Token & Cost Summary** (`Token 与美元成本统计` / `Token Usage & Cost Breakdown`) section ONLY when `billing["has_exact_billing"]` is `True` (ensuring `test_report_without_allocation_events_matches_legacy_bytes` stays byte-identical!).
-- Add comprehensive unit & integration tests in `tests/test_http_provider.py` using an ephemeral local `http.server` / mock transport verifying: HTTP `/chat/completions`, token & USD cost accumulation, `429 Retry-After` cooldown trigger in `engine.py`, `credentials.py` readiness for `type="http"`, and telemetry + EN/ZH Battle Report output.
-
----
-
-### Milestone M2: Auto-Conflict-Resolver for Concurrent Worktree Merges
-
-#### 1. `src/vibebaton/git_ops.py` & `src/vibebaton/config.py`
-- **`git_ops.py`**:
-  - Define explicit `MergeConflictError(GitError)` capturing `source_branch`, `target_branch`, and `conflicted_files: list[str]`.
-  - Add pure helper `has_conflict_markers(worktree_dir: Path, files: Iterable[str] | None = None) -> list[str]` checking changed/target files for standard Git conflict markers (`<<<<<<< `, `=======`, `>>>>>>> `) without false-triggering binary files or `.baton/`.
-  - Add `merge_branch_with_resolver(...)` (while keeping existing `merge_branch_into(...)` contract intact for backward compatibility!):
-    - Uses an isolated `_merge_<target>` worktree (`repo` working directory never switched!).
-    - Attempts `git merge --squash <source_branch>`.
-    - On clean merge -> commits immediately and returns resolved status dict (`{"merged": True, "conflicts": [], "resolved_by_ai": False}`).
-    - On merge conflict -> extracts `conflicted_files` (`git diff --name-only --diff-filter=U`), captures conflict markers & base/ours/theirs context, invokes the supplied async/sync resolver callback inside `merge_wt`, verifies `has_conflict_markers(merge_wt, conflicted_files)` is empty and no unmerged index entries remain (`git diff --name-only --diff-filter=U`), runs `gate_checker(merge_wt)` if provided, stages & commits clean squash merge, and returns `{"merged": True, "conflicts": conflicted_files, "resolved_by_ai": True}`.
-    - If resolution fails or gate fails -> aborts merge cleanly in `merge_wt` (`git merge --abort`) and raises `MergeConflictError`.
-- **`config.py`**:
-  - Add optional `PolicySettings` field `auto_resolve_merge_conflicts: bool = True` and `max_conflict_resolve_attempts: int = 1` (backward compatible defaults) plus optional `roles.conflict_resolver` (defaulting gracefully to `critical_executor` / `micro_orchestrator` when absent from `baton.toml`).
-
-#### 2. `prompts/l2_conflict_resolver.md` & `src/vibebaton/engine.py` & `src/vibebaton/report.py`
-- Create concise specialist prompt `prompts/l2_conflict_resolver.md` instructing the resolver to synthesize both branches' intents cleanly, preserve tests, remove all Git conflict markers, and make zero unrelated edits.
-- In `engine.py` (all 3 merge sites: task -> milestone, milestone remediation -> milestone, milestone -> dev):
-  - Use conflict-aware merge orchestration when `policies.auto_resolve_merge_conflicts` is enabled:
-    - Log `merge_conflict_detected` (conflicted file list & branches), invoke resolver role inside the isolated integration worktree, verify zero conflict markers + task/milestone gate commands still pass before final commit, and log `merge_conflict_resolved`.
-    - On resolver/gate exhaustion, log `merge_conflict_failed` cleanly; keep existing `WAITING_HUMAN` / remediation escalation behavior safe and deterministic (`_merge_lock` never deadlocks, `_merge_*` worktree always cleaned up in `finally`).
-- Extend `report.py` telemetry/report safely with conflict counters when conflict events exist (`conflicts_detected`, `conflicts_auto_resolved`).
-- Add comprehensive real-git unit & integration tests in `tests/test_conflict_resolver.py`: simulate concurrent conflicting edits on two branches in a temporary Git repo, verify `MergeConflictError` detection, automated specialist callback resolution (leaving working tree clean and merging both intents), conflict-marker rejection guard, mechanical gate failure abort, and engine E2E recovery.
+#### 3. Adaptive Full-Width Task Accordion Cards (`web/src/components/inspector/LiveRunPanel.tsx`, `web/src/components/RightInspector.css`)
+- Replace the rigid 5-column HTML `<table>` inside `LiveRunPanel.tsx` with a responsive vertical **Task Accordion Card list** (`grid min-w-0 grid-cols-1 gap-2`):
+  - **Collapsed header button (`aria-expanded={isExpanded}`, `w-full min-w-0`)**:
+    - Top line: Chevron icon + monospace `task.id` + localized status `<Badge>` + task live/completed duration chip on the right;
+    - Second line: wrapping task title (natural line wrap, zero horizontal clipping) + tier & localized role metadata pills.
+  - **Expanded panel** (renders cleanly directly inside the card at `100%` of the inspector's current width — no 5-column `colSpan` table overflow!):
+    - Assigned model (using `DeepSeek API` display), live/final duration, counters (`self_heal`, `review_reject`, `escalated`), allowed file pills, `last_error` pre-wrap block, and filtered task audit events.
+  - Zero horizontal scrollbar needed at default `376px` width AND expands gracefully as the user widens the right inspector up to `720px`!
 
 ---
 
-### Milestone M3: Docker / DevContainer OS-Level Sandbox Templates & CLI
+### Milestone M2: Real-Time 1-Second Live Clocks Across Canvas Nodes & Sidebar Telemetry
 
-#### 1. Sandbox Templates (`sandbox/` & `.devcontainer/`)
-- **`sandbox/Dockerfile`**: Python 3.12+ / Node LTS slim image installing Git and the scaffolded VibeBaton runtime at `/opt/vibebaton`. The build context is `sandbox/`, allowlisted to the runtime archive. The image runs as non-root `baton` (UID 1000).
-- **`sandbox/docker-compose.yml`**: Least-privilege container configuration mounting only the target repo at `/workspace` (rw), optional read-only `~/.vibebaton` credentials or explicit env vars via `${...}`, enforcing `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, `read_only: true` root filesystem with scoped `tmpfs` (`/tmp`), and zero `~/.ssh` mount.
-- **`.devcontainer/devcontainer.json`**: Dev Container template referencing `sandbox/Dockerfile` and running `python -P -m vibebaton --help` after creation.
+#### 1. Types & Shared Clock Engine (`web/src/types/graph.ts`, `web/src/engine/liveClock.ts`, `web/src/engine/liveClock.test.ts`)
+- Extend `web/src/types/graph.ts`:
+  - Export `TaskTiming { duration_sec: number; started_at: number | null; is_active: boolean }`.
+  - Add optional `started_at?: number | null`, `is_active?: boolean` on `StageTelemetry`.
+  - Add optional `active_started_at?: number | null` on `ModelTelemetry`.
+  - Add optional `server_now?: number`, `task_timings?: Record<string, TaskTiming>` on `RunTelemetry`.
+- Create `web/src/engine/liveClock.ts` with pure testable functions and React hook:
+  - `isRunStatusActive(status: unknown): boolean` (`PLANNING`, `RUNNING`, `IN_PROGRESS`, `REVIEWING`, `GATE_CHECKING`).
+  - `computeLiveSeconds(baseSec: number, startedAt: number | null | undefined, isActive: boolean | undefined, nowEpochSec: number): number` — returns `baseSec` untouched when inactive or `startedAt` is null/non-finite; otherwise adds `Math.max(0, nowEpochSec - startedAt)`.
+  - `computeClockSkewSec(serverNow: number | null | undefined, clientNowSec?: number): number` — adjusts local clock safely when `server_now` is provided.
+  - `useLiveClock(active: boolean, serverNow?: number | null): number` — returns current adjusted epoch seconds, ticking every `1000ms` ONLY while `active === true`, cleaning up interval cleanly on unmount or when run finishes.
+- Add comprehensive tests in `web/src/engine/liveClock.test.ts`.
 
-#### 2. `src/vibebaton/sandbox.py`, `src/vibebaton/cli.py`, `docs/SECURITY.md`
-- **`sandbox.py`**: Pure-stdlib generator `init_sandbox_files(repo_dir: Path, force: bool = False) -> list[Path]` writing the templates, `sandbox/.dockerignore`, `sandbox/vibebaton-runtime.zip`, and the default credentials-directory placeholder into the target repo. The archive contains the generating VibeBaton instance's package and bundled CLI resources. The generator preserves existing files unless `force=True` and checks all resolved paths before writing.
-- **`cli.py`**: Add `baton sandbox init --repo <path> [--force]` subcommand without altering behavior of any existing subcommand (`--help` stays clean).
-- **`docs/SECURITY.md`**: Update Stage 4 container sandbox section documenting `baton sandbox init` and exact container hardening controls (`non-root`, `cap_drop: ALL`, `read_only`, zero `~/.ssh`).
-- Add tests in `tests/test_sandbox.py` verifying scaffold creation, idempotency without `--force`, overwrite with `--force`, CLI `baton sandbox init`, Dockerfile/Compose hardening assertions (`USER `, `cap_drop`, `read_only`, no `.ssh`), and `baton --help` regression check.
+#### 2. Live Timing Badges on Canvas Nodes (`web/src/components/nodes/BatonNode.tsx`, `BatonNode.css`, `web/src/engine/flowAdapter.ts`, `web/src/engine/liveRunGraph.ts`, `liveRunGraph.test.ts`)
+- Extend `BatonNodeData` and `WorkflowNode['config']` handling cleanly with optional runtime metadata (`duration_sec?: number`, `started_at?: number | null`, `is_timing_active?: boolean`).
+- Update `buildLiveRunGraph(snapshot, locale, nowEpochSec?)` in `web/src/engine/liveRunGraph.ts` to populate each node's `config` with timing telemetry from `snapshot.telemetry` (`PLANNING` stage for `live-planner`, `task_timings[taskId]` for `live-task-*`, milestone `stages` entry for `live-ms-*`).
+- In `BatonNode.tsx` (+ `BatonNode.css`): when node `duration_sec !== undefined` (or active `is_timing_active`), render a crisp monospace timing pill inside `<BaseNodeContent>` (`● 4m 18s` / `● 4分18秒` with subtle emerald/cyan pulse while active; steady `⏱ 11m 06s` when finished). Pass live `nowEpochSec` down cleanly from `App.tsx` (updating `node.data` smoothly WITHOUT remounting React Flow or interrupting pan/zoom!) so canvas node timers tick live every second without flicker.
+- Add unit tests in `web/src/engine/liveRunGraph.test.ts` verifying active vs completed node timings.
+
+#### 3. Wire Live Clocks into Left Sidebar & Right Inspector (`web/src/App.tsx`, `web/src/components/LeftSidebar.tsx`, `web/src/components/RightInspector.tsx`, `web/src/components/inspector/LiveRunPanel.tsx`)
+- Compute `liveNowSec` via `useLiveClock(isSelectedRunActive, liveSnapshot?.telemetry?.server_now)` cleanly in `App.tsx` (and pass `liveNowSec` down to `LeftSidebar`, `LiveRunPanel`, and live canvas nodes).
+- Update:
+  - `LeftSidebar.tsx`: Live Run card header elapsed time ticks live using `computeLiveSeconds` while the displayed run is active.
+  - `LiveRunPanel.tsx`:
+    - Header `Total: ...` / `总耗时：...` computes live total elapsed when active.
+    - Every Stage Timing row uses `computeLiveSeconds(stage.wall_sec, stage.started_at, stage.is_active, liveNowSec)` and renders a subtle live pulse dot on active stages.
+    - Every Model Runtime row uses `computeLiveSeconds(item.duration_sec, item.active_started_at, Boolean(item.active_started_at), liveNowSec)` and recalculates live percentage bar shares cleanly (`share_pct`) across the updated model durations!
+    - Every Task Accordion row & expanded detail view displays live `task_timings[taskId]` elapsed seconds when active.
+- Ensure historical runs (`COMPLETED`, `READY_FOR_FINAL_GATE`, `FAILED`, `HALTED`) keep static exact durations and trigger ZERO 1-second timer updates!
 
 ---
 
-### Milestone M4: Windows Installer, Web Studio Cost/Conflict UI & `v1.0.0` Release
+### Milestone M3: Interactive Spotlight Guided Tour, Visual SVG Diagrams Tutorial, Doc Diagram Upgrade & `v1.0.1` Release
 
-#### 1. Windows One-Click Installer (`scripts/install.ps1`)
-- Safe, idempotent PowerShell installer script: verifies Python >= 3.11 and Git availability, checks optional `node`/`npm.cmd` for Web UI build, installs/links `vibebaton` command cleanly into user PATH or virtualenv without touching system-wide Admin settings unnecessarily, checks `baton --version` & `baton doctor --help`, and supports `-DryRun` / `-RepoPath` parameters cleanly.
+#### 1. Semantic Tour Anchors & Pure-Stdlib Spotlight Guided Tour (`web/src/components/tour/tourSteps.ts`, `tourSteps.test.ts`, `GuidedTourOverlay.tsx`, `GuidedTourOverlay.css`)
+- Add non-invasive `data-tour-id` attributes on the 7 core regions across existing components (`HeaderBar`, `LeftSidebar`, `CanvasWorkspace`, `RightInspector`, `LiveRunPanel`):
+  1. `live-run-card` (LeftSidebar Live Run Workflow card — switches conditionally if present, else gracefully skips or highlights first preset)
+  2. `budget-profile` (LeftSidebar Budget Profile selector)
+  3. `recipe-plaza` (LeftSidebar Recipe Plaza filters & presets)
+  4. `canvas-workspace` (Center Canvas & PlaybackBar controls)
+  5. `inspector-live-tab` (RightInspector `Trace & Live Run` tab button)
+  6. `start-real-run-btn` (LiveRunPanel `▶ Start Real Run` button — only shown when `mode === 'local'`, otherwise gracefully falls back or omits local-only steps cleanly in demo!)
+  7. `header-controls` (HeaderBar language `EN | 中文`, theme reveal, audio & guide trigger)
+- Create pure testable `web/src/components/tour/tourSteps.ts` (`resolveAvailableTourSteps(mode, hasLiveRun, hasElement)`) so steps dynamically handle `local` vs `demo` mode and whether a live run exists, and automatically instruct which UI tab/pane should be activated on each step (`requiredPane`, `requiredInspectorTab`).
+- Create `web/src/components/tour/GuidedTourOverlay.tsx` + `GuidedTourOverlay.css`:
+  - Renders a full-screen portal SVG spotlight mask punching a rounded cutout around the target element's `getBoundingClientRect()` (auto-tracked on resize/scroll/`ResizeObserver`).
+  - Places a high-contrast floating popover card adjacent to the spotlight cutout with automatic viewport edge-flipping so it is never clipped at top/bottom/left/right or on mobile `375×667`.
+  - Includes clickable interactive progression: clicking the highlighted target area itself (or clicking `Next` / `下一步`) advances to the next step; also provides `Back`, `Skip`, `Finish`, step progress indicator (`1 / 7`), and `Escape` key dismissal.
+- Connect `onStartTour()` from `QuickStartModal.tsx` -> `App.tsx` (closing the modal and launching step 1 cleanly!).
 
-#### 2. Web Studio Frontend (`web/src/`) Cost & Conflict UI + Bilingual i18n
-- **`web/src/types/graph.ts`**: Add `BillingTelemetry` (`total_prompt_tokens`, `total_completion_tokens`, `total_cached_tokens`, `total_tokens`, `total_cost_usd`, `has_exact_billing`) and optional per-model token/cost fields (`prompt_tokens?: number`, `completion_tokens?: number`, `cost_usd?: number`) on `ModelTelemetry` + `billing?: BillingTelemetry | null` on `RunTelemetry`.
-- **`web/src/components/inspector/LiveRunPanel.tsx`**:
-  - Render compact USD cost badge & token breakdown inside the existing **Model Runtime** card when `telemetry.billing?.has_exact_billing` is true (displaying total cost e.g. `$0.0142` and formatted token counts without breaking mobile `375px` width!).
-- **`web/src/i18n/liveEvents.ts`, `web/src/i18n/messages.ts`, `web/src/i18n/i18n.test.ts`**:
-  - Add `merge_conflict_detected`, `merge_conflict_resolved`, `merge_conflict_failed` event kinds & formatters (`EN | 中文`), plus Token & Cost UI strings. Keep `i18n.test.ts` invariants 100% green (pure EN, Han chars in every ZH leaf string, zero `"opencode"` anywhere).
+#### 2. Visual Inline SVG Diagrams inside QuickStart Tutorial & Mermaid Diagrams in Docs (`web/src/components/tutorial/TutorialDiagrams.tsx`, `web/src/components/QuickStartModal.tsx`, `docs/TUTORIAL.md`)
+- Create `web/src/components/tutorial/TutorialDiagrams.tsx` exporting 3 crisp, theme-adaptive (`var(--card)`, `var(--border)`, `var(--primary)`, `var(--emerald)`, `var(--amber)`) localized inline `<svg>` diagrams (`viewBox` responsive, `aria-label` accessible, zero external images/network requests):
+  1. **Diagram 1 (Chapter 1 — 4-Tier Relay Pipeline)**: visual flow showing `L0 (User)` -> `L1 Planner` -> `L3 DeepSeek API Workers` -> `Mechanical Gate` -> `L2 Reviewer` -> `L0 Final Merge`.
+  2. **Diagram 2 (Chapter 2 — Safe 5-Step Guided Flow & Live Sync)**: visual diagram linking `Budget + Recipe` -> `3-Step Wizard + Security Guards` -> `Live Run Card <-> Canvas Sync` -> `Bilingual Report + L0 Sign-Off`.
+  3. **Diagram 3 (Chapter 3 — Git Worktree Sandbox & Physical Whitelist Guard)**: visual diagram contrasting isolated parallel `.baton/worktrees/` + whitelist revert against protected `main` branch.
+- Embed these diagrams cleanly in `QuickStartModal.tsx` inside the `Tutorial` / `详细教程` tab cards AND add a prominent **"Start 1-Minute Interactive Tour"** / **「🎯 开始 1 分钟交互式导览」** CTA banner at the top of `QuickStartModal` (plus inside the `Tutorial` tab).
+- Update `docs/TUTORIAL.md` to include matching Mermaid diagrams (`flowchart LR`) for the 4-tier relay and isolated worktree protection alongside the existing beginner walkthrough.
 
-#### 3. `v1.0.0` Version Bump & Release Collateral
-- Bump version string `"0.9.0-beta"` -> `"1.0.0"` in:
-  - `pyproject.toml` (also update classifier from `"3 - Alpha"` to `"4 - Beta"` or `"5 - Production/Stable"`)
-  - `src/vibebaton/__init__.py`
-  - `web/package.json`
-- Write `CHANGELOG.md` (documenting `v0.1-seed`, `v0.2.0`, `v0.3.0`, `v0.9.0-beta`, and `v1.0.0`), `docs/RELEASE_NOTES_v1.0.md` (ready-to-post launch notes for GitHub Release / Show HN / tech communities), and update `README.md` & `docs/ROADMAP.md` reflecting `v1.0.0` completion.
-- Update any installer/frontend/full-stack tests (`tests/test_web_server.py`, `tests/test_web_fullstack.py`, `web/src/i18n/liveEvents.test.ts`), run `npm.cmd run build` in `web/`, and verify zero failures across the entire suite.
+#### 3. Pure Bilingual i18n, Manifests `1.0.1` Bump & Release Verification
+- Add all new pure EN and pure ZH labels to `web/src/i18n/messages.ts` for:
+  - Resizable handle `aria-label` / tooltip / double-click reset hint
+  - Live clock status badge (`LIVE` / `实时计时`)
+  - Interactive Spotlight Tour (`startTourButton`, `tourStepProgress`, `next`, `prev`, `finish`, `skip`, and all 7 step titles/descriptions/click hints)
+  - SVG diagram captions & accessibility labels
+  - Enforce `i18n.test.ts` strictly: zero CJK in EN, Han character in every leaf of ZH, zero `"opencode"` substring anywhere in `messages.ts`.
+- Bump version string `"1.0.0"` -> `"1.0.1"` across:
+  - `pyproject.toml`, `src/vibebaton/__init__.py`, `web/package.json`
+  - Append `## [v1.0.1] - 2026-11-22` section to `CHANGELOG.md` (keeping all prior headings `[v0.1-seed]`, `[v0.2.0]`, `[v0.3.0]`, `[v0.9.0-beta]`, `[v1.0.0]` intact so `tests/test_release_collateral.py` passes cleanly!)
+  - Update `tests/test_version_consistency.py` (`RELEASE_VERSION = "1.0.1"`) and `tests/test_web_fullstack.py` (check `"/api/health"["version"] == __version__` or `"1.0.1"` so tests match `1.0.1`).
+  - Also update `docs/ROADMAP.md` (`v1.0.0` marked merged `ecab208`, `v1.0.1` Stage 4.5 documented).
+- Run both final gates and make sure everything passes cleanly:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+```bash
+cmd /c "cd /d web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build"
+```
 
 ---
 
 ## 4. Non-Goals
 
-- No cloud multi-tenant SaaS hosting, user accounts, or remote database dependencies.
-- No third-party Python pip dependencies (`pyproject.toml` `dependencies = []` must remain empty).
-- Do not add npm dependencies or execute `npm install` in worktrees.
-- Do not commit API keys, secrets, runtime `.baton/state.sqlite*`, `.baton/logs/`, or `.baton/worktrees/` artifacts, and never touch `main` directly during automated execution.
+- Do not alter core task scheduling, model allocation algorithms, HTTP transport, or Git conflict resolution behavior from `v1.0.0`.
+- Do not install new npm packages or Python third-party packages.
+- Do not modify `main` directly during unattended execution or commit real API keys/runtime `.baton/state.sqlite*` files.
 
 ---
 
 ## 5. Acceptance Criteria
 
-1. Pure stdlib OpenAI-compatible HTTP provider (`type = "http"`) executes prompts directly against local/mocked HTTP endpoints, records exact `prompt_tokens`, `completion_tokens`, and USD `cost_usd`, triggers existing SQLite cooldown on HTTP `429`, and renders bilingual billing tables in Battle Reports without regressing legacy byte-exact report parity.
-2. Concurrent branch squash-merge conflicts are detected inside isolated `_merge_*` worktrees via `MergeConflictError`, automatically dispatched to the specialist resolver, verified for zero conflict markers and passing gate commands before committing, and cleanly fall back to `WAITING_HUMAN` on failure.
-3. `baton sandbox init` generates hardened non-root Docker Compose and Dev Container templates that launch the image-installed VibeBaton CLI in an unrelated Git repository. Tests cover `cap_drop: [ALL]`, Compose's `read_only` root filesystem, no host `~/.ssh` mount, and the CLI startup commands.
-4. `scripts/install.ps1` exists with `-DryRun` verification, Web Studio renders exact Token/USD billing and conflict events in pure EN + `中文`, manifests consistently report `1.0.0`, and all automated verification gates exit `0`:
+1. `compute_run_telemetry` exposes `server_now`, stage/model live start anchors, and `task_timings` while preserving 100% compatibility with existing `test_report_billing.py`, `test_report_telemetry.py`, and `test_web_fullstack.py`; desktop Left Sidebar (`220px..440px`) and Right Inspector (`320px..720px`) resize cleanly with `localStorage` persistence; Task Accordion cards expand at full inspector width without horizontal scrolling.
+2. Live active runs (`PLANNING`/`RUNNING`) tick elapsed time smoothly once per second across active canvas nodes (`BatonNode`), top-left `Live Run Workflow` card, total elapsed, active stages, active models + share bars, and active task cards, while historical completed runs remain static with zero active timers.
+3. `QuickStartModal` includes 3 theme-adaptive inline SVG diagrams and launches an interactive 7-step Spotlight Guided Tour (`GuidedTourOverlay`) in both pure EN and `中文`; manifests report `1.0.1`; both verification commands below pass cleanly with exit code `0`:
 
 ```bash
 python -m unittest discover -s tests -v
