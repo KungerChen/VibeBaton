@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { addEdge, useEdgesState, useNodesState, type OnConnect } from '@xyflow/react';
 import { BatonApiClient, type ApiMode } from './api/client';
 import { CanvasWorkspace, updateWorkspaceReadiness } from './components/CanvasWorkspace';
@@ -8,6 +8,17 @@ import { LeftSidebar } from './components/LeftSidebar';
 import { PlaybackBar } from './components/PlaybackBar';
 import { QuickStartModal, type QuickStartStepId } from './components/QuickStartModal';
 import { RightInspector } from './components/RightInspector';
+import { SplitHandle } from './components/SplitHandle';
+import {
+  DEFAULT_INSPECTOR_WIDTH,
+  DEFAULT_SIDEBAR_WIDTH,
+  MAX_INSPECTOR_WIDTH,
+  MAX_SIDEBAR_WIDTH,
+  MIN_INSPECTOR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  readPaneWidths,
+  writePaneWidths,
+} from './components/splitPane';
 import type { EdgePatch, NodePatch } from './components/types';
 import { ToastHost, useToasts } from './components/ui/Toast';
 import { findPreset, flagship_4tier, starter_2tier } from './data/presets';
@@ -109,6 +120,7 @@ function AppContent() {
   const [edges, setEdges, onEdgesChange] = useEdgesState(starter.edges);
   const [selection, setSelection] = useState(emptySelection);
   const [pane, setPane] = useState<WorkspacePane>('canvas');
+  const [paneWidths, setPaneWidths] = useState(readPaneWidths);
   const [canvasKey, setCanvasKey] = useState(0);
   const [scenario, setScenario] = useState<Scenario>('happy_path');
   const [replayActive, setReplayActive] = useState(false);
@@ -162,6 +174,10 @@ function AppContent() {
   const stepIndex = Math.min(playback.stepIndex, trace.length);
   const playing = playback.playing && trace.length > 0;
   const resetPlayback = useCallback(() => setPlayback(initialPlayback), []);
+
+  useEffect(() => {
+    writePaneWidths(paneWidths);
+  }, [paneWidths]);
 
   useEffect(() => {
     let active = true;
@@ -695,7 +711,13 @@ function AppContent() {
 
   const version = client.health?.version;
   return (
-    <div className="app">
+    <div
+      className="app"
+      style={{
+        '--sidebar-w': `${paneWidths.sidebar}px`,
+        '--inspector-w': `${paneWidths.inspector}px`,
+      } as CSSProperties}
+    >
       <HeaderBar
         mode={mode ?? 'demo'}
         version={typeof version === 'string' ? version : undefined}
@@ -734,6 +756,16 @@ function AppContent() {
           onSelectLiveRun={onSelectLiveRun}
         />
       </div>
+      <SplitHandle
+        ariaLabel={messages.splitPane.sidebarHandleLabel}
+        hint={messages.splitPane.resizeHint}
+        value={paneWidths.sidebar}
+        min={MIN_SIDEBAR_WIDTH}
+        max={MAX_SIDEBAR_WIDTH}
+        defaultValue={DEFAULT_SIDEBAR_WIDTH}
+        side="left"
+        onChange={(sidebar) => setPaneWidths((current) => ({ ...current, sidebar }))}
+      />
       <main className="app-pane app-pane--canvas" id="workspace-canvas" data-active={pane === 'canvas'}>
         <CanvasWorkspace
           key={canvasKey}
@@ -764,6 +796,16 @@ function AppContent() {
           />
         </CanvasWorkspace>
       </main>
+      <SplitHandle
+        ariaLabel={messages.splitPane.inspectorHandleLabel}
+        hint={messages.splitPane.resizeHint}
+        value={paneWidths.inspector}
+        min={MIN_INSPECTOR_WIDTH}
+        max={MAX_INSPECTOR_WIDTH}
+        defaultValue={DEFAULT_INSPECTOR_WIDTH}
+        side="right"
+        onChange={(inspector) => setPaneWidths((current) => ({ ...current, inspector }))}
+      />
       <div className="app-pane app-pane--inspector" id="workspace-inspector" data-active={pane === 'inspector'}>
         <RightInspector
           mode={mode ?? 'demo'}

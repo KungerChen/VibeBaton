@@ -216,7 +216,7 @@
 
 .app {
   display: grid;
-  grid-template-columns: 288px 1fr 376px;
+  grid-template-columns: var(--sidebar-w, 288px) 6px minmax(360px, 1fr) 6px var(--inspector-w, 376px);
   grid-template-rows: 54px 1fr;
   height: 100vh;
   overflow: hidden;
@@ -225,6 +225,43 @@
 
 .app > .header-bar {
   grid-column: 1 / -1;
+}
+
+.split-handle {
+  position: relative;
+  width: 6px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.split-handle::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--border);
+  content: '';
+  transform: translateX(-50%);
+}
+
+.split-handle:hover::before,
+.split-handle:focus-visible::before,
+.split-handle[data-dragging='true']::before {
+  background: var(--primary);
+}
+
+.split-handle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+body:has(.split-handle[data-dragging='true']) {
+  user-select: none;
 }
 
 .app-pane {
@@ -256,6 +293,10 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(54px, auto) auto minmax(0, 1fr);
     height: 100dvh;
+  }
+
+  .split-handle {
+    display: none;
   }
 
   .app > .app-tabs {

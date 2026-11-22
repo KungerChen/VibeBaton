@@ -13,6 +13,8 @@ from .db import StateStore
 
 _INVOKING_RE = re.compile(r"Invoking\s+([^\s(]+)\s*\(([^/]+)/([^)]+)\)")
 _COMPLETED_RE = re.compile(r"Completed\s+([^\s(]+)\s*\(([^/]+)/([^)]+)\)")
+_ACTIVE_STAGE_STATUSES = {"PLANNING", "RUNNING", "IN_PROGRESS", "REVIEWING", "GATE_CHECKING"}
+_ACTIVE_TASK_STATUSES = {"RUNNING", "REVIEWING", "GATE_CHECKING", "COOLDOWN"}
 
 _PROVIDER_DISPLAY = {
     "en": {
@@ -105,6 +107,12 @@ class _ConflictTelemetry(TypedDict):
     conflicts_failed: int
 
 
+class _TaskTiming(TypedDict):
+    duration_sec: float
+    started_at: float | None
+    is_active: bool
+
+
 def _parse_token_count(value: object) -> int:
     return value if type(value) is int and value > 0 else 0
 
@@ -160,14 +168,15 @@ def _parse_role_event_meta(event: dict[str, Any]) -> tuple[str, str, str]:
     return role_name, _infer_provider_from_model(model_name), model_name
 
 
-def _estimate_invocation_duration(
+def _estimate_invocation_timing(
     events: list[dict[str, Any]],
     index: int,
     role: str,
-    run_status: str,
+    run_is_active: bool,
     task_map: dict[str, dict[str, Any]],
     now: float,
-) -> float:
+) -> tuple[float, float | None]:
+    """Return estimated duration and the start time if the invocation is still in flight."""
     ev = events[index]
     t0 = float(ev["created_at"])
     task_id = ev.get("task_id")
@@ -183,9 +192,9 @@ def _estimate_invocation_duration(
 
         if role == "tactical_planner":
             if kind in ("plan_generated", "plan_registered"):
-                return max(0.0, t1 - t0)
+                return max(0.0, t1 - t0), None
             if kind == "role_invoked" and c_actor == actor:
-                return max(0.0, t1 - t0)
+                return max(0.0, t1 - t0), None
             continue
 
         if task_id:
@@ -193,7 +202,7 @@ def _estimate_invocation_duration(
                 continue
             if role == "micro_orchestrator":
                 if kind in ("task_review_passed", "task_review_rejected", "task_escalated", "task_passed"):
-                    return max(0.0, t1 - t0)
+                    return max(0.0, t1 - t0), None
             elif kind in (
                 "task_exec_error",
                 "mechanical_gate_caught",
@@ -203,22 +212,22 @@ def _estimate_invocation_duration(
                 "role_fallback",
                 "role_invoked",
             ):
-                return max(0.0, t1 - t0)
+                return max(0.0, t1 - t0), None
             continue
 
         if milestone_id and c_ms == milestone_id:
             if role == "milestone_reviewer" and kind in ("milestone_passed", "milestone_rejected"):
-                return max(0.0, t1 - t0)
+                return max(0.0, t1 - t0), None
             if role != "milestone_reviewer" and kind in ("milestone_fix_applied", "milestone_passed", "role_invoked"):
-                return max(0.0, t1 - t0)
+                return max(0.0, t1 - t0), None
 
-    if run_status in ("RUNNING", "PLANNING"):
+    if run_is_active:
         if task_id:
             task = task_map.get(task_id)
-            if task and task.get("status") not in ("RUNNING", "COOLDOWN", "REVIEWING", "GATE_CHECKING"):
-                return 0.0
-        return max(0.0, now - t0)
-    return 0.0
+            if task and task.get("status") not in _ACTIVE_TASK_STATUSES:
+                return 0.0, None
+        return max(0.0, now - t0), t0
+    return 0.0, None
 
 
 def compute_run_telemetry(
@@ -227,7 +236,10 @@ def compute_run_telemetry(
     *,
     now_ts: float | None = None,
 ) -> dict[str, Any]:
-    """Compute run timing, billing, and merge-conflict telemetry from recorded events."""
+    """Compute timing, billing, and merge-conflict telemetry from recorded events.
+
+    A pending run with no stages or tasks keeps its original top-level keys.
+    """
     run = store.get_run(run_id)
     if not run:
         raise ValueError(f"Run '{run_id}' not found")
@@ -237,11 +249,12 @@ def compute_run_telemetry(
     events = store.get_events(run_id, limit=-1)
     now = time.time() if now_ts is None else float(now_ts)
     run_status = str(run.get("status") or "PENDING")
+    run_is_active = run_status in ("RUNNING", "PLANNING")
     created_at = float(run["created_at"])
 
     if run.get("finished_at") is not None:
         end_ts = float(run["finished_at"])
-    elif run_status in ("RUNNING", "PLANNING"):
+    elif run_is_active:
         end_ts = max(now, float(run.get("updated_at") or created_at))
     else:
         latest_event_ts = max((float(e["created_at"]) for e in events), default=created_at)
@@ -257,6 +270,7 @@ def compute_run_telemetry(
     if plan_ts is not None or milestones or run_status == "PLANNING":
         plan_end = plan_ts if plan_ts is not None else end_ts
         plan_status = "PASSED" if (plan_ts is not None or milestones) else run_status
+        is_active = run_is_active and plan_status in _ACTIVE_STAGE_STATUSES
         stages.append(
             {
                 "id": "PLANNING",
@@ -267,6 +281,8 @@ def compute_run_telemetry(
                 "task_sum_sec": 0.0,
                 "passed_tasks": 0,
                 "total_tasks": 0,
+                "started_at": created_at if is_active else None,
+                "is_active": is_active,
             }
         )
 
@@ -291,10 +307,11 @@ def compute_run_telemetry(
         passed_tasks = sum(1 for t in m_tasks if t["status"] == "PASSED")
         task_sum_sec = round(sum(float(t.get("duration_sec") or 0.0) for t in m_tasks), 1)
 
+        is_active = run_is_active and m_status in _ACTIVE_STAGE_STATUSES
+        m_start = min((float(e["created_at"]) for e in m_events), default=cursor)
         if m_status == "PENDING" and not m_events:
             wall_sec = 0.0
         else:
-            m_start = min((float(e["created_at"]) for e in m_events), default=cursor)
             pass_ts = next(
                 (float(e["created_at"]) for e in m_events if e.get("kind") == "milestone_passed"),
                 None,
@@ -322,6 +339,8 @@ def compute_run_telemetry(
                 "task_sum_sec": task_sum_sec,
                 "passed_tasks": passed_tasks,
                 "total_tasks": len(m_tasks),
+                "started_at": m_start if is_active else None,
+                "is_active": is_active,
             }
         )
 
@@ -347,6 +366,9 @@ def compute_run_telemetry(
         "has_exact_billing": False,
     }
     model_buckets: dict[tuple[str, str, str], dict[str, Any]] = {}
+    model_starts: dict[tuple[str, str, str], float] = {}
+    task_starts: dict[str, float] = {}
+    task_durations: dict[str, float] = defaultdict(float)
     for idx, event in enumerate(events):
         if event.get("kind") != "role_invoked":
             continue
@@ -366,12 +388,21 @@ def compute_run_telemetry(
         if matched is not None:
             payload = _parse_json_payload(matched.get("payload_json"))
             dur = max(0.0, float(payload.get("duration_sec") or 0.0))
+            active_start = None
             estimated = False
         else:
-            dur = _estimate_invocation_duration(events, idx, role, run_status, task_map, now)
+            dur, active_start = _estimate_invocation_timing(events, idx, role, run_is_active, task_map, now)
             estimated = True
 
         bucket_key = (role, provider, model)
+        if active_start is not None:
+            model_starts[bucket_key] = min(active_start, model_starts.get(bucket_key, active_start))
+        task_id = key[1]
+        if task_id in task_map:
+            task_durations[task_id] += dur
+            if active_start is not None:
+                task_starts[task_id] = min(active_start, task_starts.get(task_id, active_start))
+
         entry = model_buckets.get(bucket_key)
         if entry is None:
             entry = {
@@ -400,6 +431,9 @@ def compute_run_telemetry(
         role, provider, model = _parse_role_event_meta(event)
         payload = _parse_json_payload(event.get("payload_json"))
         dur = max(0.0, float(payload.get("duration_sec") or 0.0))
+        task_id = str(event.get("task_id") or "")
+        if task_id in task_map:
+            task_durations[task_id] += dur
         bucket_key = (role, provider, model)
         entry = model_buckets.get(bucket_key)
         if entry is None:
@@ -423,7 +457,7 @@ def compute_run_telemetry(
 
     total_model_sec = sum(item["duration_sec"] for item in model_buckets.values())
     models: list[dict[str, Any]] = []
-    for item in model_buckets.values():
+    for bucket_key, item in model_buckets.items():
         dur_rounded = round(float(item["duration_sec"]), 1)
         avg_rounded = round(float(item["duration_sec"]) / max(1, int(item["calls"])), 1)
         share_pct = round((float(item["duration_sec"]) / total_model_sec) * 100.0, 1) if total_model_sec > 0 else 0.0
@@ -433,9 +467,19 @@ def compute_run_telemetry(
                 "duration_sec": dur_rounded,
                 "avg_sec": avg_rounded,
                 "share_pct": share_pct,
+                "active_started_at": model_starts.get(bucket_key),
             }
         )
     models.sort(key=lambda item: (-item["duration_sec"], -item["calls"], item["role"]))
+
+    task_timings: dict[str, _TaskTiming] = {}
+    for task_id, task in task_map.items():
+        is_active = run_is_active and task["status"] in _ACTIVE_TASK_STATUSES
+        task_timings[task_id] = {
+            "duration_sec": float(task.get("duration_sec") or task_durations.get(task_id, 0.0)),
+            "started_at": task_starts.get(task_id) if is_active else None,
+            "is_active": is_active,
+        }
 
     # Cached tokens are included in the prompt count.
     billing["total_tokens"] = billing["total_prompt_tokens"] + billing["total_completion_tokens"]
@@ -465,6 +509,9 @@ def compute_run_telemetry(
     }
     if any(conflicts.values()):
         telemetry["conflicts"] = conflicts
+    if run_status != "PENDING" or stages or tasks:
+        telemetry["server_now"] = round(now, 3)
+        telemetry["task_timings"] = task_timings
     return telemetry
 
 

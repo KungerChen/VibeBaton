@@ -27,6 +27,11 @@ export interface Messages {
     sidebar: string;
     inspector: string;
   };
+  splitPane: {
+    sidebarHandleLabel: string;
+    inspectorHandleLabel: string;
+    resizeHint: string;
+  };
   sidebar: {
     presetsTitle: string;
     nodePaletteTitle: string;
@@ -310,6 +315,11 @@ export const MESSAGES: Record<Locale, Messages> = {
       canvas: 'Canvas',
       sidebar: 'Sidebar',
       inspector: 'Inspector',
+    },
+    splitPane: {
+      sidebarHandleLabel: 'Resize sidebar',
+      inspectorHandleLabel: 'Resize inspector',
+      resizeHint: 'Double-click to reset the pane width.',
     },
     sidebar: {
       presetsTitle: 'Presets',
@@ -704,6 +714,11 @@ export const MESSAGES: Record<Locale, Messages> = {
       canvas: '画布',
       sidebar: '侧边栏',
       inspector: '属性检查',
+    },
+    splitPane: {
+      sidebarHandleLabel: '调整侧边栏宽度',
+      inspectorHandleLabel: '调整属性检查面板宽度',
+      resizeHint: '双击恢复面板默认宽度。',
     },
     sidebar: {
       presetsTitle: '预置工作流',

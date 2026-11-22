@@ -1,5 +1,5 @@
-import { ChevronDown, ChevronRight } from 'lucide-react';
-import { Fragment, useEffect, useEffectEvent, useId, useRef, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
+import { useEffect, useEffectEvent, useId, useRef, useState } from 'react';
 import { formatDurationSec } from '../../engine/liveRunGraph';
 import { useI18n } from '../../i18n';
 import { formatLiveEventMessage, translateEventKind, translateTier } from '../../i18n/liveEvents';
@@ -491,139 +491,129 @@ export function LiveRunPanel({
             </div>
           )}
 
-          <div className="grid gap-1.5">
-            {snapshot.tasks.length > 0 && (
-              <p className="m-0 text-[11px] text-muted-foreground">
-                {messages.inspector.taskDetailHint}
-              </p>
-            )}
-            <div className="right-inspector__tasks" tabIndex={0} role="region" aria-label={messages.inspector.tasksAria}>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>{messages.inspector.table.id}</th>
-                    <th>{messages.inspector.table.title}</th>
-                    <th>{messages.inspector.table.tier}</th>
-                    <th>{messages.inspector.table.status}</th>
-                    <th>{messages.inspector.table.assignee}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.tasks.map((task, index) => {
-                    const taskId = display(task.id, `task-${index}`);
-                    const taskTier = display(task.tier);
-                    const taskStatus = display(task.status);
-                    const taskAssignee = display(task.current_role ?? task.assignee_role);
-                    const isExpanded = expandedTaskId === taskId;
-                    const taskEvents = isExpanded
-                      ? snapshot.events.filter((ev) => display(ev.task_id, '') === taskId)
-                      : [];
-                    const allowedFiles = isExpanded ? parseAllowedFiles(task.allowed_files) : [];
-                    const lastError = display(task.last_error, '');
-                    const assignedModel = display(task.assigned_model, '');
+          <div className="task-accordion grid min-w-0 grid-cols-1 gap-2" role="region" aria-label={messages.inspector.tasksAria}>
+            {snapshot.tasks.map((task, index) => {
+              const taskId = display(task.id, `task-${index}`);
+              const taskTier = display(task.tier);
+              const taskStatus = display(task.status);
+              const taskAssignee = display(task.current_role ?? task.assignee_role);
+              const isExpanded = expandedTaskId === taskId;
+              const taskPanelId = `${panelId}-task-${index}`;
+              const taskDuration = formatDurationSec(
+                telemetry?.task_timings?.[taskId]?.duration_sec ?? asNumber(task.duration_sec),
+                locale,
+              );
+              const taskEvents = isExpanded
+                ? snapshot.events.filter((ev) => display(ev.task_id, '') === taskId)
+                : [];
+              const allowedFiles = isExpanded ? parseAllowedFiles(task.allowed_files) : [];
+              const lastError = display(task.last_error, '');
+              const assignedModel = display(task.assigned_model, '');
 
-                    return (
-                      <Fragment key={taskId}>
-                        <tr
-                          className="right-inspector__task-row"
-                          data-expanded={isExpanded}
-                          onClick={() => setExpandedTaskId(isExpanded ? null : taskId)}
-                        >
-                          <td>
-                            <button
-                              type="button"
-                              aria-expanded={isExpanded}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setExpandedTaskId(isExpanded ? null : taskId);
-                              }}
-                              className="inline-flex items-center gap-1 border-0 bg-transparent p-0 font-mono text-xs text-foreground cursor-pointer"
-                            >
-                              {isExpanded ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
-                              <code>{taskId}</code>
-                            </button>
-                          </td>
-                          <td>{display(task.title)}</td>
-                          <td>{translateTier(taskTier, locale)}</td>
-                          <td>{messages.inspector.runStatuses[taskStatus] ?? taskStatus}</td>
-                          <td>{translateRole(taskAssignee, locale)}</td>
-                        </tr>
-                        {isExpanded && (
-                          <tr className="right-inspector__task-detail-row">
-                            <td colSpan={5}>
-                              <div className="grid gap-2 text-xs">
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <strong className="text-text-strong">{messages.inspector.taskDetailTitle}</strong>
-                                  <span className="font-mono text-[11px] text-muted-foreground">
-                                    {messages.inspector.taskDetailCounters(
-                                      asNumber(task.self_heal_count),
-                                      asNumber(task.review_reject_count),
-                                      asNumber(task.escalated),
-                                    )}
-                                  </span>
-                                </div>
-                                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-                                  <span>
-                                    <span className="text-muted-foreground">{messages.inspector.taskDetailModel}: </span>
-                                    <code className="font-mono">{assignedModel ? formatDisplayTarget(assignedModel) : '—'}</code>
-                                  </span>
-                                  <span>
-                                    <span className="text-muted-foreground">{messages.inspector.taskDetailDuration}: </span>
-                                    <span className="font-mono">{formatDurationSec(asNumber(task.duration_sec), locale)}</span>
-                                  </span>
-                                </div>
-                                {allowedFiles.length > 0 && (
-                                  <div className="grid gap-1">
-                                    <span className="text-[11px] text-muted-foreground">{messages.inspector.taskDetailFiles}:</span>
-                                    <div className="flex flex-wrap gap-1">
-                                      {allowedFiles.map((filePath) => (
-                                        <code key={filePath} className="rounded bg-card px-1.5 py-0.5 font-mono text-[10.5px] border border-border">
-                                          {filePath}
-                                        </code>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                {lastError && (
-                                  <div className="grid gap-1">
-                                    <span className="text-[11px] font-medium text-[var(--rose)]">{messages.inspector.taskDetailLastError}:</span>
-                                    <pre className="m-0 max-h-28 overflow-auto rounded border border-border bg-card p-2 font-mono text-[11px] whitespace-pre-wrap break-all">
-                                      {lastError}
-                                    </pre>
-                                  </div>
-                                )}
-                                <div className="grid gap-1">
-                                  <span className="text-[11px] text-muted-foreground">{messages.inspector.taskDetailEvents}:</span>
-                                  {taskEvents.length === 0 ? (
-                                    <span className="text-[11px] text-muted-foreground">{messages.inspector.taskDetailNoEvents}</span>
-                                  ) : (
-                                    <ul className="m-0 grid gap-1 p-0 list-none">
-                                      {taskEvents.map((ev, evIdx) => {
-                                        const evKind = display(ev.kind, 'event');
-                                        const evMsg = display(ev.message, '');
-                                        const formatted = formatLiveEventMessage(evKind, evMsg, locale);
-                                        return (
-                                          <li key={display(ev.id, `ev-${evIdx}`)} className="rounded border border-border bg-card px-2 py-1 text-[11px]">
-                                            <span className="font-semibold text-primary">{translateEventKind(evKind, locale)}</span>
-                                            {' · '}
-                                            <span className="break-words">{formatted.summary}</span>
-                                          </li>
-                                        );
-                                      })}
-                                    </ul>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
+              return (
+                <div key={taskId} className="task-card">
+                  <button
+                    type="button"
+                    aria-expanded={isExpanded}
+                    aria-controls={taskPanelId}
+                    className="w-full min-w-0 text-left"
+                    onClick={() => setExpandedTaskId(isExpanded ? null : taskId)}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <ChevronRight
+                        size={14}
+                        className={`shrink-0 text-muted-foreground${isExpanded ? ' rotate-90' : ''}`}
+                        aria-hidden="true"
+                      />
+                      <code className="min-w-0 font-mono text-[11px] font-semibold text-text-strong">{taskId}</code>
+                      <Badge variant={statusBadgeVariant.get(taskStatus) ?? 'outline'} className="min-w-0 whitespace-normal">
+                        {messages.inspector.runStatuses[taskStatus] ?? taskStatus}
+                      </Badge>
+                      <span className="ml-auto shrink-0 rounded-full bg-muted px-2 py-0.5 font-mono text-[11px] text-foreground">
+                        {taskDuration}
+                      </span>
+                    </span>
+                    <span className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span className="min-w-0 break-words text-xs font-medium text-text-strong">{display(task.title)}</span>
+                      <Badge variant="outline" className="max-w-full whitespace-normal">{translateTier(taskTier, locale)}</Badge>
+                      <Badge variant="secondary" className="max-w-full whitespace-normal">{translateRole(taskAssignee, locale)}</Badge>
+                    </span>
+                  </button>
+                  <div
+                    id={taskPanelId}
+                    hidden={!isExpanded}
+                    className="w-full min-w-0 rounded-b-xl border-t border-border bg-muted/50 px-3 py-2.5"
+                  >
+                    {isExpanded && (
+                      <div className="grid min-w-0 grid-cols-1 gap-2 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <strong className="text-text-strong">{messages.inspector.taskDetailTitle}</strong>
+                          <span className="font-mono text-[11px] text-muted-foreground">
+                            {messages.inspector.taskDetailCounters(
+                              asNumber(task.self_heal_count),
+                              asNumber(task.review_reject_count),
+                              asNumber(task.escalated),
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                          <span>
+                            <span className="text-muted-foreground">{messages.inspector.taskDetailModel}: </span>
+                            <code className="font-mono">{assignedModel ? formatDisplayTarget(assignedModel) : '—'}</code>
+                          </span>
+                          <span>
+                            <span className="text-muted-foreground">{messages.inspector.taskDetailDuration}: </span>
+                            <span className="font-mono">{taskDuration}</span>
+                          </span>
+                        </div>
+                        {allowedFiles.length > 0 && (
+                          <div className="grid gap-1">
+                            <span className="text-[11px] text-muted-foreground">{messages.inspector.taskDetailFiles}:</span>
+                            <div className="flex min-w-0 flex-wrap gap-1">
+                              {allowedFiles.map((filePath) => (
+                                <code key={filePath} className="max-w-full rounded border border-border bg-card px-1.5 py-0.5 font-mono text-[10.5px]">
+                                  {filePath}
+                                </code>
+                              ))}
+                            </div>
+                          </div>
                         )}
-                      </Fragment>
-                    );
-                  })}
-                  {snapshot.tasks.length === 0 && <tr><td colSpan={5}>{messages.inspector.noTasks}</td></tr>}
-                </tbody>
-              </table>
-            </div>
+                        {lastError && (
+                          <div className="grid min-w-0 grid-cols-1 gap-1">
+                            <span className="text-[11px] font-medium text-[var(--rose)]">{messages.inspector.taskDetailLastError}:</span>
+                            <pre className="m-0 max-h-28 overflow-y-auto rounded border border-border bg-card p-2 font-mono text-[11px] whitespace-pre-wrap break-words">
+                              {lastError}
+                            </pre>
+                          </div>
+                        )}
+                        <div className="grid gap-1">
+                          <span className="text-[11px] text-muted-foreground">{messages.inspector.taskDetailEvents}:</span>
+                          {taskEvents.length === 0 ? (
+                            <span className="text-[11px] text-muted-foreground">{messages.inspector.taskDetailNoEvents}</span>
+                          ) : (
+                            <ul className="m-0 grid list-none gap-1 p-0">
+                              {taskEvents.map((ev, evIdx) => {
+                                const evKind = display(ev.kind, 'event');
+                                const evMsg = display(ev.message, '');
+                                const formatted = formatLiveEventMessage(evKind, evMsg, locale);
+                                return (
+                                  <li key={display(ev.id, `ev-${evIdx}`)} className="rounded border border-border bg-card px-2 py-1 text-[11px]">
+                                    <span className="font-semibold text-primary">{translateEventKind(evKind, locale)}</span>
+                                    {' · '}
+                                    <span>{formatted.summary}</span>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {snapshot.tasks.length === 0 && <div className="text-xs text-muted-foreground">{messages.inspector.noTasks}</div>}
           </div>
         </>
       ) : (

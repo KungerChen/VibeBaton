@@ -210,6 +210,8 @@ export interface StageTelemetry {
   task_sum_sec: number;
   passed_tasks: number;
   total_tasks: number;
+  started_at?: number | null;
+  is_active?: boolean;
 }
 
 export interface ModelTelemetry {
@@ -226,6 +228,7 @@ export interface ModelTelemetry {
   prompt_tokens?: number;
   completion_tokens?: number;
   cost_usd?: number | null;
+  active_started_at?: number | null;
 }
 
 export interface BillingTelemetry {
@@ -235,6 +238,14 @@ export interface BillingTelemetry {
   total_tokens: number;
   total_cost_usd: number | null;
   has_exact_billing: boolean;
+}
+
+export interface TaskTiming {
+  /** Recorded duration or estimated work through the snapshot. */
+  duration_sec: number;
+  /** Unix timestamp in seconds of the active invocation, when available. */
+  started_at: number | null;
+  is_active: boolean;
 }
 
 export interface RunTelemetry {
@@ -247,6 +258,9 @@ export interface RunTelemetry {
     conflicts_auto_resolved: number;
     conflicts_failed: number;
   } | null;
+  /** Unix timestamp in seconds when the server computed this snapshot. */
+  server_now?: number;
+  task_timings?: Record<string, TaskTiming>;
 }
 
 export interface LiveRunSnapshot {
