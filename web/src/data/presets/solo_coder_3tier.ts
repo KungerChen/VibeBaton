@@ -1,0 +1,66 @@
+import type { WorkflowGraph } from '../../types/graph';
+
+export const solo_coder_3tier: WorkflowGraph = {
+  schema_version: '1.0',
+  id: 'solo_coder_3tier',
+  name: 'Solo Coder 3-Tier Flow',
+  difficulty: 'intermediate',
+  description: 'Claude plans tasks, DeepSeek API implements code, and Codex reviews changes before merging for final human sign-off.',
+  recommended_for: ['Personal apps', 'CLI tools', 'Small full-stack projects'],
+  nodes: [
+    {
+      id: 'plan',
+      type: 'planner_node',
+      label: 'Task Planning (Claude Fable)',
+      role: 'tactical_planner',
+      position: { x: 80, y: 160 },
+      config: { provider: 'claude_sub', model: 'fable@high' },
+    },
+    {
+      id: 'worker',
+      type: 'worker_node',
+      label: 'Code Execution (DeepSeek API)',
+      role: 'bulk_worker',
+      position: { x: 380, y: 160 },
+      config: { provider: 'dsh_opencode', model: 'deepseek-v4.1-flash@max' },
+    },
+    {
+      id: 'gate',
+      type: 'gate_node',
+      label: 'Test Gate',
+      position: { x: 680, y: 160 },
+      config: { commands: ['python -m unittest discover -s tests'] },
+    },
+    {
+      id: 'review',
+      type: 'reviewer_node',
+      label: 'Code Review (Codex Astra)',
+      role: 'micro_orchestrator',
+      position: { x: 980, y: 160 },
+      config: { provider: 'codex_sub', model: 'gpt-6.2-astra@xhigh' },
+    },
+    {
+      id: 'merge',
+      type: 'merge_node',
+      label: 'Branch Merge',
+      position: { x: 1280, y: 160 },
+      config: { strategy: 'squash' },
+    },
+    {
+      id: 'human_final',
+      type: 'human_gate_node',
+      label: 'Human Sign-Off',
+      position: { x: 1580, y: 160 },
+      config: {},
+    },
+  ],
+  edges: [
+    { id: 'e1', source: 'plan', sourceHandle: 'out', target: 'worker', targetHandle: 'in' },
+    { id: 'e2', source: 'worker', sourceHandle: 'out', target: 'gate', targetHandle: 'in' },
+    { id: 'e3', source: 'gate', sourceHandle: 'pass', target: 'review', targetHandle: 'in' },
+    { id: 'e4', source: 'gate', sourceHandle: 'fail', target: 'worker', targetHandle: 'fix', max_loops: 2 },
+    { id: 'e5', source: 'review', sourceHandle: 'pass', target: 'merge', targetHandle: 'in' },
+    { id: 'e6', source: 'review', sourceHandle: 'minor_fix', target: 'worker', targetHandle: 'fix', max_loops: 1 },
+    { id: 'e7', source: 'merge', sourceHandle: 'out', target: 'human_final', targetHandle: 'in' },
+  ],
+};

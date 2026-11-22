@@ -1,0 +1,368 @@
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useI18n } from '../../i18n';
+import { formatLiveEventMessage, translateEventKind, translateTier } from '../../i18n/liveEvents';
+import { translateRole } from '../../i18n/presets';
+import type { LiveRunSnapshot } from '../../types/graph';
+import type { RightInspectorProps } from '../types';
+import { Badge, type BadgeProps } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Input, Label } from '../ui/input';
+import { MarkdownView } from '../ui/MarkdownView';
+import { Modal } from '../ui/Modal';
+import { StartRunModal } from './StartRunModal';
+
+const eventLimit = 200;
+const emptySnapshot: LiveRunSnapshot = { run: null, milestones: [], tasks: [], events: [], quotas: [] };
+const statusBadgeVariant = new Map<string, BadgeProps['variant']>([
+  ['RUNNING', 'info'],
+  ['PAUSED', 'secondary'],
+  ['WAITING_HUMAN', 'warning'],
+  ['COMPLETED', 'success'],
+  ['FAILED', 'destructive'],
+  ['HALTED', 'destructive'],
+]);
+
+function isRow(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isRows(value: unknown): value is Record<string, unknown>[] {
+  return Array.isArray(value) && value.every(isRow);
+}
+
+function isSnapshot(value: unknown): value is LiveRunSnapshot {
+  return isRow(value) && (value.run === null || isRow(value.run))
+    && isRows(value.milestones) && isRows(value.tasks) && isRows(value.events) && isRows(value.quotas);
+}
+
+function withRecentEvents(snapshot: LiveRunSnapshot): LiveRunSnapshot {
+  return { ...snapshot, events: snapshot.events.slice(-eventLimit) };
+}
+
+function display(value: unknown, fallback = '—'): string {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : fallback;
+}
+
+type LiveRunPanelProps = Pick<RightInspectorProps, 'client' | 'onToast'> & { visible: boolean };
+type RunAction = 'pause' | 'resume' | 'approve' | 'reject';
+
+export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
+  const { locale, messages } = useI18n();
+  const [snapshot, setSnapshot] = useState<LiveRunSnapshot>(emptySnapshot);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [startOpen, setStartOpen] = useState(false);
+  const [report, setReport] = useState<{ runId: string; markdown: string } | null>(null);
+  const [reportRawMode, setReportRawMode] = useState(false);
+  const [loadingReport, setLoadingReport] = useState(false);
+  const [controlling, setControlling] = useState(false);
+  const [note, setNote] = useState<{ runId: string; text: string } | null>(null);
+  const eventLog = useRef<HTMLDivElement>(null);
+  const snapshotRevision = useRef(0);
+  const runId = typeof snapshot.run?.id === 'string' ? snapshot.run.id : undefined;
+  const status = display(snapshot.run?.status, 'UNKNOWN');
+  const onStreamError = useEffectEvent((error: unknown) => {
+    onToast(error instanceof Error ? error.message : String(error), 'err');
+  });
+
+  useEffect(() => {
+    setSnapshot(emptySnapshot);
+    setReconnecting(false);
+
+    let source: EventSource;
+    try {
+      source = new EventSource(client.streamUrl());
+    } catch (error) {
+      onStreamError(error);
+      return;
+    }
+
+    function receiveSnapshot({ data }: MessageEvent<string>) {
+      try {
+        const next: unknown = JSON.parse(data);
+        if (!isSnapshot(next)) throw new Error('Invalid live run snapshot.');
+        snapshotRevision.current += 1;
+        setSnapshot(withRecentEvents(next));
+        setReconnecting(false);
+      } catch (error) {
+        onStreamError(error);
+      }
+    }
+
+    function receiveEvent({ data }: MessageEvent<string>) {
+      try {
+        const event: unknown = JSON.parse(data);
+        if (!isRow(event)) throw new Error('Invalid live run event.');
+        snapshotRevision.current += 1;
+        setSnapshot((current) => {
+          if (current.run && typeof event.run_id === 'string' && event.run_id !== current.run.id) return current;
+          const lastId = current.events.at(-1)?.id;
+          if (typeof event.id === 'number' && typeof lastId === 'number' && event.id <= lastId) return current;
+          return withRecentEvents({ ...current, events: [...current.events, event] });
+        });
+        setReconnecting(false);
+      } catch (error) {
+        onStreamError(error);
+      }
+    }
+
+    source.addEventListener('snapshot', receiveSnapshot);
+    source.addEventListener('event', receiveEvent);
+    source.onopen = () => setReconnecting(false);
+    source.onerror = () => setReconnecting(true);
+    return () => {
+      snapshotRevision.current += 1;
+      source.removeEventListener('snapshot', receiveSnapshot);
+      source.removeEventListener('event', receiveEvent);
+      source.onopen = null;
+      source.onerror = null;
+      source.close();
+    };
+  }, [client]);
+
+  useEffect(() => {
+    if (visible && eventLog.current) eventLog.current.scrollTop = eventLog.current.scrollHeight;
+  }, [visible, snapshot.events]);
+
+  async function refreshLatestRun() {
+    const revision = ++snapshotRevision.current;
+    try {
+      const latest = await client.getLatestRun();
+      if (revision === snapshotRevision.current) setSnapshot(withRecentEvents(latest));
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error), 'err');
+    }
+  }
+
+  async function showReport() {
+    if (!runId || loadingReport) return;
+    setLoadingReport(true);
+    try {
+      const markdown = await client.getRunReport(runId);
+      setReportRawMode(false);
+      setReport({ runId, markdown });
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error), 'err');
+    } finally {
+      setLoadingReport(false);
+    }
+  }
+
+  async function copyReportMarkdown() {
+    if (!report) return;
+    try {
+      await navigator.clipboard?.writeText(report.markdown);
+      onToast(messages.toasts.reportCopied, 'ok');
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error), 'err');
+    }
+  }
+
+  async function changeRun(action: RunAction) {
+    if (!runId || controlling) return;
+    setControlling(true);
+    try {
+      if (action === 'pause' || action === 'resume') {
+        await client.controlRun(runId, action);
+      } else {
+        await client.resolveRun(runId, action, note?.runId === runId ? note.text : '');
+        setNote(null);
+      }
+      await refreshLatestRun();
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error), 'err');
+    } finally {
+      setControlling(false);
+    }
+  }
+
+  return (
+    <section
+      className="right-inspector__section border-t border-border pt-4"
+      aria-label={messages.inspector.liveSectionAria}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground m-0">
+          {messages.inspector.liveTitle}
+        </h2>
+        {reconnecting && (
+          <Badge variant="warning" role="status">
+            {messages.inspector.reconnecting}
+          </Badge>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="default" size="sm" onClick={() => setStartOpen(true)}>
+          {messages.inspector.startRealRun}
+        </Button>
+        {runId && (
+          <Button variant="outline" size="sm" onClick={() => void showReport()} disabled={loadingReport}>
+            {messages.inspector.battleReport}
+          </Button>
+        )}
+      </div>
+
+      {runId ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={statusBadgeVariant.get(status) ?? 'outline'} role="status">
+              {messages.inspector.runStatuses[status] ?? status}
+            </Badge>
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground break-all">
+              {runId}
+            </code>
+          </div>
+
+          {(status === 'RUNNING' || status === 'PAUSED') && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={controlling}
+                onClick={() => void changeRun(status === 'RUNNING' ? 'pause' : 'resume')}
+              >
+                {status === 'RUNNING' ? messages.inspector.pauseRun : messages.inspector.resumeRun}
+              </Button>
+            </div>
+          )}
+
+          {status === 'WAITING_HUMAN' && (
+            <>
+              <label className="right-inspector__field">
+                <Label className="pointer-events-none">{messages.inspector.decisionNote}</Label>
+                <Input
+                  value={note?.runId === runId ? note.text : ''}
+                  disabled={controlling}
+                  onChange={(event) => setNote({ runId, text: event.currentTarget.value })}
+                />
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="default" size="sm" disabled={controlling} onClick={() => void changeRun('approve')}>
+                  {messages.inspector.approve}
+                </Button>
+                <Button variant="destructive" size="sm" disabled={controlling} onClick={() => void changeRun('reject')}>
+                  {messages.inspector.reject}
+                </Button>
+              </div>
+            </>
+          )}
+
+          <div className="right-inspector__tasks" tabIndex={0} role="region" aria-label={messages.inspector.tasksAria}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{messages.inspector.table.id}</th>
+                  <th>{messages.inspector.table.title}</th>
+                  <th>{messages.inspector.table.tier}</th>
+                  <th>{messages.inspector.table.status}</th>
+                  <th>{messages.inspector.table.assignee}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {snapshot.tasks.map((task, index) => {
+                  const taskTier = display(task.tier);
+                  const taskStatus = display(task.status);
+                  const taskAssignee = display(task.current_role ?? task.assignee_role);
+                  return (
+                    <tr key={display(task.id, `task-${index}`)}>
+                      <td><code>{display(task.id)}</code></td>
+                      <td>{display(task.title)}</td>
+                      <td>{translateTier(taskTier, locale)}</td>
+                      <td>{messages.inspector.runStatuses[taskStatus] ?? taskStatus}</td>
+                      <td>{translateRole(taskAssignee, locale)}</td>
+                    </tr>
+                  );
+                })}
+                {snapshot.tasks.length === 0 && <tr><td colSpan={5}>{messages.inspector.noTasks}</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : (
+        <p className="m-0 rounded-xl border border-dashed border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+          {messages.inspector.noRuns}
+        </p>
+      )}
+
+      <div className="right-inspector__section">
+        <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground m-0">
+          {messages.inspector.eventLogTitle}
+        </h3>
+        <div
+          className="right-inspector__event-log right-inspector__mono"
+          ref={eventLog}
+          role="log"
+          aria-label={messages.inspector.eventLogAria}
+          tabIndex={0}
+        >
+          {snapshot.events.map((event, index) => {
+            const rawKind = display(event.kind, 'event');
+            const rawMsg = display(event.message, '');
+            const taskId = display(event.task_id, '');
+            const kindLabel = translateEventKind(rawKind, locale);
+            const { summary, rawDetail } = formatLiveEventMessage(rawKind, rawMsg, locale);
+            return (
+              <div className="right-inspector__event" key={display(event.id, `event-${index}`)}>
+                <span className="right-inspector__event-kind">{kindLabel}</span>
+                <span>{[taskId, summary].filter(Boolean).join(' · ')}</span>
+                {rawDetail && (
+                  <details className="right-inspector__event-detail">
+                    <summary>{messages.inspector.originalNote}</summary>
+                    <pre>{rawDetail}</pre>
+                  </details>
+                )}
+              </div>
+            );
+          })}
+          {snapshot.events.length === 0 && (
+            <p className="m-0 text-xs text-muted-foreground">{messages.inspector.noEvents}</p>
+          )}
+        </div>
+      </div>
+
+      {visible && report && (
+        <Modal open wide title={messages.inspector.modalReportTitle} onClose={() => setReport(null)}>
+          <div className="right-inspector__report-toolbar">
+            <code className="text-xs font-mono text-muted-foreground">{report.runId}</code>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={!reportRawMode ? 'default' : 'outline'}
+                size="sm"
+                aria-pressed={!reportRawMode}
+                onClick={() => setReportRawMode(false)}
+              >
+                {messages.inspector.reportRendered}
+              </Button>
+              <Button
+                variant={reportRawMode ? 'default' : 'outline'}
+                size="sm"
+                aria-pressed={reportRawMode}
+                onClick={() => setReportRawMode(true)}
+              >
+                {messages.inspector.reportRaw}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => void copyReportMarkdown()}>
+                {messages.inspector.reportCopy}
+              </Button>
+            </div>
+          </div>
+          {reportRawMode ? (
+            <pre className="right-inspector__report right-inspector__mono">{report.markdown}</pre>
+          ) : (
+            <div className="right-inspector__report-body">
+              <MarkdownView markdown={report.markdown} />
+            </div>
+          )}
+        </Modal>
+      )}
+      {startOpen && (
+        <StartRunModal
+          client={client}
+          onToast={onToast}
+          onClose={() => setStartOpen(false)}
+          onStarted={() => void refreshLatestRun()}
+        />
+      )}
+    </section>
+  );
+}

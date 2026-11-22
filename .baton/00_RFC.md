@@ -52,6 +52,9 @@ Zero-dependency `http.server.ThreadingHTTPServer` server hosting both REST/SSE J
     - If `rfc_path` is provided, resolves against `repo_path` and **strictly rejects path traversal outside `repo_path`** (HTTP 400).
     - Creates run in `StateStore`, spawns detached daemon via `daemon_spawner or _spawn_detached_daemon`, logs `daemon_spawned`, returns `201`/`200` `{"run_id": ..., "daemon_pid": ..., "status": "STARTED"}`.
   - `POST /api/runs/{run_id}/control`: accepts `{"action": "pause" | "resume"}` (404 if unknown run; 400 if unsupported action).
+    - `pause` records `PAUSED` and returns HTTP 200 `{"run_id": ..., "status": "PAUSED"}`.
+    - `resume` records `RUNNING` and starts a detached daemon for the same run. On successful launch it logs `daemon_spawned` and returns HTTP 200 `{"run_id": ..., "status": "RUNNING", "daemon_pid": ...}`.
+    - A launch error during resume restores `PAUSED`, logs `daemon_spawn_failed`, and returns HTTP 500 `{"run_id": ..., "error": ...}` so the client can retry.
   - `POST /api/runs/{run_id}/resolve`: accepts `{"decision": "approve" | "reject", "note"?: str}` and invokes `store.record_human_decision(...)` (+ respawns daemon on `"approve"`).
 - **Static Hosting**:
   - Resolves `static_dir` (defaulting to `<package_root>/web/dist` if present).

@@ -8,6 +8,7 @@ import json
 import shutil
 import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 
 from . import __version__
@@ -378,6 +379,23 @@ def cmd_graph(args: argparse.Namespace) -> int:
     return 0 if result.status == "completed" else 1
 
 
+def cmd_ui(args: argparse.Namespace) -> int:
+    """Serve the local canvas and open it in the default browser."""
+    from .web_server import VibeBatonWebServer
+
+    server = VibeBatonWebServer(Path(args.repo), host=args.host, port=args.port)
+    try:
+        print(f"Listening on {server.url}", flush=True)
+        if not args.no_open:
+            webbrowser.open(server.url)
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.shutdown()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="baton",
@@ -465,6 +483,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_simulate.add_argument("--scenario", choices=SCENARIOS, default="happy_path")
     p_simulate.add_argument("--json", action="store_true", help="Output JSON")
     p_simulate.set_defaults(func=cmd_graph)
+
+    p_ui = sub.add_parser("ui", help="Serve the local workflow canvas")
+    p_ui.add_argument("--repo", default=".")
+    p_ui.add_argument("--host", default="127.0.0.1")
+    p_ui.add_argument("--port", type=int, default=7860)
+    p_ui.add_argument("--no-open", action="store_true", help="Skip opening the default browser")
+    p_ui.set_defaults(func=cmd_ui)
 
     return parser
 

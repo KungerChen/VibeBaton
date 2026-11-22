@@ -1,0 +1,49 @@
+import type { WorkflowGraph } from '../../types/graph';
+
+export const starter_2tier: WorkflowGraph = {
+  schema_version: '1.0',
+  id: 'starter_2tier',
+  name: 'Starter 2-Tier Flow',
+  difficulty: 'beginner',
+  description: 'Zero-friction, ultra-low-cost workflow. Run planning, parallel coding, automated testing, and human preview sign-off with a single affordable API/CLI.',
+  recommended_for: ['Personal sites & mini tools', 'First Vibe Coding project', 'Rapid prototyping'],
+  nodes: [
+    {
+      id: 'plan',
+      type: 'planner_node',
+      label: 'Task Breakdown (Any Reasoning Model)',
+      role: 'tactical_planner',
+      position: { x: 80, y: 160 },
+      config: { provider: 'dsh_opencode', model: 'deepseek-v4.1-flash@max' },
+    },
+    {
+      id: 'worker',
+      type: 'worker_node',
+      label: 'Parallel Worker (DeepSeek API)',
+      role: 'bulk_worker',
+      position: { x: 380, y: 160 },
+      config: { provider: 'dsh_opencode', model: 'deepseek-v4.1-flash@max', concurrency: 3 },
+    },
+    {
+      id: 'gate',
+      type: 'gate_node',
+      label: 'Automated Test Gate',
+      position: { x: 680, y: 160 },
+      config: { max_loops: 2 },
+    },
+    {
+      id: 'final',
+      type: 'human_gate_node',
+      label: 'Preview & Sign-Off',
+      role: 'brainstorm_and_final_gate',
+      position: { x: 980, y: 160 },
+      config: { provider: 'host_native', model: 'any' },
+    },
+  ],
+  edges: [
+    { id: 's1', source: 'plan', sourceHandle: 'dag', target: 'worker', targetHandle: 'in' },
+    { id: 's2', source: 'worker', sourceHandle: 'out', target: 'gate', targetHandle: 'in' },
+    { id: 's3', source: 'gate', sourceHandle: 'fail', target: 'worker', targetHandle: 'fix', max_loops: 2 },
+    { id: 's4', source: 'gate', sourceHandle: 'pass', target: 'final', targetHandle: 'in' },
+  ],
+};

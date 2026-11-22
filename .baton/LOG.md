@@ -3,6 +3,30 @@
 | ID | 日期 | 摘要 | 状态 |
 | --- | --- | --- | --- |
 | [20261121-051952-m1-graph-remediation](#20261121-051952-m1-graph-remediation) | 2026-11-21 | M1 入口识别、重试限额和旗舰预览汇合 | 已自测，待用户验收 |
+| [20261121-095252-m1-web-resume](#20261121-095252-m1-web-resume) | 2026-11-21 | M1 Web 暂停恢复与 daemon 启动 | 已自测，待用户验收 |
+| [20261121-105235-m2-dual-mode-parity](#20261121-105235-m2-dual-mode-parity) | 2026-11-21 | M2 双模式模拟一致性与旗舰节点层级 | 已自测，待用户验收 |
+
+## 20261121-105235-m2-dual-mode-parity
+
+2026-11-21 10:52:35 PST。M2 复审授权修复模拟结果和节点层级两项阻塞。分支为 `baton/e815d5/ms-m2-r1`，起始工作树干净，基准提交为 `739b0e1`。
+
+- `web/src/engine/localSimulator.ts` 按 Python 规则识别入口、检查循环和选择路由。运行时沿分支记录路径，返回边可继承环内限额。额度耗尽后跳过该边，当次队列为空时返回 `halted`。仅在 `happy_path` 对循环外且至少有两个输入的合并节点汇集到达项。预览时间戳采用相对时间。
+- `web/src/types/graph.ts` 优先按角色确定层级，再回退到节点类型。旗舰头脑风暴和终审均为 L0 琥珀色，微观审校为 L2 天蓝色，批量任务为 L3 翡翠色。
+- `web/src/engine/__fixtures__/generate_python_parity.py` 用当前工作树的 Python 引擎生成四个预设和四张自定义图的三场景样例。新增回归在基准实现上复现 24 个失败。生成文件可重复生成，SHA-256 为 `05D7A717C2BFE1DFA01969450B72486B0270079C08602B1FB25A2ED40A334687`。
+- 三项门禁返回 0。Vitest 通过 81 项，`tsc --noEmit` 和 Vite 构建成功，依赖清单差异检查通过，Python unittest 通过 104 项。初次 Vite 启动因共享依赖目录不可写失败。验证使用工作树内的依赖副本，原 junction 保存在 `web/.vite/m2-verification/shared-node_modules`。Python 门禁的 `PYTHONPATH` 指向当前工作树的 `src`，子进程 Git 使用工作树的 `.gitignore`。
+- 额外对照 258 张图的校验结果和 264 次模拟轨迹。另在隔离的 loopback HTTP 服务中通过 `BatonApiClient` 对照 24 次 demo 和 local 模拟，状态、访问顺序及除时间戳外的轨迹一致。构建产物入口和两项相对路径资源可经 HTTP 加载。
+- React 服务端渲染核对了旗舰 10 张节点卡的标签和颜色变量。嵌入式浏览器需要当前会话无法提供的审批，独立无头浏览器启动被环境策略拒绝。实际画布待人工查看，在 `CanvasWorkspace` 载入旗舰预设时可核对上述颜色。
+- 本轮差异位于当前工作树，基准为 `739b0e1`。
+
+## 20261121-095252-m1-web-resume
+
+2026-11-21 09:52:52 PST。M1 复审授权修复 Web 控制端点恢复运行时缺少 daemon 的阻塞。分支为 `baton/e815d5/ms-m1-r1`，起始工作树干净，基准提交为 `d5af581`。
+
+- `tests/test_web_server.py` 的两个 `test_control_*` 回归在基准实现上确认 `resume` 返回 HTTP 200，启动器调用次数为零。
+- `src/vibebaton/web_server.py` 复用现有启动助手。恢复成功时记录 `daemon_spawned` 并返回 `daemon_pid`。启动失败时恢复 `PAUSED` 并返回 HTTP 500，用户可再次恢复。成功和失败响应已写入 `.baton/00_RFC.md`。
+- 三项门禁全部返回 0。全量 unittest 通过 104 项，依赖检查输出 `deps ok`，CLI 解析检查输出 `ui ok 0`。测试进程将 `PYTHONPATH` 指向当前工作树的 `src`，Git 使用进程级配置读取工作树的 `.gitignore`，避开沙箱内不可读的用户级 ignore 文件。
+- 在临时 Git 仓库用预置计划和已通过的里程碑验证实际恢复。HTTP 暂停后，恢复请求返回真实 daemon 的 PID。该进程退出码为 0，`/api/runs/stream?once=1` 返回同一运行的 `READY_FOR_FINAL_GATE` 快照和 `daemon_spawned` 事件。画布交互随前端里程碑验收。
+- 本轮差异在当前工作树，回退基准为 `d5af581`。验收可对已暂停且旧 daemon 已退出的本地运行发送 `resume`，核对响应中的 `daemon_pid` 与后续 SSE 状态。
 
 ## 20261121-051952-m1-graph-remediation
 

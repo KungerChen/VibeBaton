@@ -1,0 +1,80 @@
+{
+  "worker_and_gate": {
+    "schema_version": "1.0",
+    "id": "worker_and_gate",
+    "name": "Worker and test gate",
+    "nodes": [
+      { "id": "worker", "type": "worker_node", "label": "Worker" },
+      { "id": "gate", "type": "gate_node", "label": "Test gate" },
+      { "id": "approval", "type": "human_gate_node", "label": "Approval" }
+    ],
+    "edges": [
+      { "id": "test", "source": "worker", "target": "gate" },
+      { "id": "retry", "source": "gate", "sourceHandle": "fail", "target": "worker", "targetHandle": "fix", "max_loops": 2 },
+      { "id": "passed", "source": "gate", "sourceHandle": "pass", "target": "approval" }
+    ]
+  },
+  "reviewer_routes": {
+    "schema_version": "1.0",
+    "id": "reviewer_routes",
+    "name": "Review, revise, and approve",
+    "nodes": [
+      { "id": "review", "type": "reviewer_node", "label": "Review" },
+      { "id": "rejected", "type": "worker_node", "label": "Rejected" },
+      { "id": "approved", "type": "worker_node", "label": "Approved" },
+      { "id": "generic", "type": "worker_node", "label": "Generic follow-up" },
+      { "id": "human", "type": "human_gate_node", "label": "Human approval" },
+      { "id": "done", "type": "worker_node", "label": "Publish" }
+    ],
+    "edges": [
+      { "id": "reject", "source": "review", "sourceHandle": "reject", "target": "rejected" },
+      { "id": "approve", "source": "review", "sourceHandle": "approve", "target": "approved" },
+      { "id": "out", "source": "review", "sourceHandle": "out", "target": "generic" },
+      { "id": "pass", "source": "review", "sourceHandle": "pass", "target": "human" },
+      { "id": "minor_fix", "source": "review", "sourceHandle": "minor_fix", "target": "review", "max_loops": 1 },
+      { "id": "escalate", "source": "review", "sourceHandle": "escalate", "target": "review", "max_loops": 1 },
+      { "id": "publish", "source": "human", "sourceHandle": "approve", "target": "done" }
+    ]
+  },
+  "merge_in_loop": {
+    "schema_version": "1.0",
+    "id": "merge_in_loop",
+    "name": "Merge on a bounded retry path",
+    "nodes": [
+      { "id": "plan", "type": "planner_node", "label": "Plan" },
+      { "id": "merge", "type": "merge_node", "label": "Merge" },
+      { "id": "worker", "type": "worker_node", "label": "Worker", "config": { "max_loops": 1.5 } },
+      { "id": "check", "type": "worker_node", "label": "Check" },
+      { "id": "done", "type": "human_gate_node", "label": "Done" }
+    ],
+    "edges": [
+      { "id": "start", "source": "plan", "target": "merge" },
+      { "id": "work", "source": "merge", "target": "worker" },
+      { "id": "check", "source": "worker", "target": "check" },
+      { "id": "return", "source": "check", "target": "merge" },
+      { "id": "finish", "source": "check", "target": "done" }
+    ]
+  },
+  "merge_after_branches": {
+    "schema_version": "1.0",
+    "id": "merge_after_branches",
+    "name": "Join short and long branches",
+    "nodes": [
+      { "id": "route", "type": "router_node", "label": "Route" },
+      { "id": "short", "type": "worker_node", "label": "Short branch" },
+      { "id": "long", "type": "worker_node", "label": "Long branch" },
+      { "id": "extra", "type": "worker_node", "label": "Extra step" },
+      { "id": "merge", "type": "merge_node", "label": "Merge" },
+      { "id": "done", "type": "human_gate_node", "label": "Done" }
+    ],
+    "edges": [
+      { "id": "direct", "source": "route", "sourceHandle": "critical", "target": "merge" },
+      { "id": "short_branch", "source": "route", "sourceHandle": "routine", "target": "short", "max_loops": 1 },
+      { "id": "long_branch", "source": "route", "sourceHandle": "routine", "target": "long" },
+      { "id": "short_arrival", "source": "short", "target": "merge" },
+      { "id": "extra_work", "source": "long", "target": "extra" },
+      { "id": "long_arrival", "source": "extra", "target": "merge" },
+      { "id": "finish", "source": "merge", "target": "done" }
+    ]
+  }
+}
