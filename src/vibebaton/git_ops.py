@@ -7,12 +7,43 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol, TypedDict
 
 
 class GitError(RuntimeError):
     """Raised when a git command fails."""
+
+
+class MergeConflictError(GitError):
+    """A squash merge could not complete its conflict resolution."""
+
+    def __init__(
+        self,
+        source_branch: str,
+        target_branch: str,
+        conflicted_files: list[str],
+        *,
+        reason: str = "",
+    ) -> None:
+        self.source_branch = source_branch
+        self.target_branch = target_branch
+        self.conflicted_files = list(conflicted_files)
+        self.reason = reason
+        message = f"Merge conflict merging '{source_branch}' into '{target_branch}'"
+        if conflicted_files:
+            message += f": {', '.join(conflicted_files)}"
+        if reason:
+            message += f" ({reason})"
+        super().__init__(message)
+
+
+class MergeResult(TypedDict):
+    merged: bool
+    conflicts: list[str]
+    resolved_by_ai: bool
 
 
 @dataclass
@@ -249,27 +280,182 @@ def merge_branch_into(
     target_branch: str,
     commit_message: str,
     worktree_root: Path,
+    *,
+    on_merge_failure: Callable[[Path, subprocess.CompletedProcess[str]], None] | None = None,
 ) -> None:
     """Squash-merge source_branch into target_branch using a temporary integration worktree.
 
-    Using an isolated integration worktree means the user's main working directory
-    is never switched or dirtied during background/overnight execution!
+    The optional failure handler can repair a failed squash in the same worktree.
+    Returning from the handler allows the repaired merge to commit.
     """
-    merge_wt = (worktree_root / f"_merge_{target_branch.replace('/', '_')}").resolve()
+    worktree_root = worktree_root.resolve()
+    merge_wt = worktree_root / f"_merge_{target_branch.replace('/', '_')}"
+    if merge_wt.parent != worktree_root or merge_wt.resolve() != merge_wt:
+        raise GitError(f"Invalid merge worktree path for branch '{target_branch}'")
+    worktree_root.mkdir(parents=True, exist_ok=True)
     if merge_wt.exists():
         remove_worktree(repo, merge_wt)
-    merge_wt.parent.mkdir(parents=True, exist_ok=True)
-    _run_git(repo, ["worktree", "add", str(merge_wt), target_branch])
+
     try:
-        merge_res = _run_git(merge_wt, ["merge", "--squash", source_branch], check=False)
+        _run_git(repo, ["worktree", "add", "--", str(merge_wt), target_branch])
+        merge_res = _run_git(merge_wt, ["merge", "--squash", "--", source_branch], check=False)
         if merge_res.returncode != 0:
-            _run_git(merge_wt, ["merge", "--abort"], check=False)
-            raise GitError(
-                f"Merge conflict merging '{source_branch}' into '{target_branch}': "
-                f"{merge_res.stderr.strip() or merge_res.stdout.strip()}"
-            )
-        staged = _run_git(merge_wt, ["diff", "--cached", "--name-only"]).stdout.strip()
-        if staged:
+            if on_merge_failure is None:
+                _run_git(merge_wt, ["merge", "--abort"], check=False)
+                raise GitError(
+                    f"Merge conflict merging '{source_branch}' into '{target_branch}': "
+                    f"{merge_res.stderr.strip() or merge_res.stdout.strip()}"
+                )
+            on_merge_failure(merge_wt, merge_res)
+        if on_merge_failure is not None:
+            _run_git(merge_wt, ["add", "-A"])
+        if _git_paths(merge_wt, ["diff", "--cached", "--name-only", "-z"]):
             _run_git(merge_wt, ["commit", "-m", commit_message])
+    except MergeConflictError:
+        # Squash merges can leave a conflicted index without MERGE_HEAD.
+        _run_git(merge_wt, ["merge", "--abort"], check=False)
+        _run_git(merge_wt, ["reset", "--hard"], check=False)
+        _run_git(merge_wt, ["clean", "-fd"], check=False)
+        raise
     finally:
         remove_worktree(repo, merge_wt)
+
+
+def _git_paths(worktree_dir: Path, args: list[str]) -> list[str]:
+    """Parse the NUL-delimited paths returned by Git's -z option."""
+    return [path for path in _run_git(worktree_dir, args).stdout.split("\0") if path]
+
+
+def has_conflict_markers(worktree_dir: Path, files: Iterable[str] | None = None) -> list[str]:
+    """Find Git conflict markers in the given relative paths or in changed and untracked files."""
+    if files is None:
+        files = _git_paths(worktree_dir, ["diff", "--name-only", "-z", "HEAD"])
+        files += _git_paths(worktree_dir, ["ls-files", "--others", "--exclude-standard", "-z"])
+
+    worktree_dir = worktree_dir.resolve()
+    flagged: list[str] = []
+    for name in sorted({Path(file).as_posix() for file in files}):
+        relative = Path(name)
+        if relative.anchor or ".." in relative.parts or name.startswith(".baton/"):
+            continue
+        path = worktree_dir / relative
+        if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(worktree_dir):
+            continue
+        with path.open("rb") as stream:
+            prefix = stream.read(8192)
+            if b"\0" in prefix:
+                continue
+            content = prefix + stream.read()
+        try:
+            lines = content.decode("utf-8").splitlines()
+        except UnicodeDecodeError:
+            continue
+        if any(line == "=======" or line.startswith(("<<<<<<< ", ">>>>>>> ")) for line in lines):
+            flagged.append(name)
+    return flagged
+
+
+_CONFLICT_EXCERPT_CHARS = 4000
+
+
+def _conflict_excerpt(text: str) -> str:
+    excerpt = text[:_CONFLICT_EXCERPT_CHARS]
+    if "\0" in excerpt:
+        return "[binary content]"
+    if len(text) > _CONFLICT_EXCERPT_CHARS:
+        return excerpt + "\n[truncated]"
+    return excerpt
+
+
+def _build_conflict_context(worktree_dir: Path, conflicted_files: list[str]) -> str:
+    sections: list[str] = []
+    for file in conflicted_files:
+        sections.append(f"File: {file}")
+        for stage, label in enumerate(("base", "ours", "theirs"), start=1):
+            result = _run_git(worktree_dir, ["show", f":{stage}:{file}"], check=False)
+            excerpt = _conflict_excerpt(result.stdout) if result.returncode == 0 else "[missing]"
+            sections.append(f"{label} (stage {stage})\n{excerpt}")
+        path = worktree_dir / file
+        working_copy = "[missing]"
+        if path.is_file() and not path.is_symlink():
+            with path.open(encoding="utf-8", errors="replace") as stream:
+                working_copy = _conflict_excerpt(stream.read(_CONFLICT_EXCERPT_CHARS + 1))
+        sections.append(f"working copy\n{working_copy}")
+    return "\n\n".join(sections)
+
+
+class _SquashMerge(Protocol):
+    def __call__(
+        self,
+        repo: Path,
+        source_branch: str,
+        target_branch: str,
+        commit_message: str,
+        worktree_root: Path,
+        *,
+        on_merge_failure: Callable[[Path, subprocess.CompletedProcess[str]], None],
+    ) -> None: ...
+
+
+def merge_branch_with_resolver(
+    repo: Path,
+    source_branch: str,
+    target_branch: str,
+    commit_message: str,
+    worktree_root: Path,
+    *,
+    resolver: Callable[[Path, list[str], str], bool] | None = None,
+    gate_checker: Callable[[Path], bool] | None = None,
+    max_attempts: int = 1,
+    squash_merge: _SquashMerge = merge_branch_into,
+) -> MergeResult:
+    """Squash-merge in an isolated worktree, with bounded conflict resolution retries.
+
+    The resolver edits the worktree and returns True when its resolution is ready.
+    Each attempt receives the original conflict context. The optional gate checks
+    the staged resolution before the target branch advances.
+    """
+    conflicted: list[str] = []
+
+    def handle_failed_merge(merge_wt: Path, merge: subprocess.CompletedProcess[str]) -> None:
+        nonlocal conflicted
+        unmerged_paths = ["diff", "--name-only", "--diff-filter=U", "-z"]
+        conflicted = sorted(set(_git_paths(merge_wt, unmerged_paths)))
+        if not conflicted:
+            reason = merge.stderr.strip() or merge.stdout.strip()
+            raise MergeConflictError(source_branch, target_branch, conflicted, reason=reason)
+        if resolver is None:
+            raise MergeConflictError(source_branch, target_branch, conflicted)
+
+        context = _build_conflict_context(merge_wt, conflicted)
+        for _ in range(max_attempts):
+            try:
+                resolved = resolver(merge_wt, conflicted.copy(), context)
+            except Exception as exc:
+                raise MergeConflictError(source_branch, target_branch, conflicted, reason="resolver failed") from exc
+
+            # A deletion staged on a previous attempt may now be absent from the index and disk.
+            indexed = set(_git_paths(merge_wt, ["--literal-pathspecs", "ls-files", "-z", "--", *conflicted]))
+            to_stage = [file for file in conflicted if file in indexed or os.path.lexists(merge_wt / file)]
+            if to_stage:
+                _run_git(merge_wt, ["--literal-pathspecs", "add", "-A", "--", *to_stage])
+            markers = has_conflict_markers(merge_wt, conflicted)
+            unmerged = _git_paths(merge_wt, unmerged_paths)
+            if resolved and not markers and not unmerged:
+                break
+        else:
+            raise MergeConflictError(source_branch, target_branch, conflicted, reason="resolution attempts exhausted")
+
+        if gate_checker is not None:
+            try:
+                _attach_shared_node_modules(repo, merge_wt)
+                passed = gate_checker(merge_wt)
+            except Exception as exc:
+                raise MergeConflictError(source_branch, target_branch, conflicted, reason="gate checker failed") from exc
+            finally:
+                _detach_shared_node_modules(merge_wt)
+            if not passed:
+                raise MergeConflictError(source_branch, target_branch, conflicted, reason="gate rejected resolution")
+
+    squash_merge(repo, source_branch, target_branch, commit_message, worktree_root, on_merge_failure=handle_failed_merge)
+    return {"merged": True, "conflicts": conflicted, "resolved_by_ai": bool(conflicted)}

@@ -1,4 +1,4 @@
-"""Exercise the built canvas and Stage 3 API on the same loopback server."""
+"""Exercise the built Studio and local API on a loopback server."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 from vibebaton import credentials
+from vibebaton.db import StateStore
 from vibebaton.web_server import create_server
 
 REPO = Path(__file__).resolve().parents[1]
@@ -93,10 +94,14 @@ class WebFullStackTests(unittest.TestCase):
         script = re.search(r"""<script\b[^>]*\bsrc=["'](\./assets/[^"']+\.js)["']""", index.decode("utf-8"))
         if script is None:
             self.fail("Expected a relative JavaScript asset in the built index")
-        with urlopen(urljoin(base, script.group(1)), timeout=5) as response:
+        asset_path = script.group(1)
+        with urlopen(urljoin(base, asset_path), timeout=5) as response:
             self.assertEqual(response.status, 200)
             self.assertIn(response.headers.get_content_type(), {"text/javascript", "application/javascript"})
-            self.assertTrue(response.read())
+            asset = response.read()
+        self.assertTrue(asset)
+        self.assertEqual(asset, (built_index.parent / asset_path).read_bytes())
+        self.assertEqual(self.request_json(base, "/api/health")["version"], "1.0.0")
 
         presets = self.request_json(base, "/api/presets")["presets"]
         self.assertEqual(len(presets), 7)
@@ -131,6 +136,56 @@ class WebFullStackTests(unittest.TestCase):
         self.assertIs(readiness["safe_for_overnight"], True)
         self.assertEqual(readiness["missing_sections"], [])
         self.assertEqual(readiness["detected_commands"], ["python -m unittest"])
+
+    def test_live_snapshot_exposes_exact_billing_and_conflict_counts(self) -> None:
+        store = StateStore(self.repo / ".baton" / "state.sqlite")
+        run_id = store.create_run(self.repo, self.repo / "rfc.md")
+        store.log_event(
+            run_id,
+            "role_completed",
+            actor="bulk_worker:flash",
+            payload={
+                "role": "bulk_worker",
+                "provider": "deepseek_http",
+                "model": "flash",
+                "duration_sec": 2.0,
+                "prompt_tokens": 120,
+                "completion_tokens": 30,
+                "cached_tokens": 40,
+                "cost_usd": 0.0125,
+            },
+        )
+        store.log_event(run_id, "merge_conflict_detected", task_id="M1-T1")
+        store.log_event(run_id, "merge_conflict_resolved", task_id="M1-T1")
+        store.log_event(run_id, "merge_conflict_detected", task_id="M1-T2")
+        store.log_event(run_id, "merge_conflict_failed", task_id="M1-T2")
+
+        stream_url = urljoin(self.start_server(), "/api/runs/stream?once=1")
+        with urlopen(stream_url, timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), "text/event-stream")
+            self.assertEqual(response.readline(), b"event: snapshot\n")
+            data = response.readline()
+        self.assertTrue(data.startswith(b"data: "))
+        snapshot = json.loads(data.removeprefix(b"data: "))
+        self.assertEqual(snapshot["run"]["id"], run_id)
+        telemetry = snapshot["telemetry"]
+        self.assertIs(telemetry["billing"]["has_exact_billing"], True)
+        self.assertEqual(
+            telemetry["billing"],
+            {
+                "total_prompt_tokens": 120,
+                "total_completion_tokens": 30,
+                "total_cached_tokens": 40,
+                "total_tokens": 150,
+                "total_cost_usd": 0.0125,
+                "has_exact_billing": True,
+            },
+        )
+        self.assertEqual(
+            telemetry["conflicts"],
+            {"conflicts_detected": 2, "conflicts_auto_resolved": 1, "conflicts_failed": 1},
+        )
 
     def test_empty_static_directory_serves_build_notice(self) -> None:
         empty = self.repo / "empty"

@@ -1,4 +1,4 @@
-import type { Locale } from './messages';
+import { MESSAGES, type Locale } from './messages';
 import { translateRole } from './presets';
 
 const CJK_REGEX = /[\u4e00-\u9fff]/;
@@ -46,6 +46,13 @@ const CLI_REASON_ZH: Record<string, string> = {
   missing_binary: '未找到命令',
 };
 
+const MERGE_CONFLICT_REASONS_ZH = new Map([
+  ['resolver failed', '冲突解决器执行失败'],
+  ['resolution attempts exhausted', '已达冲突解决尝试上限'],
+  ['gate checker failed', '门禁检查执行失败'],
+  ['gate rejected resolution', '冲突解决结果未通过门禁'],
+]);
+
 const MODE_LABELS_ZH: Record<string, string> = {
   overnight: '通宵无人值守',
   interactive: '交互式',
@@ -68,7 +75,14 @@ export type FormattedLiveEvent = {
   rawDetail?: string;
 };
 
+type MergeConflictEventKind = keyof typeof MESSAGES.en.inspector.mergeConflictEventKinds;
+
+function isMergeConflictEventKind(kind: string): kind is MergeConflictEventKind {
+  return Object.hasOwn(MESSAGES.en.inspector.mergeConflictEventKinds, kind);
+}
+
 export function translateEventKind(kind: string, locale: Locale): string {
+  if (isMergeConflictEventKind(kind)) return MESSAGES[locale].inspector.mergeConflictEventKinds[kind];
   const entry = EVENT_KIND_LABELS[kind];
   if (entry) return entry[locale];
   return locale === 'en' ? kind.replace(/_/g, ' ') : kind;
@@ -79,12 +93,60 @@ export function translateTier(tier: string, locale: Locale): string {
   return entry ? entry[locale] : tier;
 }
 
+function readConflictPayload(payload: unknown): Record<string, unknown> {
+  let data = payload;
+  if (typeof data === 'string') {
+    try {
+      data = JSON.parse(data);
+    } catch {
+      return {};
+    }
+  }
+  return data && typeof data === 'object' && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : {};
+}
+
+function formatMergeConflictMessage(
+  kind: MergeConflictEventKind,
+  message: string,
+  locale: Locale,
+  payload: unknown,
+): FormattedLiveEvent {
+  const { conflicted_files, source_branch, target_branch, reason } = readConflictPayload(payload);
+  const parts = [MESSAGES[locale].inspector.mergeConflictEventKinds[kind]];
+
+  if (Array.isArray(conflicted_files)) {
+    const count = conflicted_files.length;
+    parts.push(locale === 'en'
+      ? `${count} conflicted ${count === 1 ? 'file' : 'files'}`
+      : `${count} 个冲突文件`);
+  }
+
+  const branches = [source_branch, target_branch]
+    .filter((branch) => typeof branch === 'string' && branch.trim())
+    .join(' → ');
+  if (branches) parts.push(branches);
+
+  if (typeof reason === 'string' && reason.trim()) {
+    const detail = reason.trim();
+    parts.push(locale === 'zh' ? MERGE_CONFLICT_REASONS_ZH.get(detail) ?? detail : detail);
+  }
+
+  return { summary: parts.join(' · '), ...(message ? { rawDetail: message } : {}) };
+}
+
+/** Conflict events accept a decoded payload or the snapshot's payload_json string. */
 export function formatLiveEventMessage(
   kind: string,
   rawMessage: string,
   locale: Locale,
+  payload?: unknown,
 ): FormattedLiveEvent {
   const trimmed = rawMessage.trim();
+  if (isMergeConflictEventKind(kind)) {
+    return formatMergeConflictMessage(kind, trimmed, locale, payload);
+  }
   if (!trimmed) {
     const fallback = FALLBACK_SUMMARY_BY_KIND[kind]?.[locale];
     return { summary: fallback ?? (locale === 'en' ? 'Event recorded' : '已记录事件') };

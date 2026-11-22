@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from collections import defaultdict, deque
-from typing import Any
+from typing import Any, TypedDict
 
 from .db import StateStore
 
@@ -87,6 +88,54 @@ def _parse_json_payload(raw: str | None) -> dict[str, Any]:
         return loaded if isinstance(loaded, dict) else {}
     except json.JSONDecodeError:
         return {}
+
+
+class _BillingTelemetry(TypedDict):
+    total_prompt_tokens: int
+    total_completion_tokens: int
+    total_cached_tokens: int
+    total_tokens: int
+    total_cost_usd: float | None
+    has_exact_billing: bool
+
+
+class _ConflictTelemetry(TypedDict):
+    conflicts_detected: int
+    conflicts_auto_resolved: int
+    conflicts_failed: int
+
+
+def _parse_token_count(value: object) -> int:
+    return value if type(value) is int and value > 0 else 0
+
+
+def _parse_cost_usd(value: object) -> float | None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        cost = float(value)
+    except OverflowError:
+        return None
+    return cost if math.isfinite(cost) else None
+
+
+def _record_billing(entry: dict[str, Any], billing: _BillingTelemetry, payload: dict[str, Any]) -> None:
+    prompt_tokens = _parse_token_count(payload.get("prompt_tokens"))
+    completion_tokens = _parse_token_count(payload.get("completion_tokens"))
+    cached_tokens = _parse_token_count(payload.get("cached_tokens"))
+    cost_usd = _parse_cost_usd(payload.get("cost_usd"))
+    if prompt_tokens == 0 and completion_tokens == 0 and cached_tokens == 0 and cost_usd is None:
+        return
+
+    billing["has_exact_billing"] = True
+    billing["total_prompt_tokens"] += prompt_tokens
+    billing["total_completion_tokens"] += completion_tokens
+    billing["total_cached_tokens"] += cached_tokens
+    entry["prompt_tokens"] += prompt_tokens
+    entry["completion_tokens"] += completion_tokens
+    if cost_usd is not None:
+        billing["total_cost_usd"] = (billing["total_cost_usd"] or 0.0) + cost_usd
+        entry["cost_usd"] = (entry["cost_usd"] or 0.0) + cost_usd
 
 
 def _parse_role_event_meta(event: dict[str, Any]) -> tuple[str, str, str]:
@@ -178,7 +227,7 @@ def compute_run_telemetry(
     *,
     now_ts: float | None = None,
 ) -> dict[str, Any]:
-    """Compute structured elapsed, stage-level, and model-level run telemetry."""
+    """Compute run timing, billing, and merge-conflict telemetry from recorded events."""
     run = store.get_run(run_id)
     if not run:
         raise ValueError(f"Run '{run_id}' not found")
@@ -289,6 +338,14 @@ def compute_run_telemetry(
         )
         completed_queues[key].append(event)
 
+    billing: _BillingTelemetry = {
+        "total_prompt_tokens": 0,
+        "total_completion_tokens": 0,
+        "total_cached_tokens": 0,
+        "total_tokens": 0,
+        "total_cost_usd": None,
+        "has_exact_billing": False,
+    }
     model_buckets: dict[tuple[str, str, str], dict[str, Any]] = {}
     for idx, event in enumerate(events):
         if event.get("kind") != "role_invoked":
@@ -326,11 +383,16 @@ def compute_run_telemetry(
                 "calls": 0,
                 "duration_sec": 0.0,
                 "estimated": False,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cost_usd": None,
             }
             model_buckets[bucket_key] = entry
         entry["calls"] += 1
         entry["duration_sec"] += dur
         entry["estimated"] = bool(entry["estimated"] or estimated)
+        if matched is not None:
+            _record_billing(entry, billing, payload)
 
     for leftover_queue in completed_queues.values():
         unpaired_completed.extend(leftover_queue)
@@ -350,10 +412,14 @@ def compute_run_telemetry(
                 "calls": 0,
                 "duration_sec": 0.0,
                 "estimated": False,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cost_usd": None,
             }
             model_buckets[bucket_key] = entry
         entry["calls"] += 1
         entry["duration_sec"] += dur
+        _record_billing(entry, billing, payload)
 
     total_model_sec = sum(item["duration_sec"] for item in model_buckets.values())
     models: list[dict[str, Any]] = []
@@ -371,15 +437,97 @@ def compute_run_telemetry(
         )
     models.sort(key=lambda item: (-item["duration_sec"], -item["calls"], item["role"]))
 
-    return {
+    # Cached tokens are included in the prompt count.
+    billing["total_tokens"] = billing["total_prompt_tokens"] + billing["total_completion_tokens"]
+    total_cost_usd = billing["total_cost_usd"]
+    if total_cost_usd is not None:
+        billing["total_cost_usd"] = round(total_cost_usd, 6)
+
+    conflicts: _ConflictTelemetry = {
+        "conflicts_detected": 0,
+        "conflicts_auto_resolved": 0,
+        "conflicts_failed": 0,
+    }
+    for event in events:
+        kind = event.get("kind")
+        if kind == "merge_conflict_detected":
+            conflicts["conflicts_detected"] += 1
+        elif kind == "merge_conflict_resolved":
+            conflicts["conflicts_auto_resolved"] += 1
+        elif kind == "merge_conflict_failed":
+            conflicts["conflicts_failed"] += 1
+
+    telemetry: dict[str, Any] = {
         "elapsed_sec": elapsed_sec,
         "stages": stages,
         "models": models,
+        "billing": billing,
     }
+    if any(conflicts.values()):
+        telemetry["conflicts"] = conflicts
+    return telemetry
 
 
 def _escape_cell(value: str) -> str:
     return " ".join(str(value).splitlines()).replace("|", r"\|")
+
+
+def _format_cost_usd(value: float | None) -> str:
+    return f"${value:.4f}" if value is not None else "—"
+
+
+def _token_cost_section(
+    billing: _BillingTelemetry, models: list[dict[str, Any]], *, lang: str,
+) -> list[str]:
+    if not billing["has_exact_billing"]:
+        return []
+
+    if lang == "zh":
+        heading = "## Token 与美元成本统计"
+        header = "| 模型 | 输入 Token | 输出 Token | 美元成本 |"
+        total_label = "合计"
+    else:
+        heading = "## Token Usage & Cost Breakdown"
+        header = "| Model | Prompt tokens | Completion tokens | Cost USD |"
+        total_label = "Total"
+
+    lines = ["", heading, "", header, "| :--- | ---: | ---: | ---: |"]
+    for model in models:
+        name = model["model"]
+        if lang == "en":
+            name = name.encode("ascii", errors="backslashreplace").decode("ascii")
+        lines.append(
+            f"| `{_escape_cell(name)}` | {model['prompt_tokens']} | {model['completion_tokens']} | "
+            f"{_format_cost_usd(model['cost_usd'])} |"
+        )
+    lines.append(
+        f"| **{total_label}** | **{billing['total_prompt_tokens']}** | **{billing['total_completion_tokens']}** | "
+        f"**{_format_cost_usd(billing['total_cost_usd'])}** |"
+    )
+    return lines
+
+
+def _conflict_section(conflicts: _ConflictTelemetry | None, *, lang: str) -> list[str]:
+    if conflicts is None:
+        return []
+
+    if lang == "zh":
+        heading = "## 合并冲突自动解决"
+        labels = ("检测到的冲突", "自动解决", "升级人工处理")
+        separator = "："
+    else:
+        heading = "## Merge Conflict Resolution"
+        labels = ("Detected", "Auto-resolved", "Escalated")
+        separator = ": "
+
+    return [
+        "",
+        heading,
+        "",
+        f"- {labels[0]}{separator}**{conflicts['conflicts_detected']}**",
+        f"- {labels[1]}{separator}**{conflicts['conflicts_auto_resolved']}**",
+        f"- {labels[2]}{separator}**{conflicts['conflicts_failed']}**",
+    ]
 
 
 def generate_battle_report(store: StateStore, run_id: str, lang: str = "en") -> str:
@@ -451,6 +599,8 @@ def generate_battle_report(store: StateStore, run_id: str, lang: str = "en") -> 
         )
 
     lines.extend(_smart_allocation_summary(events, lang=locale))
+    lines.extend(_token_cost_section(telemetry["billing"], telemetry["models"], lang=locale))
+    lines.extend(_conflict_section(telemetry.get("conflicts"), lang=locale))
     return "\n".join(lines) + "\n"
 
 

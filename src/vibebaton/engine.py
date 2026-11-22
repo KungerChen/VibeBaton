@@ -13,8 +13,9 @@ from itertools import count
 from pathlib import Path
 from typing import Any, Iterator
 
+from . import cli_runner
 from .allocation import compute_step_up_target, parse_model_spec, resolve_task_allocation
-from .cli_runner import CLIResult, run_provider_cli
+from .cli_runner import CLIResult, invoke_provider
 from .config import (
     BatonConfig,
     HotReloadConfig,
@@ -27,6 +28,8 @@ from .db import StateStore
 from .gates import run_gate_suite
 from .git_ops import (
     GitError,
+    MergeConflictError,
+    MergeResult,
     check_path_whitelist,
     commit_worktree_changes,
     create_worktree,
@@ -34,6 +37,7 @@ from .git_ops import (
     ensure_git_ready,
     get_diff_against,
     merge_branch_into,
+    merge_branch_with_resolver,
     remove_worktree,
     revert_disallowed_files,
 )
@@ -48,6 +52,11 @@ from .schemas import (
     VerdictKind,
     extract_json_object,
 )
+
+
+async def run_provider_cli(provider: ProviderConfig, **kwargs: Any) -> CLIResult:
+    """Keep the engine's CLI hook backed by the shared runner."""
+    return await cli_runner.run_provider_cli(provider, **kwargs)
 
 
 @contextmanager
@@ -77,11 +86,14 @@ class OrchestrationEngine:
         config_loader: HotReloadConfig,
         store: StateStore,
         package_root: Path | None = None,
+        *,
+        credentials_path: Path | None = None,
     ) -> None:
         self.repo_path = repo_path.resolve()
         self.config_loader = config_loader
         self.store = store
         self.package_root = (package_root or Path(__file__).resolve().parents[2]).resolve()
+        self.credentials_path = credentials_path
         self._semaphores: dict[str, tuple[int, asyncio.Semaphore]] = {}
         self._merge_lock = asyncio.Lock()
 
@@ -174,13 +186,21 @@ class OrchestrationEngine:
                     milestone_id=milestone_id,
                     message=f"Invoking {role_name} ({active_provider.name}/{active_model})",
                 )
-                res = await run_provider_cli(
+                transport_model = active_model
+                effort: str | None = None
+                if active_provider.type == "http":
+                    transport_model, _, effort_suffix = active_model.partition("@")
+                    effort = effort_suffix or None
+                res = await invoke_provider(
                     active_provider,
-                    model=active_model,
+                    model=transport_model,
+                    effort=effort,
                     prompt=full_prompt,
-                    workdir=workdir,
+                    cwd=workdir,
                     prompt_file=prompt_file,
                     output_file=output_file,
+                    credentials_path=self.credentials_path,
+                    cli_executor=run_provider_cli,
                     default_stall_timeout=cfg.daemon.default_stall_timeout_sec,
                     default_hard_timeout=cfg.daemon.default_hard_timeout_sec,
                     extra_env={
@@ -190,6 +210,22 @@ class OrchestrationEngine:
                         "VIBEBATON_MILESTONE_ID": milestone_id or "",
                     },
                 )
+                payload: dict[str, str | int | float] = {
+                    "role": role_name,
+                    "provider": active_provider.name,
+                    "model": active_model,
+                    "duration_sec": round(float(res.duration_sec), 3),
+                    "status": res.status,
+                    "exit_code": res.exit_code,
+                }
+                if res.prompt_tokens > 0:
+                    payload["prompt_tokens"] = res.prompt_tokens
+                if res.completion_tokens > 0:
+                    payload["completion_tokens"] = res.completion_tokens
+                if res.cached_tokens > 0:
+                    payload["cached_tokens"] = res.cached_tokens
+                if res.cost_usd is not None:
+                    payload["cost_usd"] = res.cost_usd
                 self.store.log_event(
                     run_id,
                     "role_completed",
@@ -200,14 +236,7 @@ class OrchestrationEngine:
                         f"Completed {role_name} ({active_provider.name}/{active_model}) "
                         f"in {float(res.duration_sec):.1f}s ({res.status})"
                     ),
-                    payload={
-                        "role": role_name,
-                        "provider": active_provider.name,
-                        "model": active_model,
-                        "duration_sec": round(float(res.duration_sec), 3),
-                        "status": res.status,
-                        "exit_code": res.exit_code,
-                    },
+                    payload=payload,
                 )
 
             if res.status == "rate_limited":
@@ -251,6 +280,94 @@ class OrchestrationEngine:
             if res.status == "ok":
                 self.store.reset_provider_backoff(active_provider.name)
             return res, f"{active_provider.name}:{active_model}"
+
+    async def _merge_with_conflict_resolution(
+        self,
+        run_id: str,
+        source_branch: str,
+        target_branch: str,
+        commit_message: str,
+        *,
+        gate_commands: list[str] | None,
+        scope_id: str,
+    ) -> MergeResult:
+        """Serialize integration merges and dispatch callbacks on the engine event loop."""
+        async with self._merge_lock:
+            policies = self.cfg.policies
+            worktree_root = self._worktree_root()
+            if not policies.auto_resolve_merge_conflicts:
+                merge_branch_into(self.repo_path, source_branch, target_branch, commit_message, worktree_root)
+                return {"merged": True, "conflicts": [], "resolved_by_ai": False}
+
+            loop = asyncio.get_running_loop()
+            attempts = 0
+
+            async def resolve_conflict(merge_wt: Path, files: list[str], context: str) -> bool:
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    self.store.log_event(
+                        run_id, "merge_conflict_detected", message=f"Merge conflict in {scope_id}",
+                        payload={
+                            "source_branch": source_branch,
+                            "target_branch": target_branch,
+                            "conflicted_files": files,
+                        },
+                    )
+                role_name = self.cfg.resolve_role_name("conflict_resolver", "critical_executor", "micro_orchestrator")
+                template = (self.package_root / "prompts" / "l2_conflict_resolver.md").read_text(encoding="utf-8")
+                file_list = "\n".join(f"- `{file}`" for file in files)
+                prompt = (
+                    f"{template.strip()}\n\n"
+                    f"## Merge `{source_branch}` into `{target_branch}`\n\n"
+                    f"## Conflicted Files\n{file_list}\n\n"
+                    f"## Conflict Context\n{context}"
+                )
+                run = self.store.get_run(run_id) or {}
+                res, _ = await self._invoke_role(
+                    run_id=run_id,
+                    role_name=role_name,
+                    prompt=prompt,
+                    workdir=merge_wt,
+                    artifact_key=f"merge_{scope_id}_resolve_{attempts}",
+                    model_overrides=json.loads(run.get("model_overrides_json") or "{}"),
+                )
+                return res.status == "ok"
+
+            def resolver(merge_wt: Path, files: list[str], context: str) -> bool:
+                return asyncio.run_coroutine_threadsafe(resolve_conflict(merge_wt, files, context), loop).result()
+
+            def gate_checker(merge_wt: Path) -> bool:
+                gate = run_gate_suite(gate_commands or [], workdir=merge_wt)
+                return asyncio.run_coroutine_threadsafe(gate, loop).result().passed
+
+            merge = asyncio.create_task(asyncio.to_thread(
+                merge_branch_with_resolver,
+                self.repo_path, source_branch, target_branch, commit_message, worktree_root,
+                resolver=resolver,
+                gate_checker=gate_checker if gate_commands else None,
+                max_attempts=policies.max_conflict_resolve_attempts,
+                squash_merge=merge_branch_into,
+            ))
+            try:
+                result = await asyncio.shield(merge)
+            except MergeConflictError as exc:
+                self.store.log_event(
+                    run_id, "merge_conflict_failed", message=str(exc),
+                    payload={"conflicted_files": exc.conflicted_files, "reason": exc.reason or str(exc)},
+                )
+                raise GitError(str(exc)) from exc
+            finally:
+                # A cancelled waiter must hold the lock until the Git thread finishes cleanup.
+                if not merge.done():
+                    await asyncio.gather(merge, return_exceptions=True)
+
+            if result["resolved_by_ai"]:
+                self.store.log_event(
+                    run_id, "merge_conflict_resolved", message=f"Resolved merge conflict in {scope_id}",
+                    payload={"conflicted_files": result["conflicts"], "attempts": attempts},
+                )
+            return result
 
     # ------------------------------------------------------------------
     # Top-level Run Lifecycle
@@ -856,14 +973,14 @@ class OrchestrationEngine:
                         return False
 
                 # 4. Merge verified branch into milestone branch
-                async with self._merge_lock:
-                    merge_branch_into(
-                        repo=self.repo_path,
-                        source_branch=branch_name,
-                        target_branch=milestone_branch,
-                        commit_message=f"feat({spec.id}): {spec.title}",
-                        worktree_root=self._worktree_root(),
-                    )
+                await self._merge_with_conflict_resolution(
+                    run_id=run_id,
+                    source_branch=branch_name,
+                    target_branch=milestone_branch,
+                    commit_message=f"feat({spec.id}): {spec.title}",
+                    gate_commands=[spec.verify_cmd] if spec.verify_cmd else None,
+                    scope_id=f"task_{spec.id}",
+                )
 
                 self.store.update_task(
                     run_id,
@@ -886,10 +1003,13 @@ class OrchestrationEngine:
                 return True
 
         except GitError as exc:
+            status = (
+                TaskStatus.WAITING_HUMAN if isinstance(exc.__cause__, MergeConflictError) else TaskStatus.FAILED
+            )
             self.store.update_task(
                 run_id,
                 spec.id,
-                status=TaskStatus.FAILED,
+                status=status,
                 last_error=str(exc),
                 duration_sec=time.monotonic() - start_time,
             )
@@ -961,14 +1081,14 @@ class OrchestrationEngine:
                         review_wt,
                         f"fix({milestone.id}): address milestone review blocking issues (round {fix_round})",
                     )
-                    async with self._merge_lock:
-                        merge_branch_into(
-                            repo=self.repo_path,
-                            source_branch=fix_branch,
-                            target_branch=milestone_branch,
-                            commit_message=f"fix({milestone.id}): address milestone review blocking issues (round {fix_round})",
-                            worktree_root=self._worktree_root(),
-                        )
+                    await self._merge_with_conflict_resolution(
+                        run_id=run_id,
+                        source_branch=fix_branch,
+                        target_branch=milestone_branch,
+                        commit_message=f"fix({milestone.id}): address milestone review blocking issues (round {fix_round})",
+                        gate_commands=milestone.gate_commands,
+                        scope_id=f"milestone_{milestone.id}_fix_r{fix_round}",
+                    )
                     self.store.log_event(
                         run_id,
                         "milestone_fix_applied",
@@ -1015,14 +1135,14 @@ class OrchestrationEngine:
                 )
 
                 if verdict.verdict == VerdictKind.PASS:
-                    async with self._merge_lock:
-                        merge_branch_into(
-                            repo=self.repo_path,
-                            source_branch=milestone_branch,
-                            target_branch=dev_branch,
-                            commit_message=f"milestone({milestone.id}): {milestone.title}",
-                            worktree_root=self._worktree_root(),
-                        )
+                    await self._merge_with_conflict_resolution(
+                        run_id=run_id,
+                        source_branch=milestone_branch,
+                        target_branch=dev_branch,
+                        commit_message=f"milestone({milestone.id}): {milestone.title}",
+                        gate_commands=milestone.gate_commands,
+                        scope_id=f"milestone_{milestone.id}",
+                    )
                     self.store.update_milestone(run_id, milestone.id, TaskStatus.PASSED, review_json=verdict.to_dict())
                     self.store.log_event(
                         run_id,
@@ -1053,6 +1173,12 @@ class OrchestrationEngine:
                 if fix_round < max_milestone_fixes:
                     pending_fix_feedback = json.dumps(verdict.to_dict(), indent=2, ensure_ascii=False)
                     continue
+                return False
+            except GitError as exc:
+                if not isinstance(exc.__cause__, MergeConflictError):
+                    raise
+                self.store.update_milestone(run_id, milestone.id, TaskStatus.WAITING_HUMAN)
+                self.store.update_run_status(run_id, RunStatus.WAITING_HUMAN, human_prompt=str(exc))
                 return False
             finally:
                 remove_worktree(self.repo_path, review_wt, branch_name=fix_branch)

@@ -1,6 +1,6 @@
 # VibeBaton 产品与工程路线图（Roadmap）
 
-> **核心定位 / Positioning**: 跨厂商异构多 Agent 软件工厂（Heterogeneous Multi-Agent Orchestrator）——在本地工作流中自由混编 **Antigravity / Claude / Codex / OpenCode Go / DeepSeek** 与任意开源或自托管模型，以 **Contract-First + 机械门禁前置 + Git Worktree 并发隔离 + 可分享 `.baton.json` 开放配方生态** 作为核心护城河。
+> **核心定位 / Positioning**: 跨厂商异构多 Agent 软件工厂（Heterogeneous Multi-Agent Orchestrator）——在本地工作流中自由混编 **Antigravity / Claude / Codex / OpenCode Go / DeepSeek API** 与任意开源或自托管模型，以 **Contract-First + 机械门禁前置 + Git Worktree 并发隔离 + 可分享 `.baton.json` 开放配方生态** 作为核心护城河。
 
 ---
 
@@ -49,9 +49,11 @@
 
 ---
 
-## 🚧 Stage 4 · `v1.0.0`（正在自举构建中：正式全网首发）
+## ✅ Stage 4 · `v1.0.0`（已完成并正式发布：2026-11-22）
 
 1. **原生 OpenAI 兼容 API Provider**：纯标准库直连 `/v1/chat/completions` 接口（不依赖外部 CLI），内置精确 Token 用量统计与美元成本账单，接入现有 429 冷却池与双语战报。
 2. **Auto-Conflict-Resolver 兜底机制**：并发分支在隔离合入工作树发生冲突时自动派发 Specialist 解决并复检冲突标记与机械门禁，替代直接报错停机。
 3. **Docker / DevContainer 隔离运行模板与 `baton sandbox init`**：为运行不可信第三方仓库提供最小权限 OS 级容器沙箱（见 [SECURITY.md](SECURITY.md)）。
-4. **Windows 一键安装脚本、Web Studio 成本与冲突看板、`v1.0.0` 正式发版**（`scripts/install.ps1`、`CHANGELOG.md` 与国内外公开发布文档）。
+4. **Windows 一键安装脚本、Web Studio 成本与冲突看板、`v1.0.0` 正式发版**（`scripts/install.ps1`、`CHANGELOG.md`、`docs/RELEASE_NOTES_v1.0.md` 与国内外公开发布文档）。
+
+> **发布状态**：`v1.0.0` 已于 2026-11-22 正式发布。完整变更见 [CHANGELOG.md](../CHANGELOG.md) 与 [RELEASE_NOTES_v1.0.md](RELEASE_NOTES_v1.0.md)。

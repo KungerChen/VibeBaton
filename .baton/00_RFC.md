@@ -95,12 +95,12 @@ New pure-stdlib async/sync wrapper around OpenAI-compatible `POST {base_url}/cha
 ### Milestone M3: Docker / DevContainer OS-Level Sandbox Templates & CLI
 
 #### 1. Sandbox Templates (`sandbox/` & `.devcontainer/`)
-- **`sandbox/Dockerfile`**: Minimal Python 3.12+ / Node LTS slim image installing git & running as non-root `baton` user (`UID 1000`), copying only needed workspace runtime configuration, never baking secrets or SSH keys.
+- **`sandbox/Dockerfile`**: Python 3.12+ / Node LTS slim image installing Git and the scaffolded VibeBaton runtime at `/opt/vibebaton`. The build context is `sandbox/`, allowlisted to the runtime archive. The image runs as non-root `baton` (UID 1000).
 - **`sandbox/docker-compose.yml`**: Least-privilege container configuration mounting only the target repo at `/workspace` (rw), optional read-only `~/.vibebaton` credentials or explicit env vars via `${...}`, enforcing `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, `read_only: true` root filesystem with scoped `tmpfs` (`/tmp`), and zero `~/.ssh` mount.
-- **`.devcontainer/devcontainer.json`**: Clean VS Code / JetBrains / Docker DevContainer template referencing `sandbox/Dockerfile` and post-create check command (`python -m vibebaton doctor --repo .` or `--help`).
+- **`.devcontainer/devcontainer.json`**: Dev Container template referencing `sandbox/Dockerfile` and running `python -P -m vibebaton --help` after creation.
 
 #### 2. `src/vibebaton/sandbox.py`, `src/vibebaton/cli.py`, `docs/SECURITY.md`
-- **`sandbox.py`**: Pure-stdlib generator `init_sandbox_files(repo_dir: Path, force: bool = False) -> list[Path]` writing `.devcontainer/devcontainer.json` and `sandbox/Dockerfile` + `sandbox/docker-compose.yml` into a target repo cleanly (skipping existing files unless `force=True`, guarding against path traversal outside `repo_dir`).
+- **`sandbox.py`**: Pure-stdlib generator `init_sandbox_files(repo_dir: Path, force: bool = False) -> list[Path]` writing the templates, `sandbox/.dockerignore`, `sandbox/vibebaton-runtime.zip`, and the default credentials-directory placeholder into the target repo. The archive contains the generating VibeBaton instance's package and bundled CLI resources. The generator preserves existing files unless `force=True` and checks all resolved paths before writing.
 - **`cli.py`**: Add `baton sandbox init --repo <path> [--force]` subcommand without altering behavior of any existing subcommand (`--help` stays clean).
 - **`docs/SECURITY.md`**: Update Stage 4 container sandbox section documenting `baton sandbox init` and exact container hardening controls (`non-root`, `cap_drop: ALL`, `read_only`, zero `~/.ssh`).
 - Add tests in `tests/test_sandbox.py` verifying scaffold creation, idempotency without `--force`, overwrite with `--force`, CLI `baton sandbox init`, Dockerfile/Compose hardening assertions (`USER `, `cap_drop`, `read_only`, no `.ssh`), and `baton --help` regression check.
@@ -142,7 +142,7 @@ New pure-stdlib async/sync wrapper around OpenAI-compatible `POST {base_url}/cha
 
 1. Pure stdlib OpenAI-compatible HTTP provider (`type = "http"`) executes prompts directly against local/mocked HTTP endpoints, records exact `prompt_tokens`, `completion_tokens`, and USD `cost_usd`, triggers existing SQLite cooldown on HTTP `429`, and renders bilingual billing tables in Battle Reports without regressing legacy byte-exact report parity.
 2. Concurrent branch squash-merge conflicts are detected inside isolated `_merge_*` worktrees via `MergeConflictError`, automatically dispatched to the specialist resolver, verified for zero conflict markers and passing gate commands before committing, and cleanly fall back to `WAITING_HUMAN` on failure.
-3. `baton sandbox init` generates hardened non-root / `cap_drop: [ALL]` / `read_only` Docker and DevContainer templates without mounting host `~/.ssh`, covered by automated tests.
+3. `baton sandbox init` generates hardened non-root Docker Compose and Dev Container templates that launch the image-installed VibeBaton CLI in an unrelated Git repository. Tests cover `cap_drop: [ALL]`, Compose's `read_only` root filesystem, no host `~/.ssh` mount, and the CLI startup commands.
 4. `scripts/install.ps1` exists with `-DryRun` verification, Web Studio renders exact Token/USD billing and conflict events in pure EN + `中文`, manifests consistently report `1.0.0`, and all automated verification gates exit `0`:
 
 ```bash

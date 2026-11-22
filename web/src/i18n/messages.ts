@@ -101,6 +101,11 @@ export interface Messages {
     runHistoryOption(id: string, status: string, passed: number, total: number, elapsed: string): string;
     stageTimingTitle: string;
     modelRuntimeTitle: string;
+    billingTitle: string;
+    billingTotalCost(usd: string): string;
+    billingTokens(prompt: string, completion: string, cached: string): string;
+    billingPerModel(prompt: string, completion: string): string;
+    billingExactBadge: string;
     totalElapsed(elapsed: string): string;
     estimatedTag: string;
     callCount(count: number): string;
@@ -134,6 +139,11 @@ export interface Messages {
     runStatuses: Record<string, string>;
     eventLogTitle: string;
     eventLogAria: string;
+    mergeConflictEventKinds: {
+      merge_conflict_detected: string;
+      merge_conflict_resolved: string;
+      merge_conflict_failed: string;
+    };
     noEvents: string;
     originalNote: string;
     modalStartTitle: string;
@@ -407,6 +417,11 @@ export const MESSAGES: Record<Locale, Messages> = {
       runHistoryOption: (id, status, passed, total, elapsed) => `${id} · ${status} (${passed}/${total} · ${elapsed})`,
       stageTimingTitle: 'Stage Timing',
       modelRuntimeTitle: 'Model Runtime',
+      billingTitle: 'Token Usage & Cost',
+      billingTotalCost: (usd) => `Total cost ${usd}`,
+      billingTokens: (prompt, completion, cached) => `Prompt ${prompt} · Completion ${completion} · Cached ${cached}`,
+      billingPerModel: (prompt, completion) => `Prompt ${prompt} · Completion ${completion}`,
+      billingExactBadge: 'Exact billing',
       totalElapsed: (elapsed) => `Total: ${elapsed}`,
       estimatedTag: 'est.',
       callCount: (count) => `${count} calls`,
@@ -457,6 +472,11 @@ export const MESSAGES: Record<Locale, Messages> = {
       },
       eventLogTitle: 'Event Log',
       eventLogAria: 'Run event log',
+      mergeConflictEventKinds: {
+        merge_conflict_detected: 'Merge Conflict Detected',
+        merge_conflict_resolved: 'Merge Conflict Resolved',
+        merge_conflict_failed: 'Merge Conflict Resolution Failed',
+      },
       noEvents: 'No events yet.',
       originalNote: 'Original note',
       modalStartTitle: 'Start Real Run',
@@ -791,6 +811,11 @@ export const MESSAGES: Record<Locale, Messages> = {
       runHistoryOption: (id, status, passed, total, elapsed) => `${id} · ${status}（${passed}/${total} 任务 · ${elapsed}）`,
       stageTimingTitle: '阶段耗时明细',
       modelRuntimeTitle: '模型运行统计',
+      billingTitle: '令牌用量与费用',
+      billingTotalCost: (usd) => `总费用 ${usd}`,
+      billingTokens: (prompt, completion, cached) => `输入 ${prompt} · 输出 ${completion} · 缓存 ${cached}`,
+      billingPerModel: (prompt, completion) => `输入 ${prompt} · 输出 ${completion}`,
+      billingExactBadge: '精确计费',
       totalElapsed: (elapsed) => `总耗时：${elapsed}`,
       estimatedTag: '推算',
       callCount: (count) => `${count} 次调用`,
@@ -841,6 +866,11 @@ export const MESSAGES: Record<Locale, Messages> = {
       },
       eventLogTitle: '事件日志',
       eventLogAria: '运行事件日志',
+      mergeConflictEventKinds: {
+        merge_conflict_detected: '检测到合并冲突',
+        merge_conflict_resolved: '合并冲突已解决',
+        merge_conflict_failed: '合并冲突解决失败',
+      },
       noEvents: '暂无事件。',
       originalNote: '查看原文',
       modalStartTitle: '启动真实运行',

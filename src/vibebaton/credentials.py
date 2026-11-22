@@ -11,6 +11,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, TypedDict
+from urllib.parse import urlparse
 
 from .allocation import parse_model_spec
 from .cli_runner import resolve_cli_binary
@@ -69,7 +70,7 @@ def mask_secret(value: str | None, credentials_path: Path | None = None) -> str:
     return "****" if value in masked else masked
 
 
-def _read_local_credentials(path: Path) -> dict[str, str]:
+def _read_local_credentials(path: Path, keys: tuple[str, ...] = SUPPORTED_KEYS) -> dict[str, str]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -79,7 +80,7 @@ def _read_local_credentials(path: Path) -> dict[str, str]:
     if not isinstance(data, dict):
         raise ValueError("Local credentials must be a JSON object.")
     return {
-        key: value for key in SUPPORTED_KEYS
+        key: value for key in keys
         if isinstance(value := data.get(key), str) and value and "\0" not in value
     }
 
@@ -154,14 +155,18 @@ def save_credentials(
 
 
 def resolve_env_for_provider(
-    provider: str, credentials_path: Path | None = None,
+    provider: ProviderConfig | str, credentials_path: Path | None = None,
 ) -> dict[str, str]:
-    """Return stored API keys needed by an API-key provider for child-process execution."""
-    keys = [key for key in PROVIDER_KEY_MAP.get(provider, ()) if key not in os.environ]
+    """Return local credentials for provider key names absent from the environment."""
+    if isinstance(provider, ProviderConfig) and provider.type == "http":
+        keys = (provider.api_key_env,) if provider.api_key_env else ()
+    else:
+        name = provider.name if isinstance(provider, ProviderConfig) else provider
+        keys = PROVIDER_KEY_MAP.get(name, ())
+    keys = tuple(key for key in keys if key not in os.environ)
     if not keys:
         return {}
-    local = _read_local_credentials(default_credentials_path(credentials_path))
-    return {key: local[key] for key in keys if key in local}
+    return _read_local_credentials(default_credentials_path(credentials_path), keys)
 
 
 def _check_cli(provider: ProviderConfig, timeout_sec: float) -> tuple[bool, str]:
@@ -197,6 +202,55 @@ def _check_cli(provider: ProviderConfig, timeout_sec: float) -> tuple[bool, str]
     return True, "Provider CLI is available."
 
 
+def _http_endpoint_detail(base_url: str) -> tuple[str, str]:
+    """Return a display endpoint stripped of user info, query, and fragment, or an error."""
+    base_url = base_url.strip()
+    invalid_url = "Provider base_url must be an HTTP(S) URL with a host."
+    try:
+        parsed = urlparse(base_url)
+    except ValueError:
+        return "", invalid_url
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or any(char.isspace() for char in base_url):
+        return "", invalid_url
+    invalid_port = "Provider base_url has an invalid port."
+    try:
+        port = parsed.port
+    except ValueError:
+        return "", invalid_port
+    if port == 0:
+        return "", invalid_port
+    host = parsed.netloc.rpartition("@")[2]
+    return f"{parsed.scheme}://{host}{parsed.path}", ""
+
+
+def _check_http(
+    provider: ProviderConfig, credentials_path: Path | None, local: dict[str, str],
+) -> tuple[bool, str]:
+    """Preflight an HTTP provider locally, without subprocesses or network I/O."""
+    from . import http_provider
+
+    key_name = provider.api_key_env
+    api_key, key_source = _credential_value(key_name, local)
+    try:
+        ok, detail = http_provider.probe_http_provider(provider, credentials_path)
+    except NotImplementedError:
+        # M1-T1 provides a stub until the M1-T2 transport is merged.
+        ok = bool(api_key)
+        detail = f"Set {key_name} in the environment or local credentials store."
+
+    endpoint, error = _http_endpoint_detail(provider.base_url)
+    if error:
+        return False, error
+    if not key_name:
+        return False, "Provider api_key_env must name its API key variable."
+    if ok:
+        source = "env" if key_source == "env" else "local credentials"
+        detail = f"{endpoint} key {mask_secret(api_key)} via {source}."
+    else:
+        detail = detail.replace(provider.base_url, endpoint)
+    return ok, detail
+
+
 def probe_role_or_provider(
     cfg: BatonConfig,
     provider: str | None = None,
@@ -206,12 +260,13 @@ def probe_role_or_provider(
     timeout_sec: float = 5.0,
     credentials_path: Path | None = None,
 ) -> ProbeResult:
-    """Check CLI readiness and any required API keys within a shared time budget.
+    """Check provider readiness and any required API keys within a shared time budget.
 
     An explicit provider takes priority, followed by a configured model prefix
     and the role's default provider. Injected checkers run on a daemon thread,
-    should honor their timeout, and supply user-facing detail. The result masks
-    known credential values in that detail.
+    should honor their timeout, and supply user-facing detail. CLI providers use
+    the injected checker when supplied; HTTP providers always use the local HTTP
+    preflight. The result masks known credential values in that detail.
     """
     started = time.monotonic()
     target = provider or ""
@@ -239,8 +294,11 @@ def probe_role_or_provider(
     if not 0 < timeout_sec <= threading.TIMEOUT_MAX:
         return reply(False, "Probe timeout must be positive and finite.")
 
-    checker = health_checker if health_checker is not None else _check_cli
-    subscription = _SUBSCRIPTION_CLI.get(target)
+    is_http = provider_cfg.type == "http"
+    credential_keys = SUPPORTED_KEYS
+    if is_http and provider_cfg.api_key_env:
+        credential_keys += (provider_cfg.api_key_env,)
+    subscription = None if is_http else _SUBSCRIPTION_CLI.get(target)
     timed_out = (False, "Provider check timed out.", "")
     failed = (False, "Provider check failed.", "")
     outcome = failed
@@ -251,14 +309,14 @@ def probe_role_or_provider(
     def run_check() -> None:
         nonlocal outcome
         try:
-            local = _read_local_credentials(default_credentials_path(credentials_path))
+            local = _read_local_credentials(default_credentials_path(credentials_path), credential_keys)
         except (OSError, ValueError, RuntimeError):
-            if subscription is None:
+            if subscription is None and not is_http:
                 outcome = (False, "Local credentials could not be read.", "")
                 return
             local = {}
 
-        keys = PROVIDER_KEY_MAP.get(target, ())
+        keys = () if is_http else PROVIDER_KEY_MAP.get(target, ())
         missing = [key for key in keys if not _credential_value(key, local)[0]]
         if missing:
             hint = f"Set {', '.join(missing)} in the environment or local credentials store."
@@ -266,18 +324,25 @@ def probe_role_or_provider(
             return
 
         secrets = {*local.values(), *provider_cfg.env.values()}
-        secrets.update(os.environ.get(key, "") for key in SUPPORTED_KEYS)
+        secrets.update(os.environ.get(key, "") for key in credential_keys)
+        if is_http:
+            secrets.update(provider_cfg.headers.values())
         secrets.discard("")
         budget = remaining()
         if not budget:
             outcome = timed_out
             return
         try:
-            ok, detail = checker(provider_cfg, timeout_sec if health_checker is not None else budget)
+            if is_http:
+                ok, detail = _check_http(provider_cfg, credentials_path, local)
+            elif health_checker is not None:
+                ok, detail = health_checker(provider_cfg, timeout_sec)
+            else:
+                ok, detail = _check_cli(provider_cfg, budget)
             if not isinstance(ok, bool) or not isinstance(detail, str):
                 return
             for secret in sorted(secrets, key=lambda value: (-len(value), value)):
-                detail = detail.replace(secret, _MASK)
+                detail = detail.replace(secret, mask_secret(secret) if is_http else _MASK)
             if any(secret in detail for secret in secrets):
                 detail = ""
         except (TimeoutError, subprocess.TimeoutExpired):
@@ -285,7 +350,12 @@ def probe_role_or_provider(
         except Exception:
             outcome = failed
         else:
-            hint = "" if ok else "Check the provider CLI installation and PATH."
+            if ok:
+                hint = ""
+            elif is_http:
+                hint = "Check the provider base_url and api_key_env configuration."
+            else:
+                hint = "Check the provider CLI installation and PATH."
             if not ok and subscription:
                 hint += f" For subscription sign-in, run `{subscription[1]}` manually."
             outcome = (ok, detail, hint)

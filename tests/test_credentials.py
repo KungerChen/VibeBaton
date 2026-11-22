@@ -14,9 +14,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from vibebaton.config import BatonConfig, ProviderConfig, parse_config_dict
+from vibebaton.config import BatonConfig, ProviderConfig, build_model_catalog, parse_config_dict
 from vibebaton.credentials import (
     SUPPORTED_KEYS,
+    ProbeResult,
     default_credentials_path,
     list_credential_status,
     mask_secret,
@@ -450,6 +451,226 @@ class TestCredentialProbe(_IsolatedCredentials):
                         self.assertEqual(kwargs[stream], subprocess.DEVNULL)
                     self.assertGreater(kwargs["timeout"], 0)
                     self.assertLessEqual(kwargs["timeout"], 0.5)
+
+
+class TestHTTPCredentialProbe(_IsolatedCredentials):
+    def setUp(self) -> None:
+        super().setUp()
+        os.environ.pop("CUSTOM_HTTP_API_KEY", None)
+        self.cfg = parse_config_dict({
+            "providers": {
+                "openai_http": {
+                    "type": "http",
+                    "base_url": "https://api.openai.com/v1",
+                    "api_key_env": "OPENAI_API_KEY",
+                },
+                "custom_http": {
+                    "type": "http",
+                    "base_url": "https://gateway.example.test/v1",
+                    "api_key_env": "CUSTOM_HTTP_API_KEY",
+                },
+                "invalid_http": {
+                    "type": "http",
+                    "base_url": "ftp://gateway.example.test/v1",
+                    "api_key_env": "CUSTOM_HTTP_API_KEY",
+                },
+            },
+            "roles": {
+                "http_worker": {"provider": "openai_http", "model": "gpt-4o-mini"},
+            },
+        })
+
+    def _probe(self, provider: str) -> ProbeResult:
+        with (
+            patch("vibebaton.credentials._check_cli", side_effect=AssertionError("HTTP used the CLI checker")) as cli,
+            patch("vibebaton.credentials.subprocess.run", side_effect=AssertionError("HTTP spawned a process")) as run,
+        ):
+            result = probe_role_or_provider(
+                self.cfg, provider=provider, credentials_path=self.credentials_path,
+            )
+        cli.assert_not_called()
+        run.assert_not_called()
+        return result
+
+    def test_http_provider_with_env_key_is_ready(self) -> None:
+        secret = "sk-http-env-credential-1234"
+        os.environ["OPENAI_API_KEY"] = secret
+
+        result = self._probe("openai_http")
+
+        self.assertTrue(result["ok"], result)
+        self.assertIn("https://api.openai.com/v1", result["detail"])
+        self.assertIn(mask_secret(secret), result["detail"])
+        self.assertNotIn(secret, json.dumps(result))
+        self.assertEqual(result["install_hint"], "")
+
+    def test_http_provider_with_local_key_is_ready(self) -> None:
+        secret = "sk-http-local-credential-9012"
+        save_credentials({"OPENAI_API_KEY": secret}, self.credentials_path)
+
+        result = self._probe("openai_http")
+
+        self.assertTrue(result["ok"], result)
+        self.assertIn("https://api.openai.com/v1", result["detail"])
+        self.assertIn(mask_secret(secret), result["detail"])
+        self.assertNotIn(secret, json.dumps(result))
+
+    def test_http_provider_without_key_is_unready_with_actionable_detail(self) -> None:
+        result = self._probe("openai_http")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("OPENAI_API_KEY", result["detail"])
+        self.assertIn("credentials", result["detail"])
+        self.assertTrue(result["install_hint"])
+
+    def test_empty_environment_key_disables_the_local_http_key(self) -> None:
+        save_credentials({"OPENAI_API_KEY": "sk-http-local-credential-9012"}, self.credentials_path)
+        os.environ["OPENAI_API_KEY"] = ""
+
+        result = self._probe("openai_http")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("OPENAI_API_KEY", result["detail"])
+
+    def test_http_provider_rejects_a_non_http_base_url(self) -> None:
+        secret = "custom-http-credential-3456"
+        os.environ["CUSTOM_HTTP_API_KEY"] = secret
+
+        result = self._probe("invalid_http")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("base_url", result["detail"])
+        self.assertNotIn(secret, json.dumps(result))
+
+    def test_http_provider_rejects_invalid_hosts_and_ports(self) -> None:
+        os.environ["OPENAI_API_KEY"] = "sk-http-invalid-url-1234"
+        provider = self.cfg.providers["openai_http"]
+        for base_url in (
+            "https://:443/v1", "https://example.test:bad/v1", "https://example.test:0/v1",
+            "https://invalid host.test/v1", "https://[::1/v1",
+        ):
+            with self.subTest(base_url=base_url):
+                provider.base_url = base_url
+
+                result = self._probe("openai_http")
+
+                self.assertFalse(result["ok"], result)
+                self.assertIn("base_url", result["detail"])
+
+    def test_http_detail_omits_credentials_embedded_in_the_base_url(self) -> None:
+        key = "sk-http-env-credential-1234"
+        os.environ["OPENAI_API_KEY"] = key
+        provider = self.cfg.providers["openai_http"]
+        username = "test-url-user"
+        password = "test-url-password"
+        token = "test-url-query-token"
+        fragment = "test-url-fragment"
+        provider.base_url = f"https://{username}:{password}@api.example.test/v1/{key}?token={token}#{fragment}"
+
+        result = self._probe("openai_http")
+
+        self.assertTrue(result["ok"], result)
+        self.assertIn(f"https://api.example.test/v1/{mask_secret(key)}", result["detail"])
+        for secret in (username, password, token, fragment, key):
+            self.assertNotIn(secret, json.dumps(result))
+
+    def test_http_failure_detail_does_not_echo_a_credentialed_base_url(self) -> None:
+        os.environ["OPENAI_API_KEY"] = "sk-http-env-credential-1234"
+        provider = self.cfg.providers["openai_http"]
+        password = "test-url-password"
+        token = "test-url-query-token"
+        for base_url in (
+            f"ftp://user:{password}@example.test/v1?token={token}",
+            f"https://user:{password}@example.test:bad/v1?token={token}",
+        ):
+            with self.subTest(base_url=base_url):
+                provider.base_url = base_url
+
+                result = self._probe("openai_http")
+
+                self.assertFalse(result["ok"], result)
+                self.assertIn("base_url", result["detail"])
+                for secret in (password, token):
+                    self.assertNotIn(secret, json.dumps(result))
+
+    def test_http_probe_masks_any_configured_key_in_the_detail(self) -> None:
+        secret = "custom-http-credential-5678"
+        local_secret = "custom-http-local-credential-9012"
+        header_secret = "custom-http-header-credential-3456"
+        os.environ["CUSTOM_HTTP_API_KEY"] = secret
+        provider = self.cfg.providers["custom_http"]
+        provider.headers["X-Api-Key"] = header_secret
+        self.credentials_path.parent.mkdir()
+        self.credentials_path.write_text(json.dumps({"CUSTOM_HTTP_API_KEY": local_secret}), encoding="utf-8")
+        secrets = (secret, local_secret, header_secret)
+        with patch(
+            "vibebaton.http_provider.probe_http_provider",
+            return_value=(False, f"Gateway rejected {', '.join(secrets)}."),
+        ) as probe:
+            result = self._probe("custom_http")
+
+        probe.assert_called_once_with(provider, self.credentials_path)
+        self.assertFalse(result["ok"])
+        masked = ", ".join(mask_secret(value) for value in secrets)
+        self.assertEqual(result["detail"], f"Gateway rejected {masked}.")
+        for value in secrets:
+            self.assertNotIn(value, json.dumps(result))
+
+    def test_resolve_env_for_http_provider_includes_api_key_env(self) -> None:
+        secret = "sk-http-provider-credential-7890"
+        save_credentials({"OPENAI_API_KEY": secret}, self.credentials_path)
+        provider = self.cfg.providers["openai_http"]
+
+        self.assertEqual(
+            resolve_env_for_provider(provider, self.credentials_path),
+            {"OPENAI_API_KEY": secret},
+        )
+        with patch.dict(os.environ, OPENAI_API_KEY="test-env-credential"):
+            self.assertEqual(resolve_env_for_provider(provider, self.credentials_path), {})
+
+    def test_resolve_env_for_http_provider_loads_its_configured_key_from_home(self) -> None:
+        provider = ProviderConfig("dsh_opencode", type="http", api_key_env="DEEPSEEK_API_KEY")
+        secret = "test-deepseek-http-credential"
+        with patch.object(Path, "home", return_value=self.directory):
+            save_credentials({"DEEPSEEK_API_KEY": secret, "OPENCODE_API_KEY": "test-unrelated-credential"})
+
+            self.assertEqual(resolve_env_for_provider(provider), {"DEEPSEEK_API_KEY": secret})
+            with patch.dict(os.environ, DEEPSEEK_API_KEY=""):
+                self.assertEqual(resolve_env_for_provider(provider), {})
+
+    def test_resolve_env_reads_a_non_supported_api_key_env_from_local_credentials(self) -> None:
+        secret = "custom-http-local-credential"
+        self.credentials_path.parent.mkdir(parents=True)
+        self.credentials_path.write_text(
+            json.dumps({"CUSTOM_HTTP_API_KEY": secret}), encoding="utf-8",
+        )
+
+        self.assertEqual(
+            resolve_env_for_provider(self.cfg.providers["custom_http"], self.credentials_path),
+            {"CUSTOM_HTTP_API_KEY": secret},
+        )
+
+    def test_model_catalog_readiness_matches_the_http_probe(self) -> None:
+        secret = "sk-http-catalog-credential-2468"
+        os.environ["OPENAI_API_KEY"] = secret
+
+        ready_check = self._probe("openai_http")
+        ready_catalog = build_model_catalog(self.cfg, {"openai_http": ready_check})
+
+        os.environ.pop("OPENAI_API_KEY")
+        unready_check = self._probe("openai_http")
+        unready_catalog = build_model_catalog(self.cfg, {"openai_http": unready_check})
+
+        self.assertTrue(ready_check["ok"])
+        self.assertFalse(unready_check["ok"])
+        self.assertEqual(
+            [(item.model, item.ready, item.detail) for item in ready_catalog if item.provider == "openai_http"],
+            [("gpt-4o-mini", True, ready_check["detail"])],
+        )
+        self.assertEqual(
+            [(item.model, item.ready, item.detail) for item in unready_catalog if item.provider == "openai_http"],
+            [("gpt-4o-mini", False, unready_check["detail"])],
+        )
 
 
 if __name__ == "__main__":

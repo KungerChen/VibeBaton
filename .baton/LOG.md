@@ -10,6 +10,30 @@
 | [20261122-000739-m4-t5-benchmark-runner](#20261122-000739-m4-t5-benchmark-runner) | 2026-11-22 | M4-T5 三臂 runner、计分板与门禁 | 已自测，待用户验收 |
 | [20261122-002235-m4-t5-scoreboard-acl](#20261122-002235-m4-t5-scoreboard-acl) | 2026-11-22 | M4-T5 Windows 计分板权限回归修复 | 已自测，待用户验收 |
 | [20261122-004033-m4-hidden-eval-remediation](#20261122-004033-m4-hidden-eval-remediation) | 2026-11-22 | M4 隐藏评估失败按臂计分并继续导出 | 已自测，待用户验收 |
+| [20261122-041231-m2-merge-crash-recovery](#20261122-041231-m2-merge-crash-recovery) | 2026-11-22 | M2 恢复中断后的合并工作树 | 已自测，待用户验收 |
+| [20261122-050513-m3-sandbox-runtime](#20261122-050513-m3-sandbox-runtime) | 2026-11-22 | M3 沙箱构建时安装 VibeBaton | 已自测，待用户验收 |
+
+## 20261122-050513-m3-sandbox-runtime
+
+2026-11-22 05:05 PST。M3 复审授权修复普通仓库内沙箱 CLI 无法启动。分支为 `baton/03d01c/ms-m3-r1`，起始工作树干净，基准提交为 `a72dd0b`。
+
+- 空 Git 仓库按基准模板的模块搜索路径启动 Python，退出码为 1，报 `No module named vibebaton`。新增 Golden Example 在基准上找不到运行时归档。
+- `src/vibebaton/sandbox.py` 导出当前 CLI 的 Python 包及随附运行资源。两份容器配置使用同一个受限构建上下文，Dockerfile 在 `/opt/vibebaton` 安装归档。普通仓库通过运行时挂载进入 `/workspace`。生成器同时创建默认只读凭据目录，保留已有文件的语义覆盖新归档。
+- 根目录已跟踪的模板与生成器同步。首次构建根目录模板时，运行 `baton sandbox init --repo .` 生成归档。构建契约和使用步骤见本轮 RFC 与 `docs/SECURITY.md` 差异。
+- Golden Example `test_bundled_runtime_runs_startup_commands_in_an_unrelated_repo` 将归档安装到独立目录，在普通 Git 仓库中执行 Compose 默认命令、Dev Container 创建后命令和 `baton init`。两条启动命令避开工作目录里的同名模块，初始化读取归档自带的配置。另通过 CLI 在含空格路径的仓库生成六个文件，核对 ZIP 内 37 个文件的完整性和重复执行的保留行为。
+- 四条指定门禁均返回 0。全量 unittest 执行 346 项，专项执行 44 项，两套各跳过 3 项。两项需 Docker CLI，一项需 Windows 目录符号链接权限。全量包含回环 HTTP 的静态资源集成测试。Python 门禁的 `PYTHONPATH` 指向本工作树 `src`，Git 子进程使用本工作树的 ignore 文件。
+- 前端原命令在工作树直跑遇到共享依赖 junction 的 Vite 缓存写权限错误。将 117 个经 SHA-256 核对的前端与预设文件及已安装依赖复制到工作树内的临时目录后，原命令通过 27 个文件、264 项 Vitest 测试、TypeScript 检查和 Vite 构建。Vite 报出分块体积告警。构建产物用于全量 Python 的 HTTP 集成测试。验证结束后清理了临时副本、构建产物和根目录的验证归档。
+- 已自测，待用户验收。当前环境缺少 Docker CLI。真实验收可在空 Git 仓库运行 `baton sandbox init --repo .`，随后执行 `docker compose -f sandbox/docker-compose.yml run --build --rm vibebaton`，预期打印 CLI 帮助并以 0 退出。已有模板升级需使用 `--force`。回退参考为 `a72dd0b` 和当前工作树差异。
+
+## 20261122-041231-m2-merge-crash-recovery
+
+2026-11-22 04:12:31 PST。M2 复审授权修复崩溃遗留的合并工作树阻塞续跑。分支为 `baton/03d01c/ms-m2-r1`，起始工作树干净，基准提交为 `e6e813f`。
+
+- `tests/test_conflict_resolver.py` 在临时 Git 仓库留下有未合并条目和已暂存文件的注册工作树。基准实现报 `GitError`，修复后重新触发 resolver 和门禁，目标分支提交双方改动，旧文件和工作树注册被清理。
+- `src/vibebaton/git_ops.py` 让两种合并模式共用 `remove_worktree` 清理逻辑。路径校验拒绝指向其他目录的链接，回归验证目标目录内的文件和目标分支均保留。
+- `python -m unittest discover -s tests -v` 通过 313 项，含静态资源和 API 的回环 HTTP 集成测试。`python -m unittest tests.test_conflict_resolver tests.test_conflict_resolver_engine tests.test_report_conflicts tests.test_e2e_pipeline -v` 通过 25 项。两条命令的 `PYTHONPATH` 指向当前工作树的 `src`，Git 子进程使用工作树的 `.gitignore`。
+- `cmd /c "cd /d web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build"` 返回 0。Vitest 通过 27 个文件、264 项，TypeScript 检查和 Vite 构建通过。Vite 报告分块体积告警。为避开指向工作树外的依赖 junction，在工作树内复制依赖和 118 个经 SHA-256 核对的输入文件。构建产物用于 Python HTTP 集成测试，验证后清理了副本和产物。
+- 已自测，待用户验收。恢复场景使用真实 Git 和本地 resolver 回调。验收时可运行 `test_resolver_recovers_interrupted_squash_merge`，预期目标分支生成包含双方改动的提交，遗留工作树从 Git 注册表移除。回退参考为 `e6e813f` 和当前工作树差异。
 
 ## 20261122-004033-m4-hidden-eval-remediation
 

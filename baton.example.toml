@@ -54,6 +54,19 @@ prompt_via = "stdin"
 stall_timeout_sec = 240
 hard_timeout_sec = 1200
 
+# To use this OpenAI-compatible provider, set OPENAI_API_KEY, uncomment the
+# example, and set a role's provider to "openai_http" and model to "gpt-4o-mini".
+# [providers.openai_http]
+# type = "http"
+# base_url = "https://api.openai.com/v1"
+# api_key_env = "OPENAI_API_KEY"
+#
+# Example prices in USD per million tokens. Use the rates for your endpoint.
+# [providers.openai_http.model_pricing."gpt-4o-mini"]
+# input_per_1m = 0.15
+# output_per_1m = 0.60
+# cached_input_per_1m = 0.075
+
 # ---------------------------------------------------------------------------
 # Logical Roles (Swap any model in 1 line; swap provider in 2 lines)
 # ---------------------------------------------------------------------------

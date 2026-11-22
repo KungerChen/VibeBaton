@@ -44,6 +44,8 @@ class PolicySettings:
         default_factory=lambda: ["rfc_signoff", "plan_amendment", "final_merge"]
     )
     budget_profile: str = "balanced"
+    auto_resolve_merge_conflicts: bool = True
+    max_conflict_resolve_attempts: int = 1
 
 
 @dataclass
@@ -58,6 +60,10 @@ class ProviderConfig:
     env: dict[str, str] = field(default_factory=dict)
     stall_timeout_sec: int | None = None
     hard_timeout_sec: int | None = None
+    base_url: str = "https://api.openai.com/v1"
+    api_key_env: str = "OPENAI_API_KEY"
+    headers: dict[str, str] = field(default_factory=dict)
+    model_pricing: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 @dataclass
@@ -97,6 +103,14 @@ class BatonConfig:
     providers: dict[str, ProviderConfig]
     roles: dict[str, RoleConfig]
     source_path: Path | None = None
+
+    def resolve_role_name(self, preferred: str, *fallbacks: str) -> str:
+        """Return the first configured role in preference order."""
+        candidates = (preferred, *fallbacks)
+        for name in candidates:
+            if name in self.roles:
+                return name
+        raise KeyError(f"No configured role matches {candidates}. Available roles: {sorted(self.roles)}")
 
     def resolve_role(
         self,
@@ -239,6 +253,12 @@ def parse_config_dict(raw: dict[str, Any], source_path: Path | None = None) -> B
             )
         ],
         budget_profile=_validate_budget_profile(p_raw.get("budget_profile", PolicySettings.budget_profile)),
+        auto_resolve_merge_conflicts=bool(
+            p_raw.get("auto_resolve_merge_conflicts", PolicySettings.auto_resolve_merge_conflicts)
+        ),
+        max_conflict_resolve_attempts=int(
+            p_raw.get("max_conflict_resolve_attempts", PolicySettings.max_conflict_resolve_attempts)
+        ),
     )
 
     providers: dict[str, ProviderConfig] = {}
@@ -260,6 +280,13 @@ def parse_config_dict(raw: dict[str, Any], source_path: Path | None = None) -> B
             hard_timeout_sec=(
                 int(item["hard_timeout_sec"]) if item.get("hard_timeout_sec") is not None else None
             ),
+            base_url=str(item.get("base_url", ProviderConfig.base_url)),
+            api_key_env=str(item.get("api_key_env", ProviderConfig.api_key_env)),
+            headers={str(k): str(v) for k, v in item.get("headers", {}).items()},
+            model_pricing={
+                str(model): {str(rate): float(value) for rate, value in rates.items()}
+                for model, rates in item.get("model_pricing", {}).items()
+            },
         )
 
     roles: dict[str, RoleConfig] = {}

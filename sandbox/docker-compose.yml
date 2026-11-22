@@ -1,0 +1,19 @@
+services:
+  vibebaton:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: "1000:1000"
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace:rw
+      - "${VIBEBATON_CREDENTIALS_DIR:-../.vibebaton-empty}:/home/baton/.vibebaton:ro"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp, /home/baton/.cache]
+    pids_limit: 256
+    mem_limit: 2g

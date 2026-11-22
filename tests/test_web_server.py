@@ -23,6 +23,7 @@ from urllib.request import Request, urlopen
 from vibebaton import __version__, cli, credentials
 from vibebaton.config import BatonConfig, HotReloadConfig
 from vibebaton.db import StateStore
+from vibebaton.report import compute_run_telemetry
 from vibebaton.schemas import RunStatus
 from vibebaton.web_server import VibeBatonWebServer, _set_toml_role_keys, create_server
 
@@ -905,6 +906,35 @@ class TestRunApi(WebServerTestCase):
         self.assertEqual([row["kind"] for row in snapshot["events"]], ["run_created", "daemon_spawned"])
         self.assertEqual(snapshot["events"][-1]["message"], "Detached daemon started (pid=4242)")
         self.assertEqual(self.get("/api/runs/latest")[2], snapshot)
+
+    def test_run_snapshots_pass_through_billing_and_conflicts(self) -> None:
+        run_id = self._start_run()
+        store = StateStore(self.repo / ".baton" / "state.sqlite")
+        store.log_event(
+            run_id,
+            "role_completed",
+            actor="bulk_worker:flash",
+            payload={
+                "role": "bulk_worker",
+                "provider": "deepseek_http",
+                "model": "flash",
+                "duration_sec": 2.0,
+                "prompt_tokens": 80,
+                "completion_tokens": 20,
+            },
+        )
+        store.log_event(run_id, "merge_conflict_detected", task_id="M1-T1")
+        expected = compute_run_telemetry(store, run_id)
+
+        for path in (f"/api/runs/{run_id}", "/api/runs/latest"):
+            with self.subTest(path=path):
+                status, headers, snapshot = self.get(path)
+                self.assertEqual(status, 200)
+                self.assertEqual(headers.get_content_type(), "application/json")
+                telemetry = snapshot["telemetry"]
+                self.assertIs(telemetry["billing"]["has_exact_billing"], True)
+                self.assertEqual(telemetry["billing"], expected["billing"])
+                self.assertEqual(telemetry["conflicts"], expected["conflicts"])
 
     def test_start_accepts_an_existing_repository_relative_file(self) -> None:
         rfc = self.repo / "draft.md"

@@ -12,6 +12,7 @@ import { Button } from '../ui/button';
 import { Input, Label, Select } from '../ui/input';
 import { MarkdownView } from '../ui/MarkdownView';
 import { Modal } from '../ui/Modal';
+import { formatTokenCount, formatUsd } from './billingFormat';
 import { StartRunModal } from './StartRunModal';
 
 const eventLimit = 200;
@@ -139,6 +140,7 @@ export function LiveRunPanel({
   const runId = typeof snapshot.run?.id === 'string' ? snapshot.run.id : undefined;
   const status = display(snapshot.run?.status, 'UNKNOWN');
   const telemetry = snapshot.telemetry ?? null;
+  const billing = telemetry?.billing?.has_exact_billing === true ? telemetry.billing : null;
   const onStreamError = useEffectEvent((error: unknown) => {
     onToast(error instanceof Error ? error.message : String(error), 'err');
   });
@@ -427,6 +429,20 @@ export function LiveRunPanel({
               <h3 className="m-0 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                 {messages.inspector.modelRuntimeTitle}
               </h3>
+              {billing && (
+                <div className="right-inspector__billing-summary">
+                  <span className="right-inspector__billing-badge font-mono">
+                    {messages.inspector.billingTotalCost(formatUsd(billing.total_cost_usd, locale))}
+                  </span>
+                  <span>
+                    {messages.inspector.billingTokens(
+                      formatTokenCount(billing.total_prompt_tokens, locale),
+                      formatTokenCount(billing.total_completion_tokens, locale),
+                      formatTokenCount(billing.total_cached_tokens, locale),
+                    )}
+                  </span>
+                </div>
+              )}
               <div className="grid min-w-0 grid-cols-1 gap-2">
                 {telemetry.models.map((item) => {
                   const providerName = formatProviderDisplay(item.display_provider || item.provider);
@@ -457,6 +473,17 @@ export function LiveRunPanel({
                           {messages.inspector.callCount(item.calls)} · {messages.inspector.avgDuration(formatDurationSec(item.avg_sec, locale))} · {item.share_pct.toFixed(1)}%
                         </span>
                       </div>
+                      {billing && item.cost_usd != null && (
+                        <div className="right-inspector__billing-model">
+                          <span>
+                            {messages.inspector.billingPerModel(
+                              formatTokenCount(item.prompt_tokens, locale),
+                              formatTokenCount(item.completion_tokens, locale),
+                            )}
+                          </span>
+                          <span className="font-mono text-text-strong">{formatUsd(item.cost_usd, locale)}</span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

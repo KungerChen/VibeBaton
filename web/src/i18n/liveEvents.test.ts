@@ -74,4 +74,65 @@ describe('liveEvents i18n', () => {
     expect(translateTier('critical', 'zh')).toBe('核心');
     expect(translateTier('routine', 'zh')).toBe('常规');
   });
+
+  test.each([
+    {
+      kind: 'merge_conflict_detected',
+      enLabel: 'Merge Conflict Detected',
+      zhLabel: '检测到合并冲突',
+      enSummary: 'Merge Conflict Detected · 2 conflicted files · task/merge-work → dev',
+      zhSummary: '检测到合并冲突 · 2 个冲突文件 · task/merge-work → dev',
+    },
+    {
+      kind: 'merge_conflict_resolved',
+      enLabel: 'Merge Conflict Resolved',
+      zhLabel: '合并冲突已解决',
+      enSummary: 'Merge Conflict Resolved · 2 conflicted files · task/merge-work → dev',
+      zhSummary: '合并冲突已解决 · 2 个冲突文件 · task/merge-work → dev',
+    },
+    {
+      kind: 'merge_conflict_failed',
+      reason: 'resolution attempts exhausted',
+      enLabel: 'Merge Conflict Resolution Failed',
+      zhLabel: '合并冲突解决失败',
+      enSummary: 'Merge Conflict Resolution Failed · 2 conflicted files · task/merge-work → dev · resolution attempts exhausted',
+      zhSummary: '合并冲突解决失败 · 2 个冲突文件 · task/merge-work → dev · 已达冲突解决尝试上限',
+    },
+  ])('localizes $kind with the file count and branch names', ({ kind, reason, enLabel, zhLabel, enSummary, zhSummary }) => {
+    const payload = {
+      conflicted_files: ['src/graph.ts', 'src/messages.ts'],
+      source_branch: 'task/merge-work',
+      target_branch: 'dev',
+      reason,
+    };
+
+    expect(translateEventKind(kind, 'en')).toBe(enLabel);
+    expect(translateEventKind(kind, 'zh')).toBe(zhLabel);
+    expect(formatLiveEventMessage(kind, '', 'en', payload).summary).toBe(enSummary);
+    expect(formatLiveEventMessage(kind, '', 'zh', payload).summary).toBe(zhSummary);
+  });
+
+  test('formats serialized conflict payloads from a live snapshot and preserves the original note', () => {
+    const rawMessage = 'Squash merge failed in task/merge-work';
+    const payloadJson = JSON.stringify({ conflicted_files: ['src/graph.ts'], reason: 'gate rejected resolution' });
+
+    expect(formatLiveEventMessage('merge_conflict_failed', rawMessage, 'en', payloadJson)).toEqual({
+      summary: 'Merge Conflict Resolution Failed · 1 conflicted file · gate rejected resolution',
+      rawDetail: rawMessage,
+    });
+    expect(formatLiveEventMessage('merge_conflict_failed', rawMessage, 'zh', payloadJson)).toEqual({
+      summary: '合并冲突解决失败 · 1 个冲突文件 · 冲突解决结果未通过门禁',
+      rawDetail: rawMessage,
+    });
+  });
+
+  test('uses the localized conflict label for missing or malformed payloads', () => {
+    expect(formatLiveEventMessage('merge_conflict_detected', '', 'en')).toEqual({
+      summary: 'Merge Conflict Detected',
+    });
+    expect(formatLiveEventMessage('merge_conflict_detected', 'Merge conflict in task/merge-work', 'zh', '{')).toEqual({
+      summary: '检测到合并冲突',
+      rawDetail: 'Merge conflict in task/merge-work',
+    });
+  });
 });
