@@ -64,6 +64,9 @@ class TaskSpec:
     max_self_heal: int | None = None
     max_review_rejects: int | None = None
     escalate_role: str = "critical_executor"
+    assigned_model: str | None = None
+    allocation_reason: str | None = None
+    pinned: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TaskSpec:
@@ -82,6 +85,16 @@ class TaskSpec:
 
         default_assignee = "critical_executor" if tier == TaskTier.CRITICAL else "bulk_worker"
         default_reviewer = None if tier == TaskTier.CRITICAL else "micro_orchestrator"
+
+        assigned_model = data.get("assigned_model")
+        allocation_reason = data.get("allocation_reason")
+        pinned = data.get("pinned", False)
+        if assigned_model is not None and not isinstance(assigned_model, str):
+            raise SchemaValidationError(f"Task {task_id}: assigned_model must be a string or null")
+        if allocation_reason is not None and not isinstance(allocation_reason, str):
+            raise SchemaValidationError(f"Task {task_id}: allocation_reason must be a string or null")
+        if not isinstance(pinned, bool):
+            raise SchemaValidationError(f"Task {task_id}: pinned must be a boolean")
 
         return cls(
             id=task_id,
@@ -106,6 +119,9 @@ class TaskSpec:
                 int(data["max_review_rejects"]) if data.get("max_review_rejects") is not None else None
             ),
             escalate_role=str(data.get("escalate_role") or data.get("escalate_to") or "critical_executor"),
+            assigned_model=assigned_model,
+            allocation_reason=allocation_reason,
+            pinned=pinned,
         )
 
     def to_dict(self) -> dict[str, Any]:

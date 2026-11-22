@@ -8,11 +8,21 @@ import json
 import sys
 import time
 from contextlib import contextmanager
+from dataclasses import replace
+from itertools import count
 from pathlib import Path
 from typing import Any, Iterator
 
+from .allocation import compute_step_up_target, parse_model_spec, resolve_task_allocation
 from .cli_runner import CLIResult, run_provider_cli
-from .config import BatonConfig, HotReloadConfig, ProviderConfig, RoleConfig
+from .config import (
+    BatonConfig,
+    HotReloadConfig,
+    ModelCapability,
+    ProviderConfig,
+    RoleConfig,
+    build_model_catalog,
+)
 from .db import StateStore
 from .gates import run_gate_suite
 from .git_ops import (
@@ -34,6 +44,7 @@ from .schemas import (
     SchemaValidationError,
     TaskSpec,
     TaskStatus,
+    TaskTier,
     VerdictKind,
     extract_json_object,
 )
@@ -254,6 +265,8 @@ class OrchestrationEngine:
                 if plan is None:
                     return RunStatus(self.store.get_run(run_id)["status"])
 
+                # The engine tracks quota cooldowns, which _invoke_role handles at dispatch.
+                catalog = build_model_catalog(self.cfg, None)
                 self.store.update_run_status(run_id, RunStatus.RUNNING)
 
                 # Stage 2: Milestones
@@ -274,6 +287,7 @@ class OrchestrationEngine:
                         dev_branch=dev_branch,
                         rfc_text=rfc_text,
                         overrides=overrides,
+                        catalog=catalog,
                     )
                     if not ok:
                         current = RunStatus(self.store.get_run(run_id)["status"])
@@ -367,6 +381,7 @@ class OrchestrationEngine:
         dev_branch: str,
         rfc_text: str,
         overrides: dict[str, str],
+        catalog: list[ModelCapability],
     ) -> bool:
         tasks_by_id: dict[str, TaskSpec] = {t.id: t for t in milestone.tasks}
         in_flight: dict[str, asyncio.Task[bool]] = {}
@@ -411,6 +426,7 @@ class OrchestrationEngine:
                             spec=spec,
                             milestone_branch=milestone_branch,
                             overrides=overrides,
+                            catalog=catalog,
                         )
                     )
 
@@ -441,6 +457,44 @@ class OrchestrationEngine:
         )
         return gate_ok
 
+    @staticmethod
+    def _resolve_task_worker_model(
+        task: TaskSpec,
+        cfg: BatonConfig,
+        catalog: list[ModelCapability],
+        role_name: str,
+        overrides: dict[str, str],
+        step_up_target: tuple[str, str] | None,
+    ) -> tuple[str, str, str, bool]:
+        """Resolve a worker target and indicate whether it honors the planner's pin."""
+        if role_name in overrides:
+            role, _ = cfg.resolve_role(role_name, model_overrides=overrides)
+            return role.provider, role.model, f"Applied explicit model override for {role_name}.", False
+        if step_up_target is not None and step_up_target[0] in cfg.providers:
+            provider, model = step_up_target
+            return provider, model, "Stepped up after reaching the task retry limit.", False
+
+        pin = None
+        if task.pinned and task.assigned_model:
+            pin = parse_model_spec(task.assigned_model, cfg.roles[task.assignee_role].provider, cfg.providers)
+        if role_name != task.assignee_role:
+            # Reallocate for the specialist role while retaining the original provider of a pin.
+            task = replace(
+                task, assignee_role=role_name, tier=TaskTier.CRITICAL,
+                assigned_model=":".join(pin) if pin else None,
+            )
+
+        role = cfg.roles[role_name]
+        if (
+            catalog and not task.assigned_model and role.provider in cfg.providers and role.model.strip()
+            and all((cap.provider, cap.model) != (role.provider, role.model) for cap in catalog)
+        ):
+            # A model added by hot reload can become the role default before the next catalog is built.
+            return role.provider, role.model, "Using the hot-reloaded role default.", False
+
+        provider, model, reason = resolve_task_allocation(task, cfg, catalog, cfg.policies.budget_profile)
+        return provider, model, reason, (provider, model) == pin
+
     async def _execute_task(
         self,
         *,
@@ -449,6 +503,7 @@ class OrchestrationEngine:
         spec: TaskSpec,
         milestone_branch: str,
         overrides: dict[str, str],
+        catalog: list[ModelCapability],
     ) -> bool:
         start_time = time.monotonic()
         branch_name = f"baton/{run_id[-6:]}/{spec.id.lower()}"
@@ -470,6 +525,30 @@ class OrchestrationEngine:
         review_reject_count = 0
         escalated = False
         feedback_context = ""
+        planned_task = replace(spec)
+        step_up_target: tuple[str, str] | None = None
+        tried_targets: set[tuple[str, str]] = set()
+
+        def schedule_step_up(feedback: str) -> bool:
+            nonlocal step_up_target, feedback_context
+            if pin_honored or current_role in overrides:
+                return False
+            for rung in count(1):
+                target = compute_step_up_target(*worker_target, cfg, catalog, attempt=rung)
+                if target is None:
+                    return False
+                if target not in tried_targets:
+                    break
+
+            step_up_target = target
+            feedback_context = feedback
+            from_model, to_model = ":".join(worker_target), ":".join(target)
+            self.store.log_event(
+                run_id, "task_step_up", task_id=spec.id, milestone_id=milestone_id,
+                message=f"Stepping up from {from_model} to {to_model}",
+                payload={"task_id": spec.id, "from": from_model, "to": to_model, "attempt": attempt + 1},
+            )
+            return True
 
         # Create isolated worktree from the latest milestone branch (synchronized under merge_lock)
         async with self._merge_lock:
@@ -488,6 +567,15 @@ class OrchestrationEngine:
             attempt = 0
             while True:
                 attempt += 1
+                task_prompt = self._build_task_prompt(spec, worktree_dir, feedback_context)
+                cfg = self.cfg
+                provider, model, reason, pin_honored = self._resolve_task_worker_model(
+                    planned_task, cfg, catalog, current_role, overrides, step_up_target,
+                )
+                worker_target = provider, model
+                tried_targets.add(worker_target)
+                spec.assigned_model = ":".join(worker_target)
+                spec.allocation_reason = reason
                 self.store.update_task(
                     run_id,
                     spec.id,
@@ -497,19 +585,35 @@ class OrchestrationEngine:
                     self_heal_count=self_heal_count,
                     review_reject_count=review_reject_count,
                     escalated=1 if escalated else 0,
+                    spec_json=json.dumps(spec.to_dict(), ensure_ascii=False),
                 )
-
-                task_prompt = self._build_task_prompt(spec, worktree_dir, feedback_context)
+                self.store.log_event(
+                    run_id, "task_allocated", task_id=spec.id, milestone_id=milestone_id,
+                    message=f"Allocated {spec.id} to {spec.assigned_model}",
+                    payload={
+                        "task_id": spec.id, "provider": provider, "model": model, "reason": reason,
+                        "budget_profile": cfg.policies.budget_profile, "pinned": spec.pinned,
+                    },
+                )
+                role = cfg.roles[current_role]
+                dispatch_overrides = overrides
+                if current_role not in overrides and worker_target != (role.provider, role.model):
+                    dispatch_overrides = {**overrides, current_role: spec.assigned_model}
                 res, actor = await self._invoke_role(
                     run_id=run_id,
                     role_name=current_role,
                     prompt=task_prompt,
                     workdir=worktree_dir,
                     artifact_key=f"{spec.id}_exec_{attempt}",
-                    model_overrides=overrides,
+                    model_overrides=dispatch_overrides,
                     task_id=spec.id,
                     milestone_id=milestone_id,
                 )
+                # A quota fallback may have actually executed this attempt on another model.
+                actual_provider, _, actual_model = actor.partition(":")
+                if actual_provider in cfg.providers and actual_model:
+                    worker_target = actual_provider, actual_model
+                    tried_targets.add(worker_target)
 
                 if res.status != "ok":
                     err_msg = f"CLI execution failed ({res.status}): {(res.stderr or res.stdout)[:500]}"
@@ -518,6 +622,7 @@ class OrchestrationEngine:
                     if not escalated and current_role != spec.escalate_role:
                         escalated = True
                         current_role = spec.escalate_role
+                        step_up_target = None
                         feedback_context = f"Previous worker failed to run cleanly:\n{err_msg}"
                         self.store.log_event(
                             run_id, "task_escalated", task_id=spec.id, message=f"Escalated to {current_role}"
@@ -541,9 +646,12 @@ class OrchestrationEngine:
                         self_heal_count += 1
                         feedback_context = msg
                         continue
+                    if schedule_step_up(msg):
+                        continue
                     if not escalated and current_role != spec.escalate_role:
                         escalated = True
                         current_role = spec.escalate_role
+                        step_up_target = None
                         feedback_context = msg
                         self.store.log_event(
                             run_id, "task_escalated", task_id=spec.id, message=f"Escalated to {current_role} after whitelist violations"
@@ -572,16 +680,20 @@ class OrchestrationEngine:
                             message=f"Mechanical gate failed on attempt {attempt}",
                             payload={"command": spec.verify_cmd},
                         )
+                        gate_feedback = (
+                            "Mechanical verification gate FAILED. Fix the error directly without touching forbidden files:\n\n"
+                            + gate_text
+                        )
                         if self_heal_count < max_self_heal:
                             self_heal_count += 1
-                            feedback_context = (
-                                "Mechanical verification gate FAILED. Fix the error directly without touching forbidden files:\n\n"
-                                + gate_text
-                            )
+                            feedback_context = gate_feedback
+                            continue
+                        if schedule_step_up(gate_feedback):
                             continue
                         if not escalated and current_role != spec.escalate_role:
                             escalated = True
                             current_role = spec.escalate_role
+                            step_up_target = None
                             self_heal_count = 0
                             feedback_context = (
                                 f"Worker exhausted self-heal attempts. Escalating to {current_role}.\n\n{gate_text}"
@@ -655,6 +767,7 @@ class OrchestrationEngine:
                         if current_role != spec.escalate_role:
                             escalated = True
                             current_role = spec.escalate_role
+                            step_up_target = None
                             feedback_context = (
                                 "Reviewer requested MAJOR_REWORK and escalated this task:\n"
                                 + json.dumps(verdict.to_dict(), indent=2, ensure_ascii=False)
@@ -686,20 +799,25 @@ class OrchestrationEngine:
                             milestone_id=milestone_id,
                             message=f"MINOR_FIX (#{review_reject_count}): {verdict.summary}",
                         )
+                        review_json = json.dumps(verdict.to_dict(), indent=2, ensure_ascii=False)
+                        review_feedback = (
+                            "Reviewer requested MINOR_FIX. Address every blocking_issue:\n"
+                            + review_json
+                        )
                         if review_reject_count <= max_rejects:
-                            feedback_context = (
-                                "Reviewer requested MINOR_FIX. Address every blocking_issue:\n"
-                                + json.dumps(verdict.to_dict(), indent=2, ensure_ascii=False)
-                            )
+                            feedback_context = review_feedback
+                            continue
+                        if schedule_step_up(review_feedback):
                             continue
                         # Circuit breaker -> escalate to specialist
                         if current_role != spec.escalate_role:
                             escalated = True
                             current_role = spec.escalate_role
+                            step_up_target = None
                             feedback_context = (
                                 f"Worker exceeded max review rejections ({max_rejects}). "
                                 "Circuit breaker escalated this task. Fix all issues cleanly:\n"
-                                + json.dumps(verdict.to_dict(), indent=2, ensure_ascii=False)
+                                + review_json
                             )
                             self.store.log_event(
                                 run_id,

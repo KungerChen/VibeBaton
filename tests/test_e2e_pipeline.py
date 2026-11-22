@@ -9,8 +9,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from vibebaton.config import HotReloadConfig
+from vibebaton.config import HotReloadConfig, build_model_catalog
 from vibebaton.db import StateStore
 from vibebaton.engine import OrchestrationEngine
 from vibebaton.mcp_server import VibeBatonMCPServer
@@ -260,8 +261,10 @@ class TestEndToEndPipeline(unittest.TestCase):
             run_id = store.create_run(repo_path=repo, rfc_path=rfc_file, mode="overnight")
 
             engine = OrchestrationEngine(repo_path=repo, config_loader=loader, store=store)
-            final_status = asyncio.run(engine.execute_run(run_id))
+            with patch("vibebaton.engine.build_model_catalog", wraps=build_model_catalog) as build_catalog:
+                final_status = asyncio.run(engine.execute_run(run_id))
             self.assertEqual(final_status, RunStatus.READY_FOR_FINAL_GATE)
+            build_catalog.assert_called_once_with(loader.current, None)
 
             # Verify all guardrails actually fired during the run!
             events = store.get_events(run_id, limit=500)
@@ -272,6 +275,20 @@ class TestEndToEndPipeline(unittest.TestCase):
             self.assertIn("task_review_rejected", event_kinds)
             self.assertIn("task_escalated", event_kinds)
             self.assertIn("milestone_passed", event_kinds)
+
+            allocations = [json.loads(e["payload_json"]) for e in events if e["kind"] == "task_allocated"]
+            self.assertCountEqual(
+                [a["task_id"] for a in allocations],
+                [t["id"] for t in store.get_tasks(run_id) for _ in range(t["attempts"])],
+            )
+            for allocation in allocations:
+                self.assertTrue(allocation["provider"] and allocation["model"] and allocation["reason"])
+            step_ups = [json.loads(e["payload_json"]) for e in events if e["kind"] == "task_step_up"]
+            self.assertTrue(step_ups)
+            self.assertEqual(step_ups[0], {
+                "task_id": "T-102", "from": "dsh_opencode:deepseek-flash-v4.1-max",
+                "to": "claude_sub:fable-5.2-high", "attempt": 5,
+            })
 
             # Verify T-102 was escalated to critical_executor and merged cleanly into dev
             t102 = store.get_task(run_id, "T-102")
@@ -294,6 +311,9 @@ class TestEndToEndPipeline(unittest.TestCase):
             self.assertIn("Path Whitelist Catches | **1**", report_md)
             self.assertIn("Circuit-Breaker Escalations | **1**", report_md)
             self.assertIn("Subscription Cooldowns Handled | **1**", report_md)
+            self.assertIn("## Smart Allocation Summary", report_md)
+            self.assertIn("| `T-101` | `codex_sub` | `6.2-sol-max` |", report_md)
+            self.assertIn("`dsh_opencode:deepseek-flash-v4.1-max` → `claude_sub:fable-5.2-high`", report_md)
 
             # Verify zero-dependency MCP Server JSON-RPC protocol
             mcp = VibeBatonMCPServer(default_repo=repo, explicit_config=cfg_path)

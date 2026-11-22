@@ -8,3 +8,6 @@ Rules:
 3. Never allow parallel `routine` tasks to edit the same shared file (e.g., `package.json`, root routers). Keep shared wiring in a dedicated `critical` integration task.
 4. Output ONLY valid JSON conforming to the requested schema (no prose outside the JSON object).
 5. Never inspect or search inside `node_modules/`, `.baton/`, or `.bootstrap-runner/` during planning; rely on the RFC contracts and brief targeted reads of `src/` only.
+6. Every milestone's `gate_commands` MUST include at least one real cross-module integration test command; unit tests of a single module alone are insufficient.
+7. Every `critical` task MUST set `reviewer_role: null` so the milestone reviewer (Claude Opus) serves as the gatekeeper.
+8. Parallel `routine` tasks MUST never edit the same shared file; shared wiring belongs in a dedicated `critical` integration task.
