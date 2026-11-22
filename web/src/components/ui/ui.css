@@ -182,6 +182,10 @@
   box-shadow: 0 1rem 3rem rgb(0 0 0 / 40%);
 }
 
+.modal__panel--wide {
+  width: min(100%, 60rem);
+}
+
 .modal__header {
   display: flex;
   align-items: center;

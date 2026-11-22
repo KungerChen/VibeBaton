@@ -74,6 +74,7 @@ export interface HeaderBarProps {
 export interface ModalProps {
   open: boolean;
   title: string;
+  wide?: boolean;
   onClose(): void;
   children: ReactNode;
 }

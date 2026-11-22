@@ -180,6 +180,50 @@
 }
 
 .right-inspector__report {
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.right-inspector__report-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-bottom: 0.875rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.right-inspector__report-body {
+  min-width: 0;
+}
+
+.right-inspector__event-detail {
+  margin-top: 0.15rem;
+  color: var(--muted);
+}
+
+.right-inspector__event-detail > summary {
+  font-size: 0.7rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.right-inspector__event-detail > pre {
+  margin: 0.35rem 0 0;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.72rem;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }

@@ -1,7 +1,10 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { useI18n } from '../../i18n';
+import { formatLiveEventMessage, translateEventKind, translateTier } from '../../i18n/liveEvents';
+import { translateRole } from '../../i18n/presets';
 import type { LiveRunSnapshot } from '../../types/graph';
 import type { RightInspectorProps } from '../types';
+import { MarkdownView } from '../ui/MarkdownView';
 import { Modal } from '../ui/Modal';
 import { StartRunModal } from './StartRunModal';
 
@@ -41,11 +44,12 @@ type LiveRunPanelProps = Pick<RightInspectorProps, 'client' | 'onToast'> & { vis
 type RunAction = 'pause' | 'resume' | 'approve' | 'reject';
 
 export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
-  const { messages } = useI18n();
+  const { locale, messages } = useI18n();
   const [snapshot, setSnapshot] = useState<LiveRunSnapshot>(emptySnapshot);
   const [reconnecting, setReconnecting] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
   const [report, setReport] = useState<{ runId: string; markdown: string } | null>(null);
+  const [reportRawMode, setReportRawMode] = useState(false);
   const [loadingReport, setLoadingReport] = useState(false);
   const [controlling, setControlling] = useState(false);
   const [note, setNote] = useState<{ runId: string; text: string } | null>(null);
@@ -133,11 +137,22 @@ export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
     setLoadingReport(true);
     try {
       const markdown = await client.getRunReport(runId);
+      setReportRawMode(false);
       setReport({ runId, markdown });
     } catch (error) {
       onToast(error instanceof Error ? error.message : String(error), 'err');
     } finally {
       setLoadingReport(false);
+    }
+  }
+
+  async function copyReportMarkdown() {
+    if (!report) return;
+    try {
+      await navigator.clipboard?.writeText(report.markdown);
+      onToast(messages.toasts.reportCopied, 'ok');
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error), 'err');
     }
   }
 
@@ -229,14 +244,16 @@ export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
               </thead>
               <tbody>
                 {snapshot.tasks.map((task, index) => {
+                  const taskTier = display(task.tier);
                   const taskStatus = display(task.status);
+                  const taskAssignee = display(task.current_role ?? task.assignee_role);
                   return (
                     <tr key={display(task.id, `task-${index}`)}>
                       <td><code>{display(task.id)}</code></td>
                       <td>{display(task.title)}</td>
-                      <td>{display(task.tier)}</td>
+                      <td>{translateTier(taskTier, locale)}</td>
                       <td>{messages.inspector.runStatuses[taskStatus] ?? taskStatus}</td>
-                      <td>{display(task.current_role ?? task.assignee_role)}</td>
+                      <td>{translateRole(taskAssignee, locale)}</td>
                     </tr>
                   );
                 })}
@@ -257,19 +274,61 @@ export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
           aria-label={messages.inspector.eventLogAria}
           tabIndex={0}
         >
-          {snapshot.events.map((event, index) => (
-            <div className="right-inspector__event" key={display(event.id, `event-${index}`)}>
-              <span className="right-inspector__event-kind">{display(event.kind, 'event')}</span>
-              <span>{[display(event.task_id, ''), display(event.message, '')].filter(Boolean).join(' · ')}</span>
-            </div>
-          ))}
+          {snapshot.events.map((event, index) => {
+            const rawKind = display(event.kind, 'event');
+            const rawMsg = display(event.message, '');
+            const taskId = display(event.task_id, '');
+            const kindLabel = translateEventKind(rawKind, locale);
+            const { summary, rawDetail } = formatLiveEventMessage(rawKind, rawMsg, locale);
+            return (
+              <div className="right-inspector__event" key={display(event.id, `event-${index}`)}>
+                <span className="right-inspector__event-kind">{kindLabel}</span>
+                <span>{[taskId, summary].filter(Boolean).join(' · ')}</span>
+                {rawDetail && (
+                  <details className="right-inspector__event-detail">
+                    <summary>{messages.inspector.originalNote}</summary>
+                    <pre>{rawDetail}</pre>
+                  </details>
+                )}
+              </div>
+            );
+          })}
           {snapshot.events.length === 0 && <p className="right-inspector__muted">{messages.inspector.noEvents}</p>}
         </div>
       </div>
       {visible && report && (
-        <Modal open title={messages.inspector.modalReportTitle} onClose={() => setReport(null)}>
-          <code className="right-inspector__muted">{report.runId}</code>
-          <pre className="right-inspector__report">{report.markdown}</pre>
+        <Modal open wide title={messages.inspector.modalReportTitle} onClose={() => setReport(null)}>
+          <div className="right-inspector__report-toolbar">
+            <code className="right-inspector__muted">{report.runId}</code>
+            <div className="right-inspector__actions">
+              <button
+                className={`btn${!reportRawMode ? ' btn--primary' : ''}`}
+                type="button"
+                aria-pressed={!reportRawMode}
+                onClick={() => setReportRawMode(false)}
+              >
+                {messages.inspector.reportRendered}
+              </button>
+              <button
+                className={`btn${reportRawMode ? ' btn--primary' : ''}`}
+                type="button"
+                aria-pressed={reportRawMode}
+                onClick={() => setReportRawMode(true)}
+              >
+                {messages.inspector.reportRaw}
+              </button>
+              <button className="btn" type="button" onClick={() => void copyReportMarkdown()}>
+                {messages.inspector.reportCopy}
+              </button>
+            </div>
+          </div>
+          {reportRawMode ? (
+            <pre className="right-inspector__report right-inspector__mono">{report.markdown}</pre>
+          ) : (
+            <div className="right-inspector__report-body">
+              <MarkdownView markdown={report.markdown} />
+            </div>
+          )}
         </Modal>
       )}
       {startOpen && (

@@ -102,8 +102,12 @@ export interface Messages {
     eventLogTitle: string;
     eventLogAria: string;
     noEvents: string;
+    originalNote: string;
     modalStartTitle: string;
     modalReportTitle: string;
+    reportRendered: string;
+    reportRaw: string;
+    reportCopy: string;
     rfcSourceLegend: string;
     rfcMarkdownOption: string;
     rfcRepoPathOption: string;
@@ -136,6 +140,7 @@ export interface Messages {
     unknownPreset(id: string): string;
     savedRole(role: string, model: string): string;
     runStarted(runId: string, pid: number): string;
+    reportCopied: string;
   };
 }
 
@@ -282,8 +287,12 @@ export const MESSAGES: Record<Locale, Messages> = {
       eventLogTitle: 'Event Log',
       eventLogAria: 'Run event log',
       noEvents: 'No events yet.',
+      originalNote: 'Original note',
       modalStartTitle: 'Start Real Run',
       modalReportTitle: 'Battle Report',
+      reportRendered: 'Rendered',
+      reportRaw: 'Raw Markdown',
+      reportCopy: 'Copy Markdown',
       rfcSourceLegend: 'RFC source',
       rfcMarkdownOption: 'RFC markdown',
       rfcRepoPathOption: 'Repo path',
@@ -316,6 +325,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       unknownPreset: (id) => `Unknown preset '${id}'`,
       savedRole: (role, model) => `Saved ${role} -> ${model} (hot-reloaded)`,
       runStarted: (runId, pid) => `Run ${runId} started (pid ${pid})`,
+      reportCopied: 'Battle report copied to clipboard',
     },
   },
   zh: {
@@ -460,8 +470,12 @@ export const MESSAGES: Record<Locale, Messages> = {
       eventLogTitle: '事件日志',
       eventLogAria: '运行事件日志',
       noEvents: '暂无事件。',
+      originalNote: '查看原文',
       modalStartTitle: '启动真实运行',
       modalReportTitle: '战报详情',
+      reportRendered: '渲染视图',
+      reportRaw: '原始 Markdown',
+      reportCopy: '复制 Markdown',
       rfcSourceLegend: 'RFC 来源',
       rfcMarkdownOption: 'RFC Markdown',
       rfcRepoPathOption: '仓库路径',
@@ -494,6 +508,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       unknownPreset: (id) => `未知预置工作流 '${id}'`,
       savedRole: (role, model) => `已保存 ${role} → ${model}（热重载生效）`,
       runStarted: (runId, pid) => `运行 ${runId} 已启动（进程 ${pid}）`,
+      reportCopied: '已复制战报 Markdown 到剪贴板',
     },
   },
 };
