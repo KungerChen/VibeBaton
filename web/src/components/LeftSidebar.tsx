@@ -1,7 +1,8 @@
 import './LeftSidebar.css';
 import './ui/ui.css';
 import { useId, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
-import { ChevronDown, Coins, Download, Link2, Upload } from 'lucide-react';
+import { Activity, ChevronDown, Coins, Download, Link2, Upload } from 'lucide-react';
+import { formatDurationSec } from '../engine/liveRunGraph';
 import { validateGraph } from '../engine/localSimulator';
 import { useI18n } from '../i18n';
 import { translatePresetText } from '../i18n/presets';
@@ -60,6 +61,9 @@ export function LeftSidebar({
   onExport,
   onShare,
   validation,
+  liveSnapshot,
+  liveViewActive = false,
+  onSelectLiveRun,
 }: LeftSidebarProps) {
   const { locale, messages } = useI18n();
   const { budgetProfile: budget, recipePlaza: plaza } = messages;
@@ -106,8 +110,78 @@ export function LeftSidebar({
     }
   };
 
+  const liveRunId = typeof liveSnapshot?.run?.id === 'string' ? liveSnapshot.run.id : null;
+  const liveRunStatus = typeof liveSnapshot?.run?.status === 'string' ? liveSnapshot.run.status : 'UNKNOWN';
+  const liveIsRunning = liveRunStatus === 'RUNNING' || liveRunStatus === 'PLANNING' || liveRunStatus === 'IN_PROGRESS';
+  const livePassedTasks = liveSnapshot?.tasks.filter((task) => task.status === 'PASSED').length ?? 0;
+  const liveTotalTasks = liveSnapshot?.tasks.length ?? 0;
+  const liveElapsedSec = liveSnapshot?.telemetry?.elapsed_sec
+    ?? (typeof liveSnapshot?.run?.created_at === 'number'
+      ? Math.max(
+        0,
+        (typeof liveSnapshot.run.finished_at === 'number'
+          ? liveSnapshot.run.finished_at
+          : typeof liveSnapshot.run.updated_at === 'number'
+            ? liveSnapshot.run.updated_at
+            : liveSnapshot.run.created_at) - liveSnapshot.run.created_at,
+      )
+      : 0);
+
   return (
     <aside className="left-sidebar border-e border-border bg-card">
+      {liveRunId && onSelectLiveRun && (
+        <section className="left-sidebar__section" aria-label={messages.sidebar.liveRunTitle}>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="left-sidebar__title">{messages.sidebar.liveRunTitle}</h2>
+            <span className="text-[11px] font-mono text-muted-foreground">
+              {formatDurationSec(liveElapsedSec, locale)}
+            </span>
+          </div>
+          <Card
+            className={cn(
+              'min-w-0 transition-colors',
+              liveViewActive
+                ? 'border-primary/55 bg-[var(--accent-soft)] ring-1 ring-primary/30'
+                : 'bg-muted/45 hover:border-[var(--border-strong)] hover:bg-muted/80',
+            )}
+          >
+            <button
+              type="button"
+              aria-pressed={liveViewActive}
+              onClick={onSelectLiveRun}
+              className="left-sidebar__preset cursor-pointer rounded-xl p-2.5 text-start"
+            >
+              <span className="flex w-full min-w-0 items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-1.5 text-[12.5px] font-semibold text-text-strong">
+                  <Activity size={13} className="shrink-0 text-primary" aria-hidden="true" />
+                  <span className="truncate font-mono text-[11.5px]" title={liveRunId}>
+                    {liveRunId}
+                  </span>
+                </span>
+                <Badge
+                  variant={liveIsRunning ? 'info' : liveRunStatus === 'COMPLETED' ? 'success' : 'warning'}
+                  className="shrink-0 gap-1 px-1.5 py-0 text-[9.5px]"
+                >
+                  {liveIsRunning && <span className="left-sidebar__live-pulse" aria-hidden="true" />}
+                  {messages.inspector.runStatuses[liveRunStatus] ?? liveRunStatus}
+                </Badge>
+              </span>
+              <span className="flex items-center justify-between gap-2 text-[11px] font-mono text-muted-foreground">
+                <span>{messages.sidebar.liveRunTasks(livePassedTasks, liveTotalTasks)}</span>
+                {liveViewActive && (
+                  <span className="font-sans text-[10.5px] font-semibold text-primary">
+                    {messages.sidebar.liveRunActiveBadge}
+                  </span>
+                )}
+              </span>
+              <span className="text-[11px] leading-snug text-muted-foreground">
+                {messages.sidebar.liveRunHint}
+              </span>
+            </button>
+          </Card>
+        </section>
+      )}
+
       <fieldset className="m-0 min-w-0 border-0 p-0" disabled={budgetProfile === null} aria-busy={budgetProfileSaving}>
         <legend className="left-sidebar__title">{budget.label}</legend>
         <div className="mt-2 grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/65 p-1">
@@ -158,7 +232,7 @@ export function LeftSidebar({
         </div>
         <div className="left-sidebar__presets" id={listId}>
           {visiblePresets.map((preset) => {
-            const active = preset.id === currentGraphId;
+            const active = !liveViewActive && preset.id === currentGraphId;
             const badgeVariant = difficultyVariants.get(preset.difficulty) ?? 'outline';
             const difficultyLabel = messages.sidebar.difficulty[preset.difficulty] ?? preset.difficulty;
             const presetName = translatePresetText(preset.name, locale);

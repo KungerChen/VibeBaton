@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { addEdge, useEdgesState, useNodesState, type OnConnect } from '@xyflow/react';
 import { BatonApiClient, type ApiMode } from './api/client';
-import { CanvasWorkspace } from './components/CanvasWorkspace';
+import { CanvasWorkspace, updateWorkspaceReadiness } from './components/CanvasWorkspace';
 import { HeaderBar } from './components/HeaderBar';
+import { isLiveSnapshot } from './components/inspector/LiveRunPanel';
 import { LeftSidebar } from './components/LeftSidebar';
 import { PlaybackBar } from './components/PlaybackBar';
 import { QuickStartModal, type QuickStartStepId } from './components/QuickStartModal';
@@ -12,6 +13,7 @@ import { ToastHost, useToasts } from './components/ui/Toast';
 import { findPreset, flagship_4tier, starter_2tier } from './data/presets';
 import { getStage1ReplayTrace } from './data/stage1Replay';
 import { flowToGraph, graphToFlow } from './engine/flowAdapter';
+import { buildLiveRunGraph, deriveLiveRoleStates } from './engine/liveRunGraph';
 import { deriveStates, stepIntervalMs } from './engine/playback';
 import { buildShareUrl, decodeRecipeHash, encodeRecipeHash } from './engine/shareUrl';
 import { I18nProvider, useI18n } from './i18n';
@@ -21,9 +23,11 @@ import type {
   BudgetProfile,
   GraphTraceEvent,
   GraphValidationResult,
+  LiveRunSnapshot,
   NodeType,
   PresetItem,
   RolesConfigResponse,
+  RunListItem,
   Scenario,
   WorkflowGraph,
   WorkflowNode,
@@ -33,6 +37,7 @@ const starter = graphToFlow(starter_2tier);
 const emptySelection: { nodeId: string | null; edgeId: string | null } = { nodeId: null, edgeId: null };
 const emptyTrace: GraphTraceEvent[] = [];
 const initialPlayback = { stepIndex: 0, playing: false };
+const LIVE_EVENT_LIMIT = 200;
 const GUIDE_DISMISSED_KEY = 'vibebaton.quickstartDismissed';
 type WorkspacePane = 'canvas' | 'sidebar' | 'inspector';
 
@@ -126,6 +131,17 @@ function AppContent() {
     scenario: Scenario;
     trace: GraphTraceEvent[];
   } | null>(null);
+  const [liveSnapshot, setLiveSnapshot] = useState<LiveRunSnapshot | null>(null);
+  const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const selectedRunIdRef = useRef<string | null>(null);
+  selectedRunIdRef.current = selectedRunId;
+  const latestRunIdRef = useRef<string | null>(null);
+  const latestStatusRef = useRef<string | null>(null);
+  const liveRequestSeq = useRef(0);
+  const [liveReconnecting, setLiveReconnecting] = useState(false);
+  const [liveViewActive, setLiveViewActive] = useState(false);
+  const lastLiveCanvasRef = useRef<{ runId: string | null; signature: string } | null>(null);
   const { toasts, push } = useToasts();
 
   const graph = useMemo(() => flowToGraph(baseGraph, nodes, edges), [baseGraph, nodes, edges]);
@@ -168,6 +184,126 @@ function AppContent() {
     return () => { active = false; };
   }, [client, push]);
 
+  const syncQuotaReadiness = useCallback((quotas: Record<string, unknown>[]) => {
+    updateWorkspaceReadiness((current) => {
+      const providerHealth = new Map(current.providerHealth);
+      for (const quota of quotas) {
+        const provider = quota.provider;
+        const cooldown_until = quota.cooldown_until;
+        if (typeof provider !== 'string' || typeof cooldown_until !== 'number' || !Number.isFinite(cooldown_until)) continue;
+        const previous = providerHealth.get(provider);
+        providerHealth.set(provider, { provider, ok: false, detail: '', ...previous, cooldown_until });
+      }
+      return { ...current, providerHealth };
+    });
+  }, []);
+
+  const onLiveError = useEffectEvent((error: unknown) => {
+    push(errorMessage(error), 'err');
+  });
+
+  useEffect(() => {
+    if (mode !== 'local') {
+      setLiveSnapshot(null);
+      setRecentRuns([]);
+      setSelectedRunId(null);
+      setLiveReconnecting(false);
+      setLiveViewActive(false);
+      latestRunIdRef.current = null;
+      latestStatusRef.current = null;
+      return;
+    }
+
+    let active = true;
+    setLiveReconnecting(false);
+
+    async function refreshRunsList() {
+      try {
+        const runs = await client.listRuns();
+        if (active) setRecentRuns(runs);
+      } catch {
+        // Initial or background history refresh failures do not block SSE live updates.
+      }
+    }
+
+    void refreshRunsList();
+
+    let source: EventSource;
+    try {
+      source = new EventSource(client.streamUrl());
+    } catch (error) {
+      onLiveError(error);
+      return;
+    }
+
+    function receiveSnapshot({ data }: MessageEvent<string>) {
+      try {
+        const parsed: unknown = JSON.parse(data);
+        if (!isLiveSnapshot(parsed)) throw new Error('Invalid live run snapshot.');
+        const trimmed: LiveRunSnapshot = {
+          ...parsed,
+          events: parsed.events.slice(-LIVE_EVENT_LIMIT),
+        };
+        const streamRunId = typeof trimmed.run?.id === 'string' ? trimmed.run.id : null;
+        const streamStatus = typeof trimmed.run?.status === 'string' ? trimmed.run.status : null;
+        const prevLatestRunId = latestRunIdRef.current;
+        const prevLatestStatus = latestStatusRef.current;
+        latestRunIdRef.current = streamRunId;
+        latestStatusRef.current = streamStatus;
+
+        if (!selectedRunIdRef.current || selectedRunIdRef.current === prevLatestRunId || selectedRunIdRef.current === streamRunId) {
+          setSelectedRunId(streamRunId);
+          setLiveSnapshot(trimmed);
+          syncQuotaReadiness(trimmed.quotas);
+        }
+        if (streamRunId !== prevLatestRunId || streamStatus !== prevLatestStatus) {
+          void refreshRunsList();
+        }
+        setLiveReconnecting(false);
+      } catch (error) {
+        onLiveError(error);
+      }
+    }
+
+    function receiveEvent({ data }: MessageEvent<string>) {
+      try {
+        const event: unknown = JSON.parse(data);
+        if (typeof event !== 'object' || event === null || Array.isArray(event)) {
+          throw new Error('Invalid live run event.');
+        }
+        const row = event as Record<string, unknown>;
+        const eventRunId = typeof row.run_id === 'string' ? row.run_id : null;
+        setLiveSnapshot((current) => {
+          if (!current?.run || typeof current.run.id !== 'string') return current;
+          if (selectedRunIdRef.current && selectedRunIdRef.current !== current.run.id) return current;
+          if (eventRunId && eventRunId !== current.run.id) return current;
+          const lastId = current.events.at(-1)?.id;
+          if (typeof row.id === 'number' && typeof lastId === 'number' && row.id <= lastId) return current;
+          return {
+            ...current,
+            events: [...current.events, row].slice(-LIVE_EVENT_LIMIT),
+          };
+        });
+        setLiveReconnecting(false);
+      } catch (error) {
+        onLiveError(error);
+      }
+    }
+
+    source.addEventListener('snapshot', receiveSnapshot);
+    source.addEventListener('event', receiveEvent);
+    source.onopen = () => setLiveReconnecting(false);
+    source.onerror = () => setLiveReconnecting(true);
+    return () => {
+      active = false;
+      source.removeEventListener('snapshot', receiveSnapshot);
+      source.removeEventListener('event', receiveEvent);
+      source.onopen = null;
+      source.onerror = null;
+      source.close();
+    };
+  }, [client, mode, syncQuotaReadiness]);
+
   useEffect(() => {
     if (mode === null) return;
     let active = true;
@@ -196,6 +332,7 @@ function AppContent() {
       return;
     }
     latestPresetRequest.current += 1;
+    setLiveViewActive(false);
     setReplayActive(false);
     replaceGraph(decoded.graph);
     push(messages.toasts.loadedShared(translatePresetText(decoded.graph.name, locale)));
@@ -243,10 +380,51 @@ function AppContent() {
     return () => clearInterval(timer);
   }, [playing, speed, stepCount]);
 
-  const { nodeStates, activeEdgeIds, traversedEdgeIds, currentEvent } = useMemo(
+  const liveGraphView = useMemo(
+    () => (liveViewActive && liveSnapshot?.run ? buildLiveRunGraph(liveSnapshot, locale) : null),
+    [liveSnapshot, liveViewActive, locale],
+  );
+
+  useEffect(() => {
+    if (!liveViewActive || !liveGraphView) {
+      lastLiveCanvasRef.current = null;
+      return;
+    }
+    const runId = typeof liveSnapshot?.run?.id === 'string' ? liveSnapshot.run.id : null;
+    const signature = JSON.stringify({
+      name: liveGraphView.graph.name,
+      nodes: liveGraphView.graph.nodes.map((node) => [node.id, node.label, node.role, node.config]),
+      edges: liveGraphView.graph.edges.map((edge) => edge.id),
+    });
+    if (lastLiveCanvasRef.current?.runId === runId && lastLiveCanvasRef.current?.signature === signature) {
+      return;
+    }
+    const isNewRun = lastLiveCanvasRef.current?.runId !== runId;
+    lastLiveCanvasRef.current = { runId, signature };
+    const flow = graphToFlow(liveGraphView.graph, liveGraphView.nodeStates);
+    setBaseGraph(liveGraphView.graph);
+    setNodes(flow.nodes);
+    setEdges(flow.edges);
+    if (isNewRun) {
+      setSelection(emptySelection);
+      setCanvasKey((key) => key + 1);
+    }
+  }, [liveGraphView, liveSnapshot?.run?.id, liveViewActive, setEdges, setNodes]);
+
+  const simDerived = useMemo(
     () => deriveStates(graph, trace, trace[stepIndex - 1]?.seq ?? -1),
     [graph, trace, stepIndex],
   );
+  const roleStates = useMemo(() => {
+    if (liveViewActive || replayActive || stepIndex > 0 || !liveSnapshot?.run) return null;
+    return deriveLiveRoleStates(graph, liveSnapshot);
+  }, [graph, liveSnapshot, liveViewActive, replayActive, stepIndex]);
+
+  const nodeStates = liveGraphView ? liveGraphView.nodeStates : (roleStates ?? simDerived.nodeStates);
+  const activeEdgeIds = liveGraphView ? liveGraphView.activeEdgeIds : simDerived.activeEdgeIds;
+  const traversedEdgeIds = liveGraphView ? liveGraphView.traversedEdgeIds : simDerived.traversedEdgeIds;
+  const currentEvent = liveGraphView ? null : simDerived.currentEvent;
+
   useEffect(() => {
     setNodes((current) => {
       let changed = false;
@@ -270,12 +448,61 @@ function AppContent() {
     resetPlayback();
   }
 
+  function onSelectLiveRun() {
+    if (!liveSnapshot?.run) return;
+    latestPresetRequest.current += 1;
+    setReplayActive(false);
+    resetPlayback();
+    lastLiveCanvasRef.current = null;
+    setLiveViewActive(true);
+  }
+
+  async function onSelectRunId(nextRunId: string) {
+    if (!nextRunId) return;
+    const req = ++liveRequestSeq.current;
+    setSelectedRunId(nextRunId);
+    try {
+      const snap = await client.getRun(nextRunId);
+      if (req !== liveRequestSeq.current) return;
+      const trimmed: LiveRunSnapshot = { ...snap, events: snap.events.slice(-LIVE_EVENT_LIMIT) };
+      setLiveSnapshot(trimmed);
+      syncQuotaReadiness(trimmed.quotas);
+      void client.listRuns().then((runs) => {
+        if (req === liveRequestSeq.current) setRecentRuns(runs);
+      }, () => {});
+    } catch (error) {
+      if (req === liveRequestSeq.current) push(errorMessage(error), 'err');
+    }
+  }
+
+  async function onRefreshLiveRun() {
+    const req = ++liveRequestSeq.current;
+    try {
+      const targetId = selectedRunIdRef.current;
+      const snap = targetId && targetId !== latestRunIdRef.current
+        ? await client.getRun(targetId)
+        : await client.getLatestRun();
+      if (req !== liveRequestSeq.current) return;
+      const trimmed: LiveRunSnapshot = { ...snap, events: snap.events.slice(-LIVE_EVENT_LIMIT) };
+      const resolvedId = typeof trimmed.run?.id === 'string' ? trimmed.run.id : null;
+      if (!targetId) setSelectedRunId(resolvedId);
+      setLiveSnapshot(trimmed);
+      syncQuotaReadiness(trimmed.quotas);
+      void client.listRuns().then((runs) => {
+        if (req === liveRequestSeq.current) setRecentRuns(runs);
+      }, () => {});
+    } catch (error) {
+      if (req === liveRequestSeq.current) push(errorMessage(error), 'err');
+    }
+  }
+
   async function onSelectPreset(id: string) {
     const request = ++latestPresetRequest.current;
     try {
       const preset = mode === 'local' ? await client.getPreset(id) : findPreset(id);
       if (!preset) throw new Error(messages.toasts.unknownPreset(id));
       if (request === latestPresetRequest.current) {
+        setLiveViewActive(false);
         setReplayActive(false);
         replaceGraph(preset);
       }
@@ -302,6 +529,7 @@ function AppContent() {
   function onAddNode(type: NodeType) {
     const node = newWorkflowNode(type, graph.nodes, messages.nodeTypes[type]);
     const flow = graphToFlow({ ...graph, nodes: [node], edges: [] });
+    setLiveViewActive(false);
     setReplayActive(false);
     setBaseGraph({ ...graph, nodes: [...graph.nodes, node] });
     setNodes((current) => [...current, ...flow.nodes]);
@@ -309,6 +537,7 @@ function AppContent() {
 
   function onImportGraph(imported: WorkflowGraph) {
     latestPresetRequest.current += 1;
+    setLiveViewActive(false);
     setReplayActive(false);
     replaceGraph(imported);
     push(messages.toasts.imported(translatePresetText(imported.name, locale)));
@@ -343,12 +572,14 @@ function AppContent() {
   }
 
   function onScenarioSelect(nextScenario: Scenario) {
+    setLiveViewActive(false);
     setReplayActive(false);
     setScenario(nextScenario);
     resetPlayback();
   }
 
   function onToggleReplay() {
+    setLiveViewActive(false);
     if (replayActive) {
       setReplayActive(false);
       resetPlayback();
@@ -424,6 +655,7 @@ function AppContent() {
   function onGuideTryStarter() {
     markGuideStep('starter');
     latestPresetRequest.current += 1;
+    setLiveViewActive(false);
     setReplayActive(false);
     setScenario('happy_path');
     setGuideOpen(false);
@@ -495,6 +727,9 @@ function AppContent() {
           onExport={onExport}
           onShare={onShare}
           validation={validation}
+          liveSnapshot={liveSnapshot}
+          liveViewActive={liveViewActive}
+          onSelectLiveRun={onSelectLiveRun}
         />
       </div>
       <main className="app-pane app-pane--canvas" id="workspace-canvas" data-active={pane === 'canvas'}>
@@ -523,7 +758,7 @@ function AppContent() {
             stepIndex={stepIndex}
             stepCount={stepCount}
             currentEvent={currentEvent}
-            disabled={stepCount === 0}
+            disabled={liveViewActive || stepCount === 0}
           />
         </CanvasWorkspace>
       </main>
@@ -540,6 +775,12 @@ function AppContent() {
           stepIndex={stepIndex}
           onJumpToStep={onJumpToStep}
           onToast={push}
+          liveSnapshot={liveSnapshot}
+          recentRuns={recentRuns}
+          selectedRunId={selectedRunId}
+          liveReconnecting={liveReconnecting}
+          onSelectRunId={(id) => void onSelectRunId(id)}
+          onRefreshLiveRun={onRefreshLiveRun}
         />
       </div>
       <QuickStartModal

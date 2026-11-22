@@ -15,6 +15,7 @@ import type {
   RfcReadinessResult,
   RoleConfig,
   RolesConfigResponse,
+  RunListItem,
   Scenario,
   SimulationResult,
   WorkflowGraph,
@@ -222,8 +223,14 @@ export class BatonApiClient {
     return toRoleConfig(updated);
   }
 
+  async listRuns(): Promise<RunListItem[]> {
+    if (this.mode === 'demo') return [];
+    const { runs } = await this.requestJson<{ runs: RunListItem[] }>('/api/runs');
+    return runs;
+  }
+
   async getLatestRun(): Promise<LiveRunSnapshot> {
-    if (this.mode === 'demo') return { run: null, milestones: [], tasks: [], events: [], quotas: [] };
+    if (this.mode === 'demo') return { run: null, milestones: [], tasks: [], events: [], quotas: [], telemetry: null };
     return this.requestJson('/api/runs/latest');
   }
 
@@ -231,9 +238,10 @@ export class BatonApiClient {
     return this.requestJson(`/api/runs/${encodeURIComponent(id)}`);
   }
 
-  async getRunReport(id: string): Promise<string> {
+  async getRunReport(id: string, lang?: 'en' | 'zh'): Promise<string> {
+    const query = lang ? `?lang=${encodeURIComponent(lang)}` : '';
     const { battle_report_markdown } = await this.requestJson<{ battle_report_markdown: string }>(
-      `/api/runs/${encodeURIComponent(id)}/report`,
+      `/api/runs/${encodeURIComponent(id)}/report${query}`,
     );
     return battle_report_markdown;
   }

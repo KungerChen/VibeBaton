@@ -16,6 +16,13 @@
 
 ---
 
+## Documentation & Beginner Guide
+
+- **Beginner Step-by-Step Tutorial (小白保姆级教程)**: [docs/TUTORIAL.md](docs/TUTORIAL.md) — plain-language relay analogy, 5-step Web Studio walkthrough, budget setup, live canvas sync, telemetry, and FAQ.
+- **Built-in Web Guide**: Click **Guide → Tutorial (`详细教程`)** inside the top-right bar of the Web Studio UI (`http://127.0.0.1:7860/`).
+
+---
+
 ## Quickstart (Windows PowerShell)
 
 ```powershell
@@ -87,12 +94,12 @@ VibeBaton's **Path Whitelist Guard** is a post-hoc Git worktree audit/revert lay
 
 ## Roadmap
 
-- **Stage 0 (`v0.1-seed`)** & **Stage 1 (`v0.2.0`)**: Shipped — pure stdlib node-graph workflow engine, 4 official presets, 63 tests, self-hosted via `.bootstrap-runner`.
-- **Stage 2 (`v0.3.0-canvas`)**: In progress — zero-dependency `baton ui` web server (`ThreadingHTTPServer` + SSE), React Flow 3-pane visual canvas (connected local + standalone GitHub Pages demo), 3-color Baton Flow particles, real Stage 1 run replay, and `#recipe=` URL sharing.
-- **Stage 3 (`v0.9-beta`)**: Unified Smart Allocation (dynamic reasoning effort for medium projects & multi-model allocation for large projects), scenario & same-family recipes, interactive Brainstorm & Preflight Config Wizard, and reproducible 3-arm benchmarks.
-- **Stage 4 (`v1.0`)**: Native OpenAI-compatible HTTP provider with exact token/cost billing, Auto-Conflict-Resolver, and Docker/DevContainer sandbox templates.
+- **Stage 0 (`v0.1-seed`)** & **Stage 1 (`v0.2.0`)**: Shipped — pure stdlib node-graph workflow engine, initial presets, 63 tests, self-hosted via `.bootstrap-runner`.
+- **Stage 2 (`v0.3.0-canvas`)**: Shipped (`main`) — zero-dependency `baton ui` web server (`ThreadingHTTPServer` + SSE), React Flow 3-pane visual canvas (`EN | 中文`, Liquid Theme Reveal, Web Audio), 3-color Baton Flow particles, real Stage 1 run replay, and `#recipe=` URL sharing.
+- **Stage 3 (`v0.9.0-beta`)**: Complete on `dev` — Recipe Plaza (7 presets including Same-Family & Scenario workflows), Unified Smart Allocation (`eco` / `balanced` / `max_quality`, step-up ladder, single-node Pin), Preflight & 5s Click-to-Doctor + Local Credentials Setup, Brainstorm / RFC Readiness Gate, Live Run Canvas Sync, Stage & Model Runtime Telemetry, Bilingual Battle Reports (`EN | 中文`), Expandable Task Audit Details, Pre-Launch Division/Guard Summary, Beginner Tutorial, and reproducible 3-arm Benchmark harness (`benchmarks/`).
+- **Stage 4 (`v1.0`)**: Planned — Native OpenAI-compatible HTTP provider with exact token/cost billing, Auto-Conflict-Resolver node, Docker/DevContainer sandbox template, and one-click Windows installer.
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/RFC_STAGE3_DRAFT.md](docs/RFC_STAGE3_DRAFT.md) for full details.
+See [docs/ROADMAP.md](docs/ROADMAP.md), [docs/TUTORIAL.md](docs/TUTORIAL.md), and [docs/RFC_STAGE3_DRAFT.md](docs/RFC_STAGE3_DRAFT.md) for full details.
 
 ## License
 

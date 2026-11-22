@@ -42,6 +42,10 @@ export interface Messages {
     presetCounts(nodes: number, edges: number): string;
     difficulty: Record<string, string>;
     roleMustBeString(index: number): string;
+    liveRunTitle: string;
+    liveRunHint: string;
+    liveRunTasks(passed: number, total: number): string;
+    liveRunActiveBadge: string;
   };
   nodeTypes: Record<NodeType, string>;
   nodeStates: Partial<Record<ExecutionState, string>>;
@@ -93,6 +97,23 @@ export interface Messages {
     liveSectionAria: string;
     liveTitle: string;
     reconnecting: string;
+    runHistoryLabel: string;
+    runHistoryOption(id: string, status: string, passed: number, total: number, elapsed: string): string;
+    stageTimingTitle: string;
+    modelRuntimeTitle: string;
+    totalElapsed(elapsed: string): string;
+    estimatedTag: string;
+    callCount(count: number): string;
+    avgDuration(avg: string): string;
+    taskDetailHint: string;
+    taskDetailTitle: string;
+    taskDetailModel: string;
+    taskDetailDuration: string;
+    taskDetailCounters(heal: number, reject: number, escalated: number): string;
+    taskDetailFiles: string;
+    taskDetailLastError: string;
+    taskDetailEvents: string;
+    taskDetailNoEvents: string;
     startRealRun: string;
     battleReport: string;
     pauseRun: string;
@@ -160,6 +181,7 @@ export interface Messages {
     tablistAria: string;
     tabQuickStart: string;
     tabLegend: string;
+    tabTutorial: string;
     steps: {
       tryStarterTitle: string;
       tryStarterDesc: string;
@@ -168,6 +190,11 @@ export interface Messages {
       inspectNodeTitle: string;
       inspectNodeDesc: string;
     };
+    tutorialChapters: readonly {
+      title: string;
+      summary: string;
+      points: readonly string[];
+    }[];
     legendTiersTitle: string;
     legendTiers: readonly { key: string; name: string; desc: string }[];
     legendEdgesTitle: string;
@@ -239,6 +266,14 @@ export interface Messages {
     switchToReadyPreset: string;
     runModes: Record<'overnight' | 'interactive', string>;
     startRealRun: string;
+    launchSummary: {
+      title: string;
+      budgetLabel: string;
+      concurrencyLabel(cap: number): string;
+      rolesTitle: string;
+      guardsTitle: string;
+      guards: readonly string[];
+    };
   };
 }
 
@@ -284,8 +319,13 @@ export const MESSAGES: Record<Locale, Messages> = {
         intermediate: 'Intermediate',
         pro: 'Pro',
         expert: 'Expert',
+        live: 'Live',
       },
       roleMustBeString: (index) => `nodes[${index}].role must be a string`,
+      liveRunTitle: 'Live Run Workflow',
+      liveRunHint: 'Click to view real milestones & tasks on canvas',
+      liveRunTasks: (passed, total) => `${passed}/${total} tasks`,
+      liveRunActiveBadge: 'Live Sync',
     },
     nodeTypes: {
       planner_node: 'Planner',
@@ -363,6 +403,23 @@ export const MESSAGES: Record<Locale, Messages> = {
       liveSectionAria: 'Live run',
       liveTitle: 'Live Run',
       reconnecting: 'reconnecting…',
+      runHistoryLabel: 'Run History',
+      runHistoryOption: (id, status, passed, total, elapsed) => `${id} · ${status} (${passed}/${total} · ${elapsed})`,
+      stageTimingTitle: 'Stage Timing',
+      modelRuntimeTitle: 'Model Runtime',
+      totalElapsed: (elapsed) => `Total: ${elapsed}`,
+      estimatedTag: 'est.',
+      callCount: (count) => `${count} calls`,
+      avgDuration: (avg) => `avg ${avg}`,
+      taskDetailHint: 'Click any task row to inspect gates, files, and audit logs',
+      taskDetailTitle: 'Task Audit Details',
+      taskDetailModel: 'Assigned Model',
+      taskDetailDuration: 'Duration',
+      taskDetailCounters: (heal, reject, escalated) => `Self-heal ${heal} · Review fix ${reject} · Escalations ${escalated}`,
+      taskDetailFiles: 'Allowed Files',
+      taskDetailLastError: 'Latest Gate / Error Note',
+      taskDetailEvents: 'Task Audit Events',
+      taskDetailNoEvents: 'No task-specific audit events recorded.',
       startRealRun: '▶ Start Real Run',
       battleReport: 'Battle Report',
       pauseRun: 'Pause',
@@ -381,6 +438,9 @@ export const MESSAGES: Record<Locale, Messages> = {
       noTasks: 'No tasks yet.',
       noRuns: 'No runs yet.',
       runStatuses: {
+        PLANNING: 'PLANNING',
+        IN_PROGRESS: 'IN_PROGRESS',
+        REVIEWING: 'REVIEWING',
         RUNNING: 'RUNNING',
         PAUSED: 'PAUSED',
         WAITING_HUMAN: 'WAITING_HUMAN',
@@ -390,6 +450,9 @@ export const MESSAGES: Record<Locale, Messages> = {
         HALTED: 'HALTED',
         PASSED: 'PASSED',
         PENDING: 'PENDING',
+        REJECTED: 'REJECTED',
+        CANCELLED: 'CANCELLED',
+        ESCALATED: 'ESCALATED',
         UNKNOWN: 'UNKNOWN',
       },
       eventLogTitle: 'Event Log',
@@ -441,6 +504,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       tablistAria: 'Guide sections',
       tabQuickStart: 'Quick Start',
       tabLegend: 'Legend & Shortcuts',
+      tabTutorial: 'Tutorial',
       steps: {
         tryStarterTitle: '1. Run Starter 2-Tier Flow Demo',
         tryStarterDesc: 'Load the minimal DeepSeek API starter workflow and animate Happy Path playback.',
@@ -449,6 +513,39 @@ export const MESSAGES: Record<Locale, Messages> = {
         inspectNodeTitle: '3. Inspect & Hot-Swap Models',
         inspectNodeDesc: 'Select a worker card on the canvas to edit its provider/model or share via #recipe link.',
       },
+      tutorialChapters: [
+        {
+          title: '1. Plain-Language Architecture (The Relay Race)',
+          summary: 'Think of VibeBaton as an automated software factory relay where each AI tier handles what it does best.',
+          points: [
+            'L0 (You + Architect): Align the goal and constraints up front, then review the Battle Report before merging to main.',
+            'L1 (Planner & Milestone Reviewer): Splits the RFC into ordered milestones and verifies every milestone integration.',
+            'L3 (DeepSeek API Workers): Runs routine modules fast in parallel using isolated Git worktrees and file whitelists.',
+            'Mechanical Gate + L2 Reviewer: Deterministic unit tests and lint run first before spending senior review quota.',
+          ],
+        },
+        {
+          title: '2. Your First Real Run in 5 Steps',
+          summary: 'Go from an idea to verified code cleanly from either the Studio UI or Windows PowerShell.',
+          points: [
+            'Step 1 — Pick a Budget & Preset: Choose Eco, Balanced, or Max Quality and select a green "Ready on Host" workflow on the left.',
+            'Step 2 — Click "Start Real Run": Check local CLI tools and API keys in Step 1, then run interactive Brainstorm/RFC checks in Step 2.',
+            'Step 3 — Confirm Division & Guards: Review each role model and built-in safety guards in Step 3 before launching.',
+            'Step 4 — Watch Live Canvas Sync: Click the top-left "Live Run Workflow" card to see live tasks glow in real time.',
+            'Step 5 — Inspect Battle Report & Sign Off: Check Stage Timing, Model Runtime, and approve L0 merge only when tests pass.',
+          ],
+        },
+        {
+          title: '3. Beginner FAQ & Troubleshooting',
+          summary: 'Quick answers for first-time builders running VibeBaton locally.',
+          points: [
+            'Q: Why did the canvas show a static preset while running? Click the top-left "Live Run Workflow" card to switch the canvas to live task nodes.',
+            'Q: How do I minimize API spend? Use "Starter 2-Tier Flow" or "DeepSeek API Bulk Factory" paired with the Eco budget profile.',
+            'Q: What happens on 429 rate limits or timeouts? Only that provider pauses in cooldown while sibling workers continue and stuck tasks auto-escalate.',
+            'Q: Is my main branch safe overnight? Yes — work happens inside isolated Git worktrees on dev and awaits human final approval.',
+          ],
+        },
+      ],
       legendTiersTitle: 'Tier Colors & Roles',
       legendTiers: [
         { key: 'L0', name: 'L0 · Brainstorm & Sign-Off', desc: 'Interactive specification alignment and final human gate.' },
@@ -551,6 +648,18 @@ export const MESSAGES: Record<Locale, Messages> = {
       switchToReadyPreset: 'Switch to a Ready Preset',
       runModes: { overnight: 'Overnight', interactive: 'Interactive' },
       startRealRun: 'Start Real Run',
+      launchSummary: {
+        title: 'Role Division & Safety Guards',
+        budgetLabel: 'Active Budget Profile',
+        concurrencyLabel: (cap) => `max ${cap} parallel`,
+        rolesTitle: 'Active Role Dispatch',
+        guardsTitle: 'Built-In Runtime Guards',
+        guards: [
+          'Quota Cooldown: 429 limits isolate only the throttled provider and keep sibling workers moving.',
+          'Path Whitelist Guard: Changes outside allowed_files inside Git worktrees revert automatically.',
+          'Human Final Gate: Completed milestones wait on dev for L0 approval before touching main.',
+        ],
+      },
     },
   },
   zh: {
@@ -594,8 +703,13 @@ export const MESSAGES: Record<Locale, Messages> = {
         intermediate: '进阶',
         pro: '专业',
         expert: '专家',
+        live: '实时',
       },
       roleMustBeString: (index) => `第 ${index} 个节点的角色字段必须为字符串`,
+      liveRunTitle: '实时运行工作流',
+      liveRunHint: '点击查看真实里程碑与任务 DAG',
+      liveRunTasks: (passed, total) => `${passed}/${total} 个任务`,
+      liveRunActiveBadge: '实时同步',
     },
     nodeTypes: {
       planner_node: '规划',
@@ -673,6 +787,23 @@ export const MESSAGES: Record<Locale, Messages> = {
       liveSectionAria: '实时运行',
       liveTitle: '实时运行',
       reconnecting: '重连中…',
+      runHistoryLabel: '历史运行切换',
+      runHistoryOption: (id, status, passed, total, elapsed) => `${id} · ${status}（${passed}/${total} 任务 · ${elapsed}）`,
+      stageTimingTitle: '阶段耗时明细',
+      modelRuntimeTitle: '模型运行统计',
+      totalElapsed: (elapsed) => `总耗时：${elapsed}`,
+      estimatedTag: '推算',
+      callCount: (count) => `${count} 次调用`,
+      avgDuration: (avg) => `均耗 ${avg}`,
+      taskDetailHint: '点击任意任务行可展开门禁、白名单与审校事件详情',
+      taskDetailTitle: '任务审计详情',
+      taskDetailModel: '分配模型',
+      taskDetailDuration: '耗时',
+      taskDetailCounters: (heal, reject, escalated) => `自愈 ${heal} 次 · 退修 ${reject} 次 · 升级 ${escalated} 次`,
+      taskDetailFiles: '允许修改白名单',
+      taskDetailLastError: '最近门禁 / 异常记录',
+      taskDetailEvents: '该任务审计事件',
+      taskDetailNoEvents: '暂无该任务的专项审计事件。',
       startRealRun: '▶ 启动真实运行',
       battleReport: '战报',
       pauseRun: '暂停',
@@ -691,6 +822,9 @@ export const MESSAGES: Record<Locale, Messages> = {
       noTasks: '暂无任务。',
       noRuns: '暂无运行记录。',
       runStatuses: {
+        PLANNING: '规划中',
+        IN_PROGRESS: '进行中',
+        REVIEWING: '审校中',
         RUNNING: '运行中',
         PAUSED: '已暂停',
         WAITING_HUMAN: '等待人工审批',
@@ -700,6 +834,9 @@ export const MESSAGES: Record<Locale, Messages> = {
         HALTED: '已中止',
         PASSED: '已通过',
         PENDING: '排队中',
+        REJECTED: '已驳回',
+        CANCELLED: '已取消',
+        ESCALATED: '已升级',
         UNKNOWN: '未知状态',
       },
       eventLogTitle: '事件日志',
@@ -751,6 +888,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       tablistAria: '教程分页',
       tabQuickStart: '快速开始',
       tabLegend: '图例与快捷键',
+      tabTutorial: '详细教程',
       steps: {
         tryStarterTitle: '1. 运行「极简入门双层流」演示',
         tryStarterDesc: '加载低成本 DeepSeek API 双层工作流，并播放正常流转接力动画。',
@@ -759,6 +897,39 @@ export const MESSAGES: Record<Locale, Messages> = {
         inspectNodeTitle: '3. 编辑节点配置与模型热切换',
         inspectNodeDesc: '选中画布上的执行节点，可在右侧修改模型或通过 #recipe 链接分享整套工作流。',
       },
+      tutorialChapters: [
+        {
+          title: '1. 一分钟看懂 VibeBaton（大模型接力工厂）',
+          summary: '把开发拆成流水线接力赛：规划、编码、测试、审校各司其职，只在关键节点花高阶模型额度。',
+          points: [
+            'L0（你 + 总控大脑）：开工前头脑风暴对齐需求与验收命令，全部完成通过后再看战报签字合并主分支。',
+            'L1（规划师 & 里程碑审校）：把需求拆成带依赖关系的里程碑和任务，并在每个里程碑合入前把关整体验收。',
+            'L3（DeepSeek API 并发工人）：在独立 Git Worktree 沙盒目录里高并发开发常规模块，改错不会污染主工作区。',
+            '机械门禁 + L2 审校：先免费跑本地测试和静态检查抓低级错误，全过后再请高阶审校官把关，省钱又稳。',
+          ],
+        },
+        {
+          title: '2. 小白五步跑通首次真实任务',
+          summary: '无需记忆复杂命令，跟随侧边栏和向导弹窗五步就能启动一个安全的通宵或交互任务。',
+          points: [
+            '第 1 步（选预算与绿色预设）：左侧选择「节省 / 均衡 / 质量优先」预算档位，挑一个显示绿色「本机就绪」的工作流。',
+            '第 2 步（点开「启动真实运行」）：第 1 页核对本机 CLI 与 API 密钥是否就绪；第 2 页用结构化表单一键生成并体检 RFC 需求文档。',
+            '第 3 步（核对分工与安全护栏）：第 3 页确认各个角色对应的模型与并发上限、429 冷却保护与路径白名单守卫后再发车。',
+            '第 4 步（画布实时同步看板）：发车或已有运行后，点击左上角「实时运行工作流」卡片，中间画布会实时亮起每个里程碑和任务节点。',
+            '第 5 步（查看战报与 L0 终审合入）：任务收官后可点开中文战报、阶段耗时、模型耗时与单任务审计详情，确认无误后再合并主分支。',
+          ],
+        },
+        {
+          title: '3. 新手常见问题排查（FAQ）',
+          summary: '遇到困惑先看这里，覆盖 90% 的初上手疑问。',
+          points: [
+            '问：为什么运行中左侧和中间画布没有自动显示真实任务？答：预设栏显示的是工作流蓝图，请点击左上角「实时运行工作流」卡片切换到真实任务 DAG 画布。',
+            '问：怎么配置最省钱？答：新手建议选择「极简入门双层流」或「DeepSeek API 批量工厂」，并将预算档位切到「节省」。',
+            '问：半夜触发 429 限流或模型卡死怎么办？答：系统只把限流供应方送入冷却池，其他工具照常工作；同一任务多次不过会自动阶梯升档到更强模型。',
+            '问：AI 会不会把我的 main 主分支改乱？答：不会。所有改动都只在隔离工作树与 dev 分支内运行，且受文件白名单物理限制，最后必须由你 L0 确认才合入主干。',
+          ],
+        },
+      ],
       legendTiersTitle: '层级配色与职责说明',
       legendTiers: [
         { key: 'L0', name: 'L0 · 头脑风暴与终审', desc: '在开工前对齐规格需求，并在最终合并前由用户签字把关。' },
@@ -861,6 +1032,18 @@ export const MESSAGES: Record<Locale, Messages> = {
       switchToReadyPreset: '切换到已就绪的预设',
       runModes: { overnight: '通宵无人值守', interactive: '交互式' },
       startRealRun: '启动真实运行',
+      launchSummary: {
+        title: '模型分工与安全护栏',
+        budgetLabel: '当前预算档位',
+        concurrencyLabel: (cap) => `最大并发 ${cap}`,
+        rolesTitle: '当前角色分工',
+        guardsTitle: '内置安全与自愈机制',
+        guards: [
+          '配额防线：触发 429 限流仅冷却对应供应方并支持回退接力，不拖垮全局。',
+          '路径白名单物理守卫：Git Worktree 中越界改动在合入前自动拦截回滚。',
+          '人类 L0 终审闸门：全部里程碑仅先合入 dev，待人工终审确认后再合并主干。',
+        ],
+      },
     },
   },
 };

@@ -383,14 +383,30 @@ test('loads run data and submits run commands to the local server', async () => 
   const snapshot: LiveRunSnapshot = {
     run: { id: runId }, milestones: [], tasks: [], events: [], quotas: [],
   };
+  const runsList = [{
+    id: runId,
+    status: 'READY_FOR_FINAL_GATE',
+    mode: 'overnight',
+    created_at: 100,
+    updated_at: 200,
+    finished_at: 200,
+    elapsed_sec: 100,
+    passed_tasks: 21,
+    total_tasks: 21,
+    passed_milestones: 4,
+    total_milestones: 4,
+  }];
   const report = '# Battle report';
+  const zhReport = '# 战报';
   const started = { run_id: runId, daemon_pid: 4242, status: 'STARTED' };
   const resumed = { run_id: runId, daemon_pid: 4243, status: 'RUNNING' };
   const rejected = { run_id: runId, decision: 'reject', daemon_pid: null };
   const fetchImpl = healthyFetch()
+    .mockResolvedValueOnce(Response.json({ runs: runsList }))
     .mockResolvedValueOnce(Response.json(snapshot))
     .mockResolvedValueOnce(Response.json(snapshot))
     .mockResolvedValueOnce(Response.json({ run_id: runId, battle_report_markdown: report }))
+    .mockResolvedValueOnce(Response.json({ run_id: runId, battle_report_markdown: zhReport }))
     .mockResolvedValueOnce(Response.json(started, { status: 201 }))
     .mockResolvedValueOnce(Response.json(resumed))
     .mockResolvedValueOnce(Response.json(rejected));
@@ -398,16 +414,20 @@ test('loads run data and submits run commands to the local server', async () => 
   await client.init();
 
   const payload = { rfc_markdown: '# RFC', mode: 'interactive', model_overrides: { bulk_worker: 'example' } } as const;
+  await expect(client.listRuns()).resolves.toEqual(runsList);
   await expect(client.getLatestRun()).resolves.toEqual(snapshot);
   await expect(client.getRun(runId)).resolves.toEqual(snapshot);
   await expect(client.getRunReport(runId)).resolves.toBe(report);
+  await expect(client.getRunReport(runId, 'zh')).resolves.toBe(zhReport);
   await expect(client.startRun(payload)).resolves.toEqual(started);
   await expect(client.controlRun(runId, 'resume')).resolves.toEqual(resumed);
   await expect(client.resolveRun(runId, 'reject')).resolves.toEqual(rejected);
   expect(fetchImpl.mock.calls.slice(1)).toEqual([
+    ['/api/runs', { method: 'GET' }],
     ['/api/runs/latest', { method: 'GET' }],
     [`/api/runs/${runId}`, { method: 'GET' }],
     [`/api/runs/${runId}/report`, { method: 'GET' }],
+    [`/api/runs/${runId}/report?lang=zh`, { method: 'GET' }],
     ['/api/runs/start', jsonRequest('POST', payload)],
     [`/api/runs/${runId}/control`, jsonRequest('POST', { action: 'resume' })],
     [`/api/runs/${runId}/resolve`, jsonRequest('POST', { decision: 'reject' })],
@@ -419,7 +439,10 @@ test('returns empty live data and rejects backend-only run operations in demo mo
   const client = new BatonApiClient('', fetchImpl);
 
   await expect(client.getRoles()).resolves.toBeNull();
-  await expect(client.getLatestRun()).resolves.toEqual({ run: null, milestones: [], tasks: [], events: [], quotas: [] });
+  await expect(client.listRuns()).resolves.toEqual([]);
+  await expect(client.getLatestRun()).resolves.toEqual({
+    run: null, milestones: [], tasks: [], events: [], quotas: [], telemetry: null,
+  });
   const backendOnly = [
     client.getRun('run-1'),
     client.getRunReport('run-1'),

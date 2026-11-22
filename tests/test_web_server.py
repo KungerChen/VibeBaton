@@ -877,7 +877,10 @@ class TestRunApi(WebServerTestCase):
     def test_latest_has_an_empty_snapshot_before_the_first_run(self) -> None:
         status, _, snapshot = self.get("/api/runs/latest")
         self.assertEqual(status, 200)
-        self.assertEqual(snapshot, {"run": None, "milestones": [], "tasks": [], "events": [], "quotas": []})
+        self.assertEqual(
+            snapshot,
+            {"run": None, "milestones": [], "tasks": [], "events": [], "quotas": [], "telemetry": None},
+        )
 
     def test_start_writes_rfc_and_records_mode_overrides_and_daemon_spawn(self) -> None:
         overrides = {"bulk_worker": "codex_sub:some-model"}
@@ -886,7 +889,9 @@ class TestRunApi(WebServerTestCase):
 
         status, _, snapshot = self.get(f"/api/runs/{run_id}")
         self.assertEqual(status, 200)
-        self.assertEqual(set(snapshot), {"run", "milestones", "tasks", "events", "quotas"})
+        self.assertEqual(set(snapshot), {"run", "milestones", "tasks", "events", "quotas", "telemetry"})
+        self.assertIsNotNone(snapshot["telemetry"])
+        self.assertIn("elapsed_sec", snapshot["telemetry"])
         run = snapshot["run"]
         self.assertEqual(run["id"], run_id)
         self.assertEqual(run["repo_path"], str(self.repo))
@@ -954,6 +959,24 @@ class TestRunApi(WebServerTestCase):
         self.assertEqual(set(report), {"run_id", "battle_report_markdown"})
         self.assertEqual(report["run_id"], run_id)
         self.assertTrue(report["battle_report_markdown"].startswith("# VibeBaton Run Report"))
+
+        status_zh, _, report_zh = self.get(f"/api/runs/{run_id}/report?lang=zh")
+        self.assertEqual(status_zh, 200)
+        self.assertIn("# VibeBaton 运行战报", report_zh["battle_report_markdown"])
+        self.assertIn("## 效率与防线战绩", report_zh["battle_report_markdown"])
+
+    def test_list_runs_returns_recent_runs_with_counts_and_elapsed(self) -> None:
+        first = self._start_run()
+        second = self._start_run()
+        status, _, payload = self.get("/api/runs")
+        self.assertEqual(status, 200)
+        ids = [row["id"] for row in payload["runs"]]
+        self.assertIn(first, ids)
+        self.assertIn(second, ids)
+        for row in payload["runs"]:
+            self.assertIn("elapsed_sec", row)
+            self.assertIn("passed_tasks", row)
+            self.assertIn("total_tasks", row)
 
     def test_control_pauses_and_resumes_and_rejects_other_actions(self) -> None:
         run_id = self._start_run()
@@ -1048,7 +1071,7 @@ class TestRunApi(WebServerTestCase):
         self.assertTrue(data.startswith("data: "))
         self.assertEqual(ending, ["", ""])
         snapshot = json.loads(data.removeprefix("data: "))
-        self.assertEqual(set(snapshot), {"run", "milestones", "tasks", "events", "quotas"})
+        self.assertEqual(set(snapshot), {"run", "milestones", "tasks", "events", "quotas", "telemetry"})
         self.assertEqual(snapshot["run"]["id"], run_id)
 
     def _read_sse_frame(self, stream: HTTPResponse) -> tuple[bytes, dict[str, Any]]:

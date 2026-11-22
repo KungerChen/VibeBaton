@@ -187,12 +187,57 @@ export interface RolesConfigResponse extends BudgetConfigResponse {
   roles: Record<string, RoleConfig>;
 }
 
+export interface RunListItem {
+  id: string;
+  status: string;
+  mode: string;
+  created_at: number | null;
+  updated_at: number | null;
+  finished_at: number | null;
+  elapsed_sec: number;
+  passed_tasks: number;
+  total_tasks: number;
+  passed_milestones: number;
+  total_milestones: number;
+}
+
+export interface StageTelemetry {
+  id: string;
+  kind: 'planning' | 'milestone';
+  title: string;
+  status: string;
+  wall_sec: number;
+  task_sum_sec: number;
+  passed_tasks: number;
+  total_tasks: number;
+}
+
+export interface ModelTelemetry {
+  actor: string;
+  role: string;
+  provider: string;
+  display_provider: string;
+  model: string;
+  calls: number;
+  duration_sec: number;
+  estimated: boolean;
+  avg_sec: number;
+  share_pct: number;
+}
+
+export interface RunTelemetry {
+  elapsed_sec: number;
+  stages: StageTelemetry[];
+  models: ModelTelemetry[];
+}
+
 export interface LiveRunSnapshot {
   run: Record<string, unknown> | null;
   milestones: Record<string, unknown>[];
   tasks: Record<string, unknown>[];
   events: Record<string, unknown>[];
   quotas: Record<string, unknown>[];
+  telemetry?: RunTelemetry | null;
 }
 
 export type ExecutionState = 'idle' | 'active' | 'passed' | 'retrying' | 'escalated' | 'failed';

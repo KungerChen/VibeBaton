@@ -190,6 +190,25 @@ class OrchestrationEngine:
                         "VIBEBATON_MILESTONE_ID": milestone_id or "",
                     },
                 )
+                self.store.log_event(
+                    run_id,
+                    "role_completed",
+                    actor=f"{role_name}:{active_model}",
+                    task_id=task_id,
+                    milestone_id=milestone_id,
+                    message=(
+                        f"Completed {role_name} ({active_provider.name}/{active_model}) "
+                        f"in {float(res.duration_sec):.1f}s ({res.status})"
+                    ),
+                    payload={
+                        "role": role_name,
+                        "provider": active_provider.name,
+                        "model": active_model,
+                        "duration_sec": round(float(res.duration_sec), 3),
+                        "status": res.status,
+                        "exit_code": res.exit_code,
+                    },
+                )
 
             if res.status == "rate_limited":
                 wait_sec = self.store.trigger_provider_cooldown(

@@ -21,6 +21,7 @@ const DIFFICULTY_BADGE: Record<string, BadgeProps['variant']> = {
   intermediate: 'info',
   pro: 'violet',
   expert: 'warning',
+  live: 'info',
 };
 
 function GraphDetails({ graph }: Pick<RightInspectorProps, 'graph'>) {
@@ -81,6 +82,7 @@ function GraphDetails({ graph }: Pick<RightInspectorProps, 'graph'>) {
 export function RightInspector({
   mode, client, graph, selectedNodeId, selectedEdgeId, onUpdateNode, onUpdateEdge,
   trace, stepIndex, onJumpToStep, onToast,
+  liveSnapshot, recentRuns, selectedRunId, liveReconnecting, onSelectRunId, onRefreshLiveRun,
 }: RightInspectorProps) {
   const { locale, messages } = useI18n();
   const tabs: readonly { id: InspectorTab; label: string }[] = [
@@ -335,7 +337,17 @@ export function RightInspector({
         </section>
         {mode === 'local' && (
           <LaunchGraphContext.Provider value={graph}>
-            <LiveRunPanel client={client} onToast={onToast} visible={tab === 'trace'} />
+            <LiveRunPanel
+              client={client}
+              onToast={onToast}
+              visible={tab === 'trace'}
+              liveSnapshot={liveSnapshot}
+              recentRuns={recentRuns}
+              selectedRunId={selectedRunId}
+              liveReconnecting={liveReconnecting}
+              onSelectRunId={onSelectRunId}
+              onRefreshLiveRun={onRefreshLiveRun}
+            />
           </LaunchGraphContext.Provider>
         )}
       </section>

@@ -5,8 +5,10 @@ import type {
   DoctorRoleResult,
   GraphTraceEvent,
   GraphValidationResult,
+  LiveRunSnapshot,
   NodeType,
   PresetItem,
+  RunListItem,
   Scenario,
   WorkflowGraph,
 } from '../types/graph';
@@ -24,6 +26,9 @@ export interface LeftSidebarProps {
   onExport(): void;
   onShare?: () => void;
   validation: GraphValidationResult | null;
+  liveSnapshot?: LiveRunSnapshot | null;
+  liveViewActive?: boolean;
+  onSelectLiveRun?: () => void;
 }
 
 export interface PlaybackBarProps {
@@ -69,6 +74,12 @@ export interface RightInspectorProps {
   stepIndex: number;
   onJumpToStep(i: number): void;
   onToast(msg: string, kind?: 'ok' | 'err'): void;
+  liveSnapshot?: LiveRunSnapshot | null;
+  recentRuns?: RunListItem[];
+  selectedRunId?: string | null;
+  liveReconnecting?: boolean;
+  onSelectRunId?: (runId: string) => void;
+  onRefreshLiveRun?: () => Promise<void> | void;
 }
 
 export type NodeDoctorProps = {

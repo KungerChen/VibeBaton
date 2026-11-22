@@ -34,7 +34,7 @@ from .db import StateStore
 from .graph_engine import SCENARIOS, simulate_graph
 from .graph_schema import GraphValidationResult, WorkflowGraph, validate_graph
 from .mcp_server import _spawn_detached_daemon
-from .report import generate_battle_report
+from .report import compute_run_telemetry, generate_battle_report
 from .rfc_checker import check_rfc_readiness, generate_structured_rfc
 from .schemas import RunStatus
 
@@ -54,6 +54,7 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(r"/api/credentials"), "_post_credentials"),
     ("POST", re.compile(r"/api/rfc/check"), "_post_rfc_check"),
     ("POST", re.compile(r"/api/rfc/brainstorm"), "_post_rfc_brainstorm"),
+    ("GET", re.compile(r"/api/runs"), "_get_runs"),
     ("GET", re.compile(r"/api/runs/latest"), "_get_latest_run"),
     ("GET", re.compile(r"/api/runs/stream"), "_get_run_stream"),
     ("GET", re.compile(r"/api/runs/([^/]+)"), "_get_run"),
@@ -164,6 +165,7 @@ class _RunSnapshot(TypedDict):
     tasks: list[dict[str, Any]]
     events: list[dict[str, Any]]
     quotas: list[dict[str, Any]]
+    telemetry: dict[str, Any] | None
 
 
 def _parse_finite_float(token: str) -> float:
@@ -286,7 +288,7 @@ def _replace_config_file(path: Path, contents: bytes) -> None:
 def _run_snapshot(store: StateStore, run_id: str | None) -> _RunSnapshot:
     run = store.get_run(run_id) if run_id is not None else None
     if run is None:
-        return {"run": None, "milestones": [], "tasks": [], "events": [], "quotas": []}
+        return {"run": None, "milestones": [], "tasks": [], "events": [], "quotas": [], "telemetry": None}
     return {
         "run": run,
         "milestones": store.get_milestones(run["id"]),
@@ -294,6 +296,7 @@ def _run_snapshot(store: StateStore, run_id: str | None) -> _RunSnapshot:
         # SQLite LIMIT -1 retains the full append-only history for SSE.
         "events": store.get_events(run["id"], limit=-1),
         "quotas": store.get_all_quotas(),
+        "telemetry": compute_run_telemetry(store, run["id"]),
     }
 
 
@@ -726,6 +729,32 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         )
         self._send_json(200, result)
 
+    def _get_runs(self) -> None:
+        store = self.server.store
+        raw_runs = store.list_runs(limit=20)
+        items: list[dict[str, Any]] = []
+        for run in raw_runs:
+            rid = str(run["id"])
+            milestones = store.get_milestones(rid)
+            tasks = store.get_tasks(rid)
+            telemetry = compute_run_telemetry(store, rid)
+            items.append(
+                {
+                    "id": rid,
+                    "status": run["status"],
+                    "mode": run["mode"],
+                    "created_at": run["created_at"],
+                    "updated_at": run["updated_at"],
+                    "finished_at": run.get("finished_at"),
+                    "elapsed_sec": telemetry["elapsed_sec"],
+                    "passed_tasks": sum(1 for t in tasks if t["status"] == "PASSED"),
+                    "total_tasks": len(tasks),
+                    "passed_milestones": sum(1 for m in milestones if m["status"] == "PASSED"),
+                    "total_milestones": len(milestones),
+                }
+            )
+        self._send_json(200, {"runs": items})
+
     def _get_latest_run(self) -> None:
         self._send_json(200, _latest_run_snapshot(self.server.store))
 
@@ -744,8 +773,10 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         if store.get_run(run_id) is None:
             self._send_run_not_found(run_id)
             return
+        lang = parse_qs(urlsplit(self.path).query).get("lang", ["en"])[0]
         self._send_json(
-            200, {"run_id": run_id, "battle_report_markdown": generate_battle_report(store, run_id)}
+            200,
+            {"run_id": run_id, "battle_report_markdown": generate_battle_report(store, run_id, lang=lang)},
         )
 
     def _write_sse(self, event: str, payload: Mapping[str, Any]) -> None:

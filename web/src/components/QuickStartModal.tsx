@@ -38,7 +38,7 @@ export function QuickStartModal({
   onInspectWorker,
 }: QuickStartModalProps) {
   const { messages } = useI18n();
-  const [tab, setTab] = useState<'quickstart' | 'legend'>('quickstart');
+  const [tab, setTab] = useState<'quickstart' | 'legend' | 'tutorial'>('quickstart');
   const q = messages.quickStart;
 
   const steps: readonly {
@@ -72,12 +72,12 @@ export function QuickStartModal({
   ];
 
   return (
-    <Modal open={open} title={q.title} onClose={onClose}>
+    <Modal open={open} wide={tab === 'tutorial'} title={q.title} onClose={onClose}>
       <div className="quick-start">
         <p className="m-0 text-[13px] leading-relaxed text-muted-foreground">{q.subtitle}</p>
 
         <div
-          className="inline-flex self-start rounded-xl border border-border bg-muted/85 p-1"
+          className="inline-flex flex-wrap self-start rounded-xl border border-border bg-muted/85 p-1"
           role="tablist"
           aria-label={q.tablistAria}
         >
@@ -108,6 +108,20 @@ export function QuickStartModal({
             onClick={() => setTab('legend')}
           >
             {q.tabLegend}
+          </button>
+          <button
+            className={cn(
+              'rounded-lg px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer',
+              tab === 'tutorial'
+                ? 'bg-card text-text-strong shadow-xs'
+                : 'text-muted-foreground hover:text-text-strong',
+            )}
+            type="button"
+            role="tab"
+            aria-selected={tab === 'tutorial'}
+            onClick={() => setTab('tutorial')}
+          >
+            {q.tabTutorial}
           </button>
         </div>
 
@@ -141,7 +155,7 @@ export function QuickStartModal({
               );
             })}
           </div>
-        ) : (
+        ) : tab === 'legend' ? (
           <div className="quick-start__legend-grid">
             <div className="grid content-start gap-2.5">
               <h3 className="m-0 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -208,6 +222,20 @@ export function QuickStartModal({
                 ))}
               </div>
             </div>
+          </div>
+        ) : (
+          <div className="quick-start__tutorial-grid">
+            {q.tutorialChapters.map((chapter) => (
+              <section key={chapter.title} className="quick-start__tutorial-card">
+                <h3 className="m-0 text-sm font-semibold text-text-strong">{chapter.title}</h3>
+                <p className="m-0 text-xs leading-relaxed text-muted-foreground">{chapter.summary}</p>
+                <ul className="quick-start__tutorial-points">
+                  {chapter.points.map((point) => (
+                    <li key={point}>{point}</li>
+                  ))}
+                </ul>
+              </section>
+            ))}
           </div>
         )}
 
