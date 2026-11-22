@@ -1,6 +1,8 @@
 import { useId, useState, type FormEvent } from 'react';
 import { useI18n } from '../../i18n';
 import type { RightInspectorProps } from '../types';
+import { Button } from '../ui/button';
+import { Input, Label, Select, Textarea } from '../ui/input';
 import { Modal } from '../ui/Modal';
 
 type StartRunModalProps = Pick<RightInspectorProps, 'client' | 'onToast'> & {
@@ -88,20 +90,29 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
     <Modal open title={messages.inspector.modalStartTitle} onClose={() => { if (!submitting) onClose(); }}>
       <form className="right-inspector__section" onSubmit={(event) => void startRun(event)}>
         <fieldset className="right-inspector__section right-inspector__sources" disabled={submitting}>
-          <legend>{messages.inspector.rfcSourceLegend}</legend>
-          <div className="right-inspector__actions">
+          <legend className="px-1 text-xs font-semibold text-muted-foreground">
+            {messages.inspector.rfcSourceLegend}
+          </legend>
+          <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-text-strong">
             {rfcSources.map(({ value, label }) => (
-              <label key={value}>
-                <input type="radio" name="rfc-source" value={value} checked={source === value} onChange={() => {
-                  setSource(value);
-                  if (rfcError) setError(null);
-                }} /> {label}
+              <label key={value} className="inline-flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="rfc-source"
+                  value={value}
+                  checked={source === value}
+                  onChange={() => {
+                    setSource(value);
+                    if (rfcError) setError(null);
+                  }}
+                />
+                <span>{label}</span>
               </label>
             ))}
           </div>
           {source === 'markdown' ? (
-            <textarea
-              className="input right-inspector__mono"
+            <Textarea
+              className="right-inspector__mono"
               aria-label={messages.inspector.rfcMarkdownAria}
               aria-invalid={Boolean(rfcError)}
               aria-describedby={rfcError ? `${id}-rfc-error` : undefined}
@@ -110,8 +121,7 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
               onChange={(event) => setMarkdown(event.currentTarget.value)}
             />
           ) : (
-            <input
-              className="input"
+            <Input
               type="text"
               aria-label={messages.inspector.rfcRepoPathAria}
               aria-invalid={Boolean(rfcError)}
@@ -123,22 +133,23 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
           )}
           {rfcError && <p className="right-inspector__error" id={`${id}-rfc-error`} role="alert">{rfcError}</p>}
         </fieldset>
+
         <label className="right-inspector__field">
-          <span>{messages.inspector.runModeLabel}</span>
-          <select
-            className="select"
+          <Label className="pointer-events-none">{messages.inspector.runModeLabel}</Label>
+          <Select
             value={mode}
             disabled={submitting}
             onChange={(event) => setMode(event.currentTarget.value === 'interactive' ? 'interactive' : 'overnight')}
           >
             <option value="overnight">{messages.inspector.runModes.overnight}</option>
             <option value="interactive">{messages.inspector.runModes.interactive}</option>
-          </select>
+          </Select>
         </label>
+
         <label className="right-inspector__field">
-          <span>{messages.inspector.modelOverridesLabel}</span>
-          <textarea
-            className="input right-inspector__mono"
+          <Label className="pointer-events-none">{messages.inspector.modelOverridesLabel}</Label>
+          <Textarea
+            className="right-inspector__mono"
             aria-invalid={Boolean(overridesError)}
             aria-describedby={overridesError ? `${id}-overrides-error` : undefined}
             rows={3}
@@ -150,13 +161,14 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
         {overridesError && (
           <p className="right-inspector__error" id={`${id}-overrides-error`} role="alert">{overridesError}</p>
         )}
-        <div className="right-inspector__actions right-inspector__actions--end">
-          <button className="btn" type="button" onClick={onClose} disabled={submitting}>
+
+        <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+          <Button variant="outline" onClick={onClose} disabled={submitting}>
             {messages.inspector.cancel}
-          </button>
-          <button className="btn btn--primary" type="submit" disabled={submitting}>
+          </Button>
+          <Button variant="default" type="submit" disabled={submitting}>
             {submitting ? messages.inspector.startingRun : messages.inspector.startRun}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>

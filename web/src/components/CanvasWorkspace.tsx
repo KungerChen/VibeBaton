@@ -63,7 +63,7 @@ export function CanvasWorkspace({
       style: {
         ...edge.style,
         stroke: active ? palette.active : traversed ? palette.traversed : 'var(--slate)',
-        strokeWidth: active ? 3 : traversed ? 2 : 1.25,
+        strokeWidth: active ? 3 : traversed ? 2 : 1.5,
       },
     };
   }), [edges, activeEdgeIds, traversedEdgeIds]);
@@ -92,15 +92,19 @@ export function CanvasWorkspace({
           edgeTypes={EDGE_TYPES_MAP}
           colorMode={theme}
           fitView
+          fitViewOptions={{ padding: 0.22 }}
           deleteKeyCode={['Backspace', 'Delete']}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={handleConnect}
           onSelectionChange={handleSelectionChange}
         >
-          <Background variant={BackgroundVariant.Dots} gap={20} color="var(--canvas-dot)" />
+          <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="var(--canvas-dot)" />
           <Controls />
-          <MiniMap<BatonFlowNode> nodeColor={(node) => TIER_COLORS[tierForNodeType(node.data.nodeType, node.data.role)]} />
+          <MiniMap<BatonFlowNode>
+            nodeColor={(node) => TIER_COLORS[tierForNodeType(node.data.nodeType, node.data.role)]}
+            nodeBorderRadius={8}
+          />
           {children}
         </ReactFlow>
       </div>

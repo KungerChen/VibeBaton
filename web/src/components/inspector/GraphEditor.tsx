@@ -2,6 +2,9 @@ import { useState, type FormEvent } from 'react';
 import { useI18n } from '../../i18n';
 import type { WorkflowEdge, WorkflowNode } from '../../types/graph';
 import type { RightInspectorProps } from '../types';
+import { Button } from '../ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Input, Label } from '../ui/input';
 
 type EditableFieldProps = {
   name: string;
@@ -20,9 +23,8 @@ function EditableField(props: EditableFieldProps) {
 
   return (
     <label className="right-inspector__field">
-      <span>{label}</span>
-      <input
-        className="input"
+      <Label className="pointer-events-none">{label}</Label>
+      <Input
         name={name}
         type={type}
         value={draft ?? savedValue}
@@ -82,56 +84,65 @@ export function NodeEditor({ node, mode, client, providerListId, onUpdateNode, o
   }
 
   return (
-    <form className="right-inspector__section" onSubmit={(event) => void saveRole(event)}>
-      <h2 className="panel__title">{messages.inspector.nodeHeadingPrefix} <code>{id}</code></h2>
-      <EditableField
-        name="label"
-        label={messages.inspector.fields.label}
-        value={label}
-        onCommit={(value) => onUpdateNode(id, { label: value })}
-      />
-      <EditableField
-        name="role"
-        label={messages.inspector.fields.role}
-        value={role}
-        onCommit={(value) => onUpdateNode(id, { role: value })}
-      />
-      <EditableField
-        name="provider"
-        label={messages.inspector.fields.provider}
-        value={typeof provider === 'string' ? provider : undefined}
-        list={mode === 'local' ? providerListId : undefined}
-        onCommit={(value) => onUpdateNode(id, { provider: value })}
-      />
-      <EditableField
-        name="model"
-        label={messages.inspector.fields.model}
-        value={typeof model === 'string' ? model : undefined}
-        placeholder="deepseek-v4.1-flash@max"
-        onCommit={(value) => onUpdateNode(id, { model: value })}
-      />
-      {hasLoopField && (
-        <EditableField
-          name="max_loops"
-          label={messages.inspector.fields.maxLoops}
-          type="number"
-          value={typeof maxLoops === 'number' ? maxLoops : undefined}
-          onCommit={(value) => onUpdateNode(id, { max_loops: value })}
-        />
-      )}
-      {mode === 'local' && role && (
-        <button className="btn btn--primary" type="submit" disabled={saving}>
-          {messages.inspector.saveHotReload}
-        </button>
-      )}
-      {mode === 'demo' && (
-        <p className="right-inspector__muted">
-          {messages.inspector.demoHotSwapHintPrefix}
-          <code>baton ui</code>
-          {messages.inspector.demoHotSwapHintSuffix}
-        </p>
-      )}
-    </form>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-1.5 flex-wrap">
+          <span>{messages.inspector.nodeHeadingPrefix}</span>
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-primary">{id}</code>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form className="right-inspector__section" onSubmit={(event) => void saveRole(event)}>
+          <EditableField
+            name="label"
+            label={messages.inspector.fields.label}
+            value={label}
+            onCommit={(value) => onUpdateNode(id, { label: value })}
+          />
+          <EditableField
+            name="role"
+            label={messages.inspector.fields.role}
+            value={role}
+            onCommit={(value) => onUpdateNode(id, { role: value })}
+          />
+          <EditableField
+            name="provider"
+            label={messages.inspector.fields.provider}
+            value={typeof provider === 'string' ? provider : undefined}
+            list={mode === 'local' ? providerListId : undefined}
+            onCommit={(value) => onUpdateNode(id, { provider: value })}
+          />
+          <EditableField
+            name="model"
+            label={messages.inspector.fields.model}
+            value={typeof model === 'string' ? model : undefined}
+            placeholder="deepseek-v4.1-flash@max"
+            onCommit={(value) => onUpdateNode(id, { model: value })}
+          />
+          {hasLoopField && (
+            <EditableField
+              name="max_loops"
+              label={messages.inspector.fields.maxLoops}
+              type="number"
+              value={typeof maxLoops === 'number' ? maxLoops : undefined}
+              onCommit={(value) => onUpdateNode(id, { max_loops: value })}
+            />
+          )}
+          {mode === 'local' && role && (
+            <Button variant="default" size="default" type="submit" disabled={saving} className="mt-1">
+              {messages.inspector.saveHotReload}
+            </Button>
+          )}
+          {mode === 'demo' && (
+            <p className="m-0 rounded-lg border border-border bg-muted/50 p-2.5 text-xs text-muted-foreground">
+              {messages.inspector.demoHotSwapHintPrefix}
+              <code className="font-mono text-text-strong">baton ui</code>
+              {messages.inspector.demoHotSwapHintSuffix}
+            </p>
+          )}
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -139,27 +150,36 @@ export function EdgeEditor({ edge, onUpdateEdge }: Pick<RightInspectorProps, 'on
   const { messages } = useI18n();
   const { id, sourceHandle, targetHandle, max_loops: maxLoops } = edge;
   return (
-    <div className="right-inspector__section">
-      <h2 className="panel__title">{messages.inspector.edgeHeadingPrefix} <code>{id}</code></h2>
-      <EditableField
-        name="sourceHandle"
-        label={messages.inspector.fields.sourceHandle}
-        value={sourceHandle}
-        onCommit={(value) => onUpdateEdge(id, { sourceHandle: value || undefined })}
-      />
-      <EditableField
-        name="targetHandle"
-        label={messages.inspector.fields.targetHandle}
-        value={targetHandle}
-        onCommit={(value) => onUpdateEdge(id, { targetHandle: value || undefined })}
-      />
-      <EditableField
-        name="max_loops"
-        label={messages.inspector.fields.maxLoops}
-        type="number"
-        value={maxLoops}
-        onCommit={(value) => onUpdateEdge(id, { max_loops: value })}
-      />
-    </div>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-1.5 flex-wrap">
+          <span>{messages.inspector.edgeHeadingPrefix}</span>
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-primary">{id}</code>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="right-inspector__section">
+          <EditableField
+            name="sourceHandle"
+            label={messages.inspector.fields.sourceHandle}
+            value={sourceHandle}
+            onCommit={(value) => onUpdateEdge(id, { sourceHandle: value || undefined })}
+          />
+          <EditableField
+            name="targetHandle"
+            label={messages.inspector.fields.targetHandle}
+            value={targetHandle}
+            onCommit={(value) => onUpdateEdge(id, { targetHandle: value || undefined })}
+          />
+          <EditableField
+            name="max_loops"
+            label={messages.inspector.fields.maxLoops}
+            type="number"
+            value={maxLoops}
+            onCommit={(value) => onUpdateEdge(id, { max_loops: value })}
+          />
+        </div>
+      </CardContent>
+    </Card>
   );
 }

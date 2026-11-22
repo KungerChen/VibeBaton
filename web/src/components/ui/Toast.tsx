@@ -47,7 +47,7 @@ export function ToastHost({ toasts }: ToastHostProps) {
 
         return (
           <div className={`toast-host__item toast-host__item--${kind}`} key={id}>
-            <Icon className="toast-host__icon" size={18} aria-hidden="true" />
+            <Icon className="toast-host__icon" size={16} aria-hidden="true" />
             <span>{message}</span>
           </div>
         );

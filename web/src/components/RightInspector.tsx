@@ -3,28 +3,74 @@ import './ui/ui.css';
 import { useEffect, useEffectEvent, useId, useRef, useState } from 'react';
 import { useI18n } from '../i18n';
 import { translateHandle, translatePresetText } from '../i18n/presets';
+import { cn } from '../lib/utils';
 import { EdgeEditor, NodeEditor } from './inspector/GraphEditor';
 import { LiveRunPanel } from './inspector/LiveRunPanel';
 import type { RightInspectorProps } from './types';
+import { Badge, type BadgeProps } from './ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 
 type InspectorTab = 'inspector' | 'trace';
+
+const DIFFICULTY_BADGE: Record<string, BadgeProps['variant']> = {
+  beginner: 'success',
+  intermediate: 'info',
+  pro: 'violet',
+  expert: 'warning',
+};
 
 function GraphDetails({ graph }: Pick<RightInspectorProps, 'graph'>) {
   const { locale, messages } = useI18n();
   const difficultyLabel = graph.difficulty
     ? messages.sidebar.difficulty[graph.difficulty] ?? graph.difficulty
     : '—';
+  const badgeVariant = graph.difficulty ? (DIFFICULTY_BADGE[graph.difficulty] ?? 'secondary') : 'secondary';
 
   return (
-    <dl className="right-inspector__details">
-      <dt>{messages.inspector.detailsId}</dt><dd><code>{graph.id}</code></dd>
-      <dt>{messages.inspector.detailsName}</dt><dd>{translatePresetText(graph.name, locale)}</dd>
-      <dt>{messages.inspector.detailsDifficulty}</dt><dd>{difficultyLabel}</dd>
-      <dt>{messages.inspector.detailsDescription}</dt>
-      <dd>{graph.description ? translatePresetText(graph.description, locale) : '—'}</dd>
-      <dt>{messages.inspector.detailsNodes}</dt><dd>{graph.nodes.length}</dd>
-      <dt>{messages.inspector.detailsEdges}</dt><dd>{graph.edges.length}</dd>
-    </dl>
+    <div className="grid gap-3">
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-start justify-between gap-2">
+            <CardTitle>{translatePresetText(graph.name, locale)}</CardTitle>
+            {graph.difficulty && (
+              <Badge variant={badgeVariant} className="shrink-0 uppercase text-[10px]">
+                {difficultyLabel}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 pt-0.5">
+            <span className="text-[11px] text-muted-foreground">{messages.inspector.detailsId}:</span>
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-text-strong">
+              {graph.id}
+            </code>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <CardDescription>
+            {graph.description ? translatePresetText(graph.description, locale) : '—'}
+          </CardDescription>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-2.5">
+        <div className="rounded-xl border border-border bg-muted/45 p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {messages.inspector.detailsNodes}
+          </div>
+          <div className="mt-1 text-xl font-bold font-mono tabular-nums text-text-strong">
+            {graph.nodes.length}
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-muted/45 p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {messages.inspector.detailsEdges}
+          </div>
+          <div className="mt-1 text-xl font-bold font-mono tabular-nums text-text-strong">
+            {graph.edges.length}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -72,43 +118,57 @@ export function RightInspector({
   }, [tab, activeIndex, trace]);
 
   return (
-    <aside className="right-inspector" aria-label={messages.inspector.asideAria}>
-      <div className="tabs right-inspector__tabs" role="tablist" aria-label={messages.inspector.tablistAria}>
-        {tabs.map(({ id: key, label }) => (
-          <button
-            key={key}
-            className={`tab${tab === key ? ' tab--active' : ''}`}
-            type="button"
-            role="tab"
-            id={`${id}-${key}-tab`}
-            aria-controls={`${id}-${key}`}
-            aria-selected={tab === key}
-            tabIndex={tab === key ? 0 : -1}
-            onClick={() => setTab(key)}
-            onKeyDown={(event) => {
-              let nextTab: InspectorTab;
-              switch (event.key) {
-                case 'ArrowLeft':
-                case 'ArrowRight':
-                  nextTab = key === 'inspector' ? 'trace' : 'inspector';
-                  break;
-                case 'Home':
-                  nextTab = 'inspector';
-                  break;
-                case 'End':
-                  nextTab = 'trace';
-                  break;
-                default:
-                  return;
-              }
-              event.preventDefault();
-              setTab(nextTab);
-              event.currentTarget.ownerDocument.getElementById(`${id}-${nextTab}-tab`)?.focus();
-            }}
-          >
-            {label}
-          </button>
-        ))}
+    <aside className="right-inspector border-s border-border bg-card" aria-label={messages.inspector.asideAria}>
+      <div className="border-b border-border bg-card px-3.5 py-2.5">
+        <div
+          className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-muted/85 p-1"
+          role="tablist"
+          aria-label={messages.inspector.tablistAria}
+        >
+          {tabs.map(({ id: key, label }) => {
+            const isSelected = tab === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                id={`${id}-${key}-tab`}
+                aria-controls={`${id}-${key}`}
+                aria-selected={isSelected}
+                tabIndex={isSelected ? 0 : -1}
+                onClick={() => setTab(key)}
+                onKeyDown={(event) => {
+                  let nextTab: InspectorTab;
+                  switch (event.key) {
+                    case 'ArrowLeft':
+                    case 'ArrowRight':
+                      nextTab = key === 'inspector' ? 'trace' : 'inspector';
+                      break;
+                    case 'Home':
+                      nextTab = 'inspector';
+                      break;
+                    case 'End':
+                      nextTab = 'trace';
+                      break;
+                    default:
+                      return;
+                  }
+                  event.preventDefault();
+                  setTab(nextTab);
+                  event.currentTarget.ownerDocument.getElementById(`${id}-${nextTab}-tab`)?.focus();
+                }}
+                className={cn(
+                  'rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  isSelected
+                    ? 'bg-card text-text-strong shadow-xs'
+                    : 'text-muted-foreground hover:text-text-strong',
+                )}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <section
@@ -150,8 +210,14 @@ export function RightInspector({
         hidden={tab !== 'trace'}
       >
         <section className="right-inspector__section" aria-label={messages.inspector.traceAria}>
-          <h2 className="panel__title">{messages.inspector.traceTitle}</h2>
-          {trace.length === 0 ? <p className="right-inspector__muted">{messages.inspector.noTrace}</p> : (
+          <h2 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground m-0">
+            {messages.inspector.traceTitle}
+          </h2>
+          {trace.length === 0 ? (
+            <p className="m-0 rounded-xl border border-dashed border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+              {messages.inspector.noTrace}
+            </p>
+          ) : (
             <ol className="right-inspector__trace">
               {trace.map((row, index) => {
                 const active = index === activeIndex;
@@ -159,21 +225,37 @@ export function RightInspector({
                 return (
                   <li key={row.seq}>
                     <button
-                      className="right-inspector__trace-row"
                       type="button"
                       ref={active ? activeRow : null}
                       aria-current={active ? 'step' : undefined}
                       onClick={() => onJumpToStep(index + 1)}
+                      className={cn(
+                        'right-inspector__trace-row w-full rounded-xl border p-2.5 text-start text-xs transition-all cursor-pointer',
+                        active
+                          ? 'border-primary/50 bg-[var(--accent-soft)] ring-1 ring-primary/25'
+                          : 'border-border bg-muted/35 hover:border-border-strong hover:bg-muted/70',
+                      )}
                     >
-                      <span className="right-inspector__trace-seq">{row.seq}</span>
-                      <span className="right-inspector__trace-content">
-                        <strong>{messages.playback.traceKinds[row.kind] ?? row.kind}</strong>
+                      <span
+                        className={cn(
+                          'flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-mono text-[10.5px] font-bold',
+                          active
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-card border border-border text-muted-foreground',
+                        )}
+                      >
+                        {row.seq}
+                      </span>
+                      <span className="grid gap-0.5 min-w-0 overflow-wrap-anywhere">
+                        <strong className="font-semibold text-text-strong">
+                          {messages.playback.traceKinds[row.kind] ?? row.kind}
+                        </strong>
                         {(row.node_id || row.edge_id || localizedOutcome) && (
-                          <span className="right-inspector__muted right-inspector__mono">
+                          <span className="font-mono text-[11px] text-muted-foreground">
                             {[row.node_id, row.edge_id, localizedOutcome].filter(Boolean).join(' · ')}
                           </span>
                         )}
-                        <span>{row.message}</span>
+                        <span className="text-foreground leading-snug">{row.message}</span>
                       </span>
                     </button>
                   </li>

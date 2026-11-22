@@ -4,19 +4,22 @@ import { formatLiveEventMessage, translateEventKind, translateTier } from '../..
 import { translateRole } from '../../i18n/presets';
 import type { LiveRunSnapshot } from '../../types/graph';
 import type { RightInspectorProps } from '../types';
+import { Badge, type BadgeProps } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Input, Label } from '../ui/input';
 import { MarkdownView } from '../ui/MarkdownView';
 import { Modal } from '../ui/Modal';
 import { StartRunModal } from './StartRunModal';
 
 const eventLimit = 200;
 const emptySnapshot: LiveRunSnapshot = { run: null, milestones: [], tasks: [], events: [], quotas: [] };
-const statusStyles = new Map([
-  ['RUNNING', 'right-inspector__status--running'],
-  ['PAUSED', 'right-inspector__status--paused'],
-  ['WAITING_HUMAN', 'pill--warn'],
-  ['COMPLETED', 'pill--ok'],
-  ['FAILED', 'pill--err'],
-  ['HALTED', 'pill--err'],
+const statusBadgeVariant = new Map<string, BadgeProps['variant']>([
+  ['RUNNING', 'info'],
+  ['PAUSED', 'secondary'],
+  ['WAITING_HUMAN', 'warning'],
+  ['COMPLETED', 'success'],
+  ['FAILED', 'destructive'],
+  ['HALTED', 'destructive'],
 ]);
 
 function isRow(value: unknown): value is Record<string, unknown> {
@@ -92,7 +95,6 @@ export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
         snapshotRevision.current += 1;
         setSnapshot((current) => {
           if (current.run && typeof event.run_id === 'string' && event.run_id !== current.run.id) return current;
-          // The server sends a snapshot before replaying the same newly added events by ID.
           const lastId = current.events.at(-1)?.id;
           if (typeof event.id === 'number' && typeof lastId === 'number' && event.id <= lastId) return current;
           return withRecentEvents({ ...current, events: [...current.events, event] });
@@ -125,7 +127,6 @@ export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
     const revision = ++snapshotRevision.current;
     try {
       const latest = await client.getLatestRun();
-      // A snapshot or event may have arrived since the HTTP request began.
       if (revision === snapshotRevision.current) setSnapshot(withRecentEvents(latest));
     } catch (error) {
       onToast(error instanceof Error ? error.message : String(error), 'err');
@@ -175,62 +176,77 @@ export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
   }
 
   return (
-    <section className="right-inspector__section right-inspector__live" aria-label={messages.inspector.liveSectionAria}>
-      <div className="right-inspector__heading">
-        <h2 className="panel__title">{messages.inspector.liveTitle}</h2>
-        {reconnecting && <span className="pill pill--warn" role="status">{messages.inspector.reconnecting}</span>}
-      </div>
-      <div className="right-inspector__actions">
-        <button className="btn btn--primary" type="button" onClick={() => setStartOpen(true)}>
-          {messages.inspector.startRealRun}
-        </button>
-        {runId && (
-          <button className="btn" type="button" onClick={() => void showReport()} disabled={loadingReport}>
-            {messages.inspector.battleReport}
-          </button>
+    <section
+      className="right-inspector__section border-t border-border pt-4"
+      aria-label={messages.inspector.liveSectionAria}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground m-0">
+          {messages.inspector.liveTitle}
+        </h2>
+        {reconnecting && (
+          <Badge variant="warning" role="status">
+            {messages.inspector.reconnecting}
+          </Badge>
         )}
       </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="default" size="sm" onClick={() => setStartOpen(true)}>
+          {messages.inspector.startRealRun}
+        </Button>
+        {runId && (
+          <Button variant="outline" size="sm" onClick={() => void showReport()} disabled={loadingReport}>
+            {messages.inspector.battleReport}
+          </Button>
+        )}
+      </div>
+
       {runId ? (
         <>
-          <div className="right-inspector__heading">
-            <span className={`pill ${statusStyles.get(status) ?? 'pill--muted'}`} role="status">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={statusBadgeVariant.get(status) ?? 'outline'} role="status">
               {messages.inspector.runStatuses[status] ?? status}
-            </span>
-            <code>{runId}</code>
+            </Badge>
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground break-all">
+              {runId}
+            </code>
           </div>
+
           {(status === 'RUNNING' || status === 'PAUSED') && (
-            <div className="right-inspector__actions">
-              <button
-                className="btn"
-                type="button"
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={controlling}
                 onClick={() => void changeRun(status === 'RUNNING' ? 'pause' : 'resume')}
               >
                 {status === 'RUNNING' ? messages.inspector.pauseRun : messages.inspector.resumeRun}
-              </button>
+              </Button>
             </div>
           )}
+
           {status === 'WAITING_HUMAN' && (
             <>
               <label className="right-inspector__field">
-                <span>{messages.inspector.decisionNote}</span>
-                <input
-                  className="input"
+                <Label className="pointer-events-none">{messages.inspector.decisionNote}</Label>
+                <Input
                   value={note?.runId === runId ? note.text : ''}
                   disabled={controlling}
                   onChange={(event) => setNote({ runId, text: event.currentTarget.value })}
                 />
               </label>
-              <div className="right-inspector__actions">
-                <button className="btn btn--primary" type="button" disabled={controlling} onClick={() => void changeRun('approve')}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="default" size="sm" disabled={controlling} onClick={() => void changeRun('approve')}>
                   {messages.inspector.approve}
-                </button>
-                <button className="btn btn--danger" type="button" disabled={controlling} onClick={() => void changeRun('reject')}>
+                </Button>
+                <Button variant="destructive" size="sm" disabled={controlling} onClick={() => void changeRun('reject')}>
                   {messages.inspector.reject}
-                </button>
+                </Button>
               </div>
             </>
           )}
+
           <div className="right-inspector__tasks" tabIndex={0} role="region" aria-label={messages.inspector.tasksAria}>
             <table className="table">
               <thead>
@@ -263,10 +279,15 @@ export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
           </div>
         </>
       ) : (
-        <p className="right-inspector__muted">{messages.inspector.noRuns}</p>
+        <p className="m-0 rounded-xl border border-dashed border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+          {messages.inspector.noRuns}
+        </p>
       )}
+
       <div className="right-inspector__section">
-        <h3 className="right-inspector__label">{messages.inspector.eventLogTitle}</h3>
+        <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground m-0">
+          {messages.inspector.eventLogTitle}
+        </h3>
         <div
           className="right-inspector__event-log right-inspector__mono"
           ref={eventLog}
@@ -293,33 +314,36 @@ export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
               </div>
             );
           })}
-          {snapshot.events.length === 0 && <p className="right-inspector__muted">{messages.inspector.noEvents}</p>}
+          {snapshot.events.length === 0 && (
+            <p className="m-0 text-xs text-muted-foreground">{messages.inspector.noEvents}</p>
+          )}
         </div>
       </div>
+
       {visible && report && (
         <Modal open wide title={messages.inspector.modalReportTitle} onClose={() => setReport(null)}>
           <div className="right-inspector__report-toolbar">
-            <code className="right-inspector__muted">{report.runId}</code>
-            <div className="right-inspector__actions">
-              <button
-                className={`btn${!reportRawMode ? ' btn--primary' : ''}`}
-                type="button"
+            <code className="text-xs font-mono text-muted-foreground">{report.runId}</code>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={!reportRawMode ? 'default' : 'outline'}
+                size="sm"
                 aria-pressed={!reportRawMode}
                 onClick={() => setReportRawMode(false)}
               >
                 {messages.inspector.reportRendered}
-              </button>
-              <button
-                className={`btn${reportRawMode ? ' btn--primary' : ''}`}
-                type="button"
+              </Button>
+              <Button
+                variant={reportRawMode ? 'default' : 'outline'}
+                size="sm"
                 aria-pressed={reportRawMode}
                 onClick={() => setReportRawMode(true)}
               >
                 {messages.inspector.reportRaw}
-              </button>
-              <button className="btn" type="button" onClick={() => void copyReportMarkdown()}>
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => void copyReportMarkdown()}>
                 {messages.inspector.reportCopy}
-              </button>
+              </Button>
             </div>
           </div>
           {reportRawMode ? (

@@ -5,58 +5,37 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--canvas-bg);
 }
 
 .canvas-workspace .react-flow {
-  --xy-background-color: var(--bg);
+  --xy-background-color: var(--canvas-bg);
   --xy-background-pattern-dots-color: var(--canvas-dot);
-  --xy-controls-button-background-color: var(--panel);
+  --xy-controls-button-background-color: var(--card);
   --xy-controls-button-background-color-hover: var(--panel-hover);
   --xy-controls-button-border-color: var(--border);
-  --xy-controls-button-color: var(--text);
+  --xy-controls-button-color: var(--foreground);
   --xy-controls-button-color-hover: var(--text-strong);
-  --xy-edge-label-background-color: var(--panel);
+  --xy-edge-label-background-color: var(--card);
   --xy-edge-label-color: var(--text-strong);
-  --xy-minimap-background-color: var(--panel);
-  --xy-minimap-mask-background-color: color-mix(in srgb, var(--bg) 70%, transparent);
+  --xy-minimap-background-color: var(--card);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--canvas-bg) 72%, transparent);
 }
 
 .canvas-workspace .react-flow__controls {
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.75rem;
   overflow: hidden;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
 }
 
 .canvas-workspace .react-flow__minimap {
-  border: 1px solid var(--border);
-  border-radius: 0.625rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.875rem;
   overflow: hidden;
-  box-shadow: var(--shadow-sm);
-}
-
-.canvas-workspace .react-flow__node-baton {
-  max-width: 260px;
-}
-
-.canvas-workspace .baton-node__header {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-}
-
-.canvas-workspace .baton-node__tier {
-  justify-self: start;
-  box-sizing: border-box;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.canvas-workspace .baton-node__label {
-  grid-column: 1 / -1;
+  box-shadow: var(--shadow-md);
 }
 
 .canvas-workspace .react-flow__edge.selected .react-flow__edge-path {
-  filter: brightness(1.3);
+  filter: brightness(1.25);
 }

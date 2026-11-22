@@ -13,12 +13,21 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { formatProviderDisplay, translateHandle, translatePresetText, translateRole } from '../../i18n/presets';
+import { cn } from '../../lib/utils';
 import {
   tierForNodeType,
   type ExecutionState,
   type NodeType,
   type TierKey,
 } from '../../types/graph';
+import {
+  BaseNode,
+  BaseNodeContent,
+  BaseNodeFooter,
+  BaseNodeHeader,
+  BaseNodeHeaderTitle,
+  NodeStatusBadge,
+} from '../ui/base-node';
 
 export type BatonNodeData = {
   label: string;
@@ -35,13 +44,13 @@ export type BatonFlowNode = Node<BatonNodeData, 'baton'>;
 
 export const TIER_COLORS: Record<TierKey, string> = {
   L0: '#f59e0b',
-  L1: '#8b5cf6',
-  L2: '#38bdf8',
-  L3: '#34d399',
-  GATE: '#818cf8',
+  L1: '#7c3aed',
+  L2: '#0ea5e9',
+  L3: '#10b981',
+  GATE: '#6366f1',
   MERGE: '#64748b',
-  ROUTER: '#2dd4bf',
-  HUMAN: '#fb7185',
+  ROUTER: '#14b8a6',
+  HUMAN: '#f43f5e',
 };
 
 export const NODE_ICONS: Record<NodeType, LucideIcon> = {
@@ -65,6 +74,24 @@ export const NODE_HANDLES: Record<NodeType, { targets: string[]; sources: string
   human_gate_node: { targets: ['in'], sources: ['approve', 'reject'] },
 };
 
+const STATE_BADGE_VARIANT: Record<
+  Exclude<ExecutionState, 'idle'>,
+  'info' | 'warning' | 'destructive' | 'success'
+> = {
+  active: 'info',
+  retrying: 'warning',
+  escalated: 'destructive',
+  passed: 'success',
+  failed: 'destructive',
+};
+
+function portToneClass(portId: string): string {
+  if (portId === 'pass' || portId === 'approve') return 'baton-node__port-tag--ok';
+  if (portId === 'fail' || portId === 'minor_fix' || portId === 'reject') return 'baton-node__port-tag--warn';
+  if (portId === 'escalate') return 'baton-node__port-tag--err';
+  return '';
+}
+
 export const BatonNode = memo(function BatonNode({ data, isConnectable, selected }: NodeProps<BatonFlowNode>) {
   const { locale, messages } = useI18n();
   const { label, nodeType, role, provider, model, max_loops: maxLoops, concurrency, state = 'idle' } = data;
@@ -75,22 +102,23 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
   const modelLabel = model && (provider ? `${formatProviderDisplay(provider)} / ${model}` : model);
   const parallelCount = concurrency !== undefined && concurrency > 1 ? concurrency : undefined;
   const stateText = state !== 'idle' ? messages.nodeStates[state] : undefined;
-  const stateBadge = stateText ? { text: stateText, className: `baton-node__badge--${state}` } : undefined;
   const localizedLabel = translatePresetText(label, locale);
   const localizedRole = role ? translateRole(role, locale) : undefined;
   const nodeTypeLabel = messages.nodeTypes[nodeType];
 
   const style = {
     '--tier-color': tierColor,
-    '--tier-border': `${tierColor}99`,
-    '--tier-glow': `${tierColor}55`,
-    '--tier-glow-soft': `${tierColor}22`,
   } as CSSProperties;
 
-  const className = `baton-node baton-node--${state}${selected ? ' baton-node--selected' : ''}`;
-
   return (
-    <div className={className} style={style}>
+    <BaseNode
+      style={style}
+      className={cn(
+        'baton-node w-[272px]',
+        `baton-node--${state}`,
+        selected && 'baton-node--selected',
+      )}
+    >
       {targets.map((id, index) => (
         <Handle
           key={id}
@@ -103,55 +131,87 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
         />
       ))}
 
-      <div className="baton-node__content">
-        <div className="baton-node__header">
-          <Icon className="baton-node__icon" size={14} aria-hidden="true" />
-          <span className="baton-node__tier">
-            {tier} · {nodeTypeLabel}
-          </span>
-          <span className="baton-node__label" title={localizedLabel}>
-            {localizedLabel}
-          </span>
+      <BaseNodeHeader>
+        <div
+          className="baton-node__squircle flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
+          aria-hidden="true"
+        >
+          <Icon size={16} />
         </div>
 
-        {localizedRole && <div className="baton-node__role">{localizedRole}</div>}
-
-        {(modelLabel || maxLoops !== undefined || parallelCount !== undefined || stateBadge) && (
-          <div className="baton-node__meta">
-            {modelLabel && (
-              <span className="baton-node__model" title={modelLabel}>
-                {modelLabel}
-              </span>
-            )}
-            {parallelCount !== undefined && (
-              <span className="baton-node__concurrency" title={messages.nodeCard.parallelWorkersTitle}>
-                ⚡ ×{parallelCount}
-              </span>
-            )}
-            {maxLoops !== undefined && <span className="baton-node__loops">↻ ×{maxLoops}</span>}
-            {stateBadge && (
-              <span className={`baton-node__badge ${stateBadge.className}`}>
-                {stateBadge.text}
-              </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+            <span className="baton-node__tier">
+              {tier} · {nodeTypeLabel}
+            </span>
+            {stateText && state !== 'idle' && (
+              <NodeStatusBadge
+                variant={STATE_BADGE_VARIANT[state]}
+                className={state === 'active' ? 'baton-node__badge--active' : undefined}
+              >
+                {stateText}
+              </NodeStatusBadge>
             )}
           </div>
-        )}
-      </div>
+          <BaseNodeHeaderTitle title={localizedLabel}>
+            {localizedLabel}
+          </BaseNodeHeaderTitle>
+        </div>
+      </BaseNodeHeader>
 
-      <div className="baton-node__sources">
-        {sources.map((id) => (
-          <div key={id} className="baton-node__source">
-            {translateHandle(id, locale)}
-            <Handle
-              className="baton-node__handle"
-              type="source"
-              position={Position.Right}
-              id={id}
-              isConnectable={isConnectable}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
+      {(localizedRole || modelLabel || maxLoops !== undefined || parallelCount !== undefined) && (
+        <BaseNodeContent>
+          {localizedRole && (
+            <p className="m-0 text-[11.5px] leading-snug text-muted-foreground">
+              {localizedRole}
+            </p>
+          )}
+          {(modelLabel || maxLoops !== undefined || parallelCount !== undefined) && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {modelLabel && (
+                <span
+                  className="max-w-full truncate rounded-md border border-border bg-muted/75 px-2 py-0.5 font-mono text-[10px] text-foreground"
+                  title={modelLabel}
+                >
+                  {modelLabel}
+                </span>
+              )}
+              {parallelCount !== undefined && (
+                <NodeStatusBadge variant="success" title={messages.nodeCard.parallelWorkersTitle}>
+                  ⚡ ×{parallelCount}
+                </NodeStatusBadge>
+              )}
+              {maxLoops !== undefined && (
+                <NodeStatusBadge variant="warning">
+                  ↻ ×{maxLoops}
+                </NodeStatusBadge>
+              )}
+            </div>
+          )}
+        </BaseNodeContent>
+      )}
+
+      {sources.length > 0 && (
+        <BaseNodeFooter className="px-0 py-1.5">
+          {sources.map((id) => (
+            <div
+              key={id}
+              className="relative flex items-center justify-end px-3.5 py-0.5"
+            >
+              <span className={cn('baton-node__port-tag', portToneClass(id))}>
+                {translateHandle(id, locale)}
+              </span>
+              <Handle
+                className="baton-node__handle"
+                type="source"
+                position={Position.Right}
+                id={id}
+                isConnectable={isConnectable}
+              />
+            </div>
+          ))}
+        </BaseNodeFooter>
+      )}
+    </BaseNode>
   );
 });

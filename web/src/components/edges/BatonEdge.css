@@ -4,10 +4,10 @@
 
 .baton-edge__label {
   position: absolute;
-  padding: 2px 7px;
+  padding: 2px 8px;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
-  background: var(--bg-elevated);
+  background: var(--card);
   color: var(--text-strong);
   box-shadow: var(--shadow-sm);
   font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Consolas, monospace;
@@ -23,19 +23,19 @@
 
 .baton-edge__label--normal {
   border-color: color-mix(in srgb, var(--emerald) 38%, transparent);
-  background: color-mix(in srgb, var(--emerald) 12%, var(--bg-elevated));
+  background: color-mix(in srgb, var(--emerald) 10%, var(--card));
   color: var(--emerald);
 }
 
 .baton-edge__label--retry {
   border-color: color-mix(in srgb, var(--amber) 42%, transparent);
-  background: color-mix(in srgb, var(--amber) 14%, var(--bg-elevated));
+  background: color-mix(in srgb, var(--amber) 12%, var(--card));
   color: var(--amber);
 }
 
 .baton-edge__label--escalate {
-  border-color: color-mix(in srgb, var(--rose) 45%, transparent);
-  background: color-mix(in srgb, var(--rose) 14%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--rose) 42%, transparent);
+  background: color-mix(in srgb, var(--rose) 12%, var(--card));
   color: var(--rose);
 }
 
@@ -45,5 +45,5 @@
 }
 
 .baton-edge__label--selected {
-  border-color: var(--accent);
+  border-color: var(--primary);
 }

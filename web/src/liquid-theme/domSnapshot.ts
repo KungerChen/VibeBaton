@@ -187,7 +187,7 @@ export function createRevealOverlay(
 
   const rimPathEl = document.createElementNS(SVG_NS, 'path');
   rimPathEl.setAttribute('fill', 'none');
-  rimPathEl.setAttribute('stroke', targetTheme === 'light' ? 'rgba(109, 79, 224, 0.32)' : 'rgba(139, 124, 246, 0.36)');
+  rimPathEl.setAttribute('stroke', targetTheme === 'light' ? 'rgba(37, 99, 235, 0.32)' : 'rgba(59, 130, 246, 0.38)');
   rimPathEl.setAttribute('stroke-width', '2');
   rimPathEl.setAttribute('stroke-linecap', 'round');
   svg.append(rimPathEl);
