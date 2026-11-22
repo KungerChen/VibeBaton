@@ -392,7 +392,7 @@ export function LiveRunPanel({
                   {messages.inspector.totalElapsed(formatDurationSec(telemetry.elapsed_sec, locale))}
                 </span>
               </div>
-              <div className="grid gap-1.5">
+              <div className="grid min-w-0 grid-cols-1 gap-1.5">
                 {telemetry.stages.map((stage) => {
                   const stageLabel = stage.kind === 'planning'
                     ? (locale === 'en' ? '01_PLAN' : '01_PLAN · 规划')
@@ -401,13 +401,13 @@ export function LiveRunPanel({
                   return (
                     <div
                       key={stage.id}
-                      className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs"
+                      className="flex w-full min-w-0 items-center justify-between gap-2 overflow-hidden rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs"
                     >
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="truncate font-medium text-text-strong" title={stageLabel}>
                           {stageLabel}
                         </div>
-                        <div className="text-[10.5px] text-muted-foreground">
+                        <div className="truncate text-[10.5px] text-muted-foreground">
                           {stageStatus}
                           {stage.total_tasks > 0 ? ` · ${stage.passed_tasks}/${stage.total_tasks}` : ''}
                         </div>
@@ -427,14 +427,14 @@ export function LiveRunPanel({
               <h3 className="m-0 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                 {messages.inspector.modelRuntimeTitle}
               </h3>
-              <div className="grid gap-2">
+              <div className="grid min-w-0 grid-cols-1 gap-2">
                 {telemetry.models.map((item) => {
                   const providerName = formatProviderDisplay(item.display_provider || item.provider);
                   const modelTitle = item.model ? `${providerName} / ${item.model}` : providerName;
                   return (
                     <div
                       key={item.actor}
-                      className="grid gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs"
+                      className="grid min-w-0 grid-cols-1 gap-1 overflow-hidden rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="min-w-0 truncate font-mono text-[11px] font-semibold text-text-strong" title={modelTitle}>
