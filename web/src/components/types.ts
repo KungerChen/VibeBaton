@@ -69,6 +69,7 @@ export interface HeaderBarProps {
   mode: ApiMode;
   version?: string;
   graphName: string;
+  onOpenGuide?: () => void;
 }
 
 export interface ModalProps {

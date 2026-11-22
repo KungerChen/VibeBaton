@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import { EMBEDDED_PRESETS } from '../data/presets';
-import { STAGE1_REPLAY_TRACE } from '../data/stage1Replay';
+import { EMBEDDED_PRESETS, flagship_4tier } from '../data/presets';
+import { STAGE1_REPLAY_TRACE, STAGE1_REPLAY_TRACE_ZH } from '../data/stage1Replay';
 import { readStoredLocale } from './index';
 import { MESSAGES } from './messages';
-import { translateHandle, translatePresetText, translateRole } from './presets';
+import { formatProviderDisplay, translateHandle, translatePresetText, translateRole } from './presets';
 
 const CJK_PATTERN = /[\u4e00-\u9fff]/;
+const OPENCODE_PATTERN = /opencode/i;
 
 function collectStrings(value: unknown, path = 'root', out: { path: string; text: string }[] = []) {
   if (typeof value === 'string') {
@@ -71,5 +72,29 @@ describe('i18n guarantees', () => {
     expect(translateRole('critical_executor', 'en')).not.toMatch(CJK_PATTERN);
     expect(translateHandle('minor_fix', 'zh')).toMatch(CJK_PATTERN);
     expect(translateHandle('minor_fix', 'en')).toBe('minor_fix');
+    expect(formatProviderDisplay('dsh_opencode')).toBe('DeepSeek API');
+    expect(formatProviderDisplay('claude_sub')).toBe('claude_sub');
+  });
+
+  test('displays DeepSeek API instead of OpenCode in UI labels while preserving dsh_opencode config', () => {
+    for (const preset of EMBEDDED_PRESETS) {
+      expect(preset.name).not.toMatch(OPENCODE_PATTERN);
+      expect(preset.description ?? '').not.toMatch(OPENCODE_PATTERN);
+      for (const item of preset.recommended_for ?? []) {
+        expect(item).not.toMatch(OPENCODE_PATTERN);
+      }
+      for (const node of preset.nodes) {
+        expect(node.label).not.toMatch(OPENCODE_PATTERN);
+        expect(translatePresetText(node.label, 'zh')).not.toMatch(OPENCODE_PATTERN);
+      }
+    }
+
+    for (const event of [...STAGE1_REPLAY_TRACE, ...STAGE1_REPLAY_TRACE_ZH]) {
+      expect(event.message).not.toMatch(OPENCODE_PATTERN);
+    }
+
+    const bulkNode = flagship_4tier.nodes.find((node) => node.id === 'l3_bulk');
+    expect(bulkNode?.config?.provider).toBe('dsh_opencode');
+    expect(bulkNode?.config?.model).toBe('deepseek-v4.1-flash@max');
   });
 });

@@ -9,6 +9,7 @@ const REAL_STAGE2_SAMPLES: readonly { kind: string; message: string }[] = [
   { kind: 'plan_registered', message: 'Registered 3 milestone(s) and 15 task(s)' },
   { kind: 'plan_generated', message: 'Plan saved to D:\\Projects\\VibeBaton\\.baton\\runs\\run-1\\01_PLAN.dag.json' },
   { kind: 'role_invoked', message: 'Invoking critical_executor (codex_sub/gpt-6.2-sol@max)' },
+  { kind: 'role_invoked', message: 'Invoking bulk_worker (dsh_opencode/deepseek-v4.1-flash@max)' },
   { kind: 'task_passed', message: 'Task M1-T1 merged into milestone/e815d5-m1' },
   {
     kind: 'milestone_rejected',
@@ -51,6 +52,8 @@ describe('liveEvents i18n', () => {
 
     expect(translateTier('critical', 'en')).toBe('Critical');
     expect(translateTier('routine', 'en')).toBe('Routine');
+    expect(formatLiveEventMessage('role_invoked', 'Invoking bulk_worker (dsh_opencode/deepseek-v4.1-flash@max)', 'en').summary).toContain('DeepSeek API/deepseek-v4.1-flash@max');
+    expect(formatLiveEventMessage('role_invoked', 'Invoking bulk_worker (dsh_opencode/deepseek-v4.1-flash@max)', 'zh').summary).toContain('DeepSeek API/deepseek-v4.1-flash@max');
   });
 
   test('Chinese mode localizes all engine event kinds and messages without leaking English phrases', () => {

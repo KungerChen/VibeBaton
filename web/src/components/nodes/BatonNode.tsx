@@ -12,7 +12,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useI18n } from '../../i18n';
-import { translateHandle, translatePresetText, translateRole } from '../../i18n/presets';
+import { formatProviderDisplay, translateHandle, translatePresetText, translateRole } from '../../i18n/presets';
 import {
   tierForNodeType,
   type ExecutionState,
@@ -72,7 +72,7 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
   const tierColor = TIER_COLORS[tier];
   const Icon = NODE_ICONS[nodeType];
   const { targets, sources } = NODE_HANDLES[nodeType];
-  const modelLabel = model && (provider ? `${provider} / ${model}` : model);
+  const modelLabel = model && (provider ? `${formatProviderDisplay(provider)} / ${model}` : model);
   const parallelCount = concurrency !== undefined && concurrency > 1 ? concurrency : undefined;
   const stateText = state !== 'idle' ? messages.nodeStates[state] : undefined;
   const stateBadge = stateText ? { text: stateText, className: `baton-node__badge--${state}` } : undefined;

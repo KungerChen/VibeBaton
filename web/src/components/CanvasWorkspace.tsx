@@ -13,6 +13,7 @@ import {
   type OnNodesChange,
   type OnSelectionChangeFunc,
 } from '@xyflow/react';
+import { useTheme } from '../theme';
 import { tierForNodeType } from '../types/graph';
 import { BatonEdge, EDGE_TONE_COLORS, edgeSemanticTone } from './edges/BatonEdge';
 import { BatonNode, TIER_COLORS, type BatonFlowNode } from './nodes/BatonNode';
@@ -43,6 +44,7 @@ export function CanvasWorkspace({
   traversedEdgeIds,
   children,
 }: CanvasWorkspaceProps) {
+  const { theme } = useTheme();
   const styledEdges = useMemo(() => edges.map((edge) => {
     const active = activeEdgeIds.has(edge.id);
     const traversed = traversedEdgeIds.has(edge.id);
@@ -88,7 +90,7 @@ export function CanvasWorkspace({
           edges={styledEdges}
           nodeTypes={NODE_TYPES_MAP}
           edgeTypes={EDGE_TYPES_MAP}
-          colorMode="dark"
+          colorMode={theme}
           fitView
           deleteKeyCode={['Backspace', 'Delete']}
           onNodesChange={onNodesChange}
@@ -96,7 +98,7 @@ export function CanvasWorkspace({
           onConnect={handleConnect}
           onSelectionChange={handleSelectionChange}
         >
-          <Background variant={BackgroundVariant.Dots} />
+          <Background variant={BackgroundVariant.Dots} gap={20} color="var(--canvas-dot)" />
           <Controls />
           <MiniMap<BatonFlowNode> nodeColor={(node) => TIER_COLORS[tierForNodeType(node.data.nodeType, node.data.role)]} />
           {children}

@@ -90,8 +90,11 @@ export function formatLiveEventMessage(
   if (match) {
     const [, role, target] = match;
     const roleLabel = translateRole(role, locale);
+    const displayTarget = target.replace(/^dsh_opencode\//i, 'DeepSeek API/');
     return {
-      summary: locale === 'en' ? `Invoking ${roleLabel} (${target})` : `调用 ${roleLabel}（${target}）`,
+      summary: locale === 'en'
+        ? `Invoking ${roleLabel} (${displayTarget})`
+        : `调用 ${roleLabel}（${displayTarget}）`,
     };
   }
 

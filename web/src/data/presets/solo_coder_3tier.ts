@@ -5,7 +5,7 @@ export const solo_coder_3tier: WorkflowGraph = {
   id: 'solo_coder_3tier',
   name: 'Solo Coder 3-Tier Flow',
   difficulty: 'intermediate',
-  description: 'Claude plans tasks, DSH implements code, and Codex reviews changes before merging for final human sign-off.',
+  description: 'Claude plans tasks, DeepSeek API implements code, and Codex reviews changes before merging for final human sign-off.',
   recommended_for: ['Personal apps', 'CLI tools', 'Small full-stack projects'],
   nodes: [
     {
@@ -19,7 +19,7 @@ export const solo_coder_3tier: WorkflowGraph = {
     {
       id: 'worker',
       type: 'worker_node',
-      label: 'Code Execution (DSH OpenCode)',
+      label: 'Code Execution (DeepSeek API)',
       role: 'bulk_worker',
       position: { x: 380, y: 160 },
       config: { provider: 'dsh_opencode', model: 'deepseek-v4.1-flash@max' },

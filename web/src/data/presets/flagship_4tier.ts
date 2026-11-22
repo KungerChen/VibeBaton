@@ -5,7 +5,7 @@ export const flagship_4tier: WorkflowGraph = {
   id: 'flagship_4tier',
   name: 'Flagship 4-Tier Factory',
   difficulty: 'pro',
-  description: 'Antigravity brainstorm & final sign-off -> Claude planning & milestone gate -> Codex critical execution & micro-review -> DSH parallel bulk execution. Built for commercial full-stack projects and overnight unattended runs.',
+  description: 'Antigravity brainstorm & final sign-off -> Claude planning & milestone gate -> Codex critical execution & micro-review -> DeepSeek API parallel bulk execution. Built for commercial full-stack projects and overnight unattended runs.',
   recommended_for: ['Full-stack applications', 'Multi-module backends & CLI tools', 'Overnight unattended runs'],
   nodes: [
     {
@@ -42,7 +42,7 @@ export const flagship_4tier: WorkflowGraph = {
     {
       id: 'l3_bulk',
       type: 'worker_node',
-      label: 'L3 Bulk Workers (DSH OpenCode)',
+      label: 'L3 Bulk Workers (DeepSeek API)',
       role: 'bulk_worker',
       position: { x: 920, y: 300 },
       config: { provider: 'dsh_opencode', model: 'deepseek-v4.1-flash@max', concurrency: 4 },

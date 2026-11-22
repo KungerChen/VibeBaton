@@ -10,20 +10,34 @@
 
 .canvas-workspace .react-flow {
   --xy-background-color: var(--bg);
-  --xy-background-pattern-dots-color: var(--border);
+  --xy-background-pattern-dots-color: var(--canvas-dot);
   --xy-controls-button-background-color: var(--panel);
-  --xy-controls-button-background-color-hover: var(--border);
+  --xy-controls-button-background-color-hover: var(--panel-hover);
   --xy-controls-button-border-color: var(--border);
   --xy-controls-button-color: var(--text);
-  --xy-controls-button-color-hover: var(--text);
+  --xy-controls-button-color-hover: var(--text-strong);
   --xy-edge-label-background-color: var(--panel);
-  --xy-edge-label-color: var(--text);
+  --xy-edge-label-color: var(--text-strong);
   --xy-minimap-background-color: var(--panel);
-  --xy-minimap-mask-background-color: rgb(9 13 22 / 65%);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--bg) 70%, transparent);
+}
+
+.canvas-workspace .react-flow__controls {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.canvas-workspace .react-flow__minimap {
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
 .canvas-workspace .react-flow__node-baton {
-  max-width: 256px;
+  max-width: 260px;
 }
 
 .canvas-workspace .baton-node__header {
@@ -44,5 +58,5 @@
 }
 
 .canvas-workspace .react-flow__edge.selected .react-flow__edge-path {
-  filter: brightness(1.5);
+  filter: brightness(1.3);
 }

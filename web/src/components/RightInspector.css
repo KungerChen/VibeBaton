@@ -9,16 +9,17 @@
 
 .right-inspector__tabs {
   flex: none;
-  padding-inline: 0.5rem;
+  padding-inline: 0.75rem;
+  background: var(--panel);
 }
 
 .right-inspector__pane:not([hidden]) {
   display: grid;
   flex: 1;
   align-content: start;
-  gap: 1rem;
+  gap: 1.125rem;
   min-height: 0;
-  padding: 0.875rem;
+  padding: 1rem;
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -31,7 +32,7 @@
 }
 
 .right-inspector__field {
-  gap: 0.25rem;
+  gap: 0.3rem;
 }
 
 .right-inspector__field > span,
@@ -39,16 +40,16 @@
 .right-inspector__sources legend {
   margin: 0;
   color: var(--muted);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
 .right-inspector__details {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.6rem 0.8rem;
+  gap: 0.6rem 0.85rem;
   margin: 0;
-  font-size: 0.875rem;
+  font-size: 0.84rem;
 }
 
 .right-inspector__details dt,
@@ -59,17 +60,18 @@
 
 .right-inspector__details dd {
   margin: 0;
+  color: var(--text-strong);
   overflow-wrap: anywhere;
 }
 
 .right-inspector__muted {
-  font-size: 0.8125rem;
+  font-size: 0.8rem;
 }
 
 .right-inspector__trace {
   display: grid;
   align-content: start;
-  gap: 0.35rem;
+  gap: 0.375rem;
   max-height: 18rem;
   margin: 0;
   padding: 0;
@@ -80,37 +82,42 @@
 
 .right-inspector__trace-row {
   display: grid;
-  grid-template-columns: 2.25rem minmax(0, 1fr);
+  grid-template-columns: 2rem minmax(0, 1fr);
   gap: 0.5rem;
   width: 100%;
-  padding: 0.5rem;
+  padding: 0.5rem 0.6rem;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-  background: var(--bg);
+  background: var(--panel-subtle);
   color: var(--text);
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.8rem;
   text-align: start;
   cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
 }
 
 .right-inspector__trace-row:hover {
-  background: var(--panel);
+  border-color: var(--border-strong);
+  background: var(--panel-hover);
 }
 
 .right-inspector__trace-row[aria-current='step'] {
-  border-color: var(--violet);
-  background: color-mix(in srgb, var(--violet) 16%, var(--bg));
+  border-color: var(--accent-ring);
+  background: var(--accent-soft);
 }
 
 .right-inspector__trace-row:focus-visible {
-  outline: 2px solid var(--sky);
+  outline: 2px solid var(--accent-ring);
   outline-offset: -2px;
 }
 
 .right-inspector__trace-seq,
 .right-inspector__event-kind {
   color: var(--sky);
+  font-weight: 600;
 }
 
 .right-inspector__trace-content {
@@ -119,8 +126,12 @@
   overflow-wrap: anywhere;
 }
 
+.right-inspector__trace-content strong {
+  color: var(--text-strong);
+}
+
 .right-inspector__live {
-  padding-block-start: 0.875rem;
+  padding-block-start: 1rem;
   border-block-start: 1px solid var(--border);
 }
 
@@ -134,6 +145,7 @@
 
 .right-inspector__heading code {
   min-width: 0;
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
@@ -142,6 +154,8 @@
 }
 
 .pill.right-inspector__status--running {
+  border-color: color-mix(in srgb, var(--sky) 28%, transparent);
+  background: var(--sky-soft);
   color: var(--sky);
 }
 
@@ -151,40 +165,47 @@
 
 .right-inspector__tasks {
   overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--panel-subtle);
 }
 
 .right-inspector__event-log {
-  max-height: 14rem;
-  padding: 0.5rem;
+  max-height: 15rem;
+  padding: 0.625rem;
   overflow: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-  background: var(--bg);
+  background: var(--panel-subtle);
   font-size: 0.75rem;
 }
 
 .right-inspector__event + .right-inspector__event {
-  margin-block-start: 0.375rem;
+  margin-block-start: 0.45rem;
+  padding-block-start: 0.45rem;
+  border-block-start: 1px solid var(--border);
 }
 
 .right-inspector__event {
   display: grid;
   gap: 0.15rem;
+  color: var(--text);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
 .right-inspector__mono {
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Consolas, monospace;
 }
 
 .right-inspector__report {
   margin: 0;
-  padding: 0.75rem;
+  padding: 0.85rem;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-  background: var(--bg);
+  background: var(--panel-subtle);
+  color: var(--text-strong);
   font-size: 0.8125rem;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -218,7 +239,7 @@
 
 .right-inspector__event-detail > pre {
   margin: 0.35rem 0 0;
-  padding: 0.4rem 0.5rem;
+  padding: 0.45rem 0.55rem;
   border: 1px solid var(--border);
   border-radius: 0.4rem;
   background: var(--panel);
@@ -237,7 +258,7 @@
 }
 
 .right-inspector__sources input[type='radio'] {
-  accent-color: var(--violet);
+  accent-color: var(--accent);
 }
 
 textarea.right-inspector__mono {
@@ -247,5 +268,5 @@ textarea.right-inspector__mono {
 .right-inspector__error {
   margin: 0;
   color: var(--rose);
-  font-size: 0.8125rem;
+  font-size: 0.8rem;
 }

@@ -8,6 +8,9 @@ export interface Messages {
     localConnected: string;
     standaloneDemo: string;
     languageAria: string;
+    guideButton: string;
+    switchToLight: string;
+    switchToDark: string;
   };
   tabs: {
     ariaLabel: string;
@@ -142,6 +145,29 @@ export interface Messages {
     runStarted(runId: string, pid: number): string;
     reportCopied: string;
   };
+  quickStart: {
+    title: string;
+    subtitle: string;
+    tablistAria: string;
+    tabQuickStart: string;
+    tabLegend: string;
+    steps: {
+      tryStarterTitle: string;
+      tryStarterDesc: string;
+      watchReplayTitle: string;
+      watchReplayDesc: string;
+      inspectNodeTitle: string;
+      inspectNodeDesc: string;
+    };
+    legendTiersTitle: string;
+    legendTiers: readonly { key: string; name: string; desc: string }[];
+    legendEdgesTitle: string;
+    legendEdges: readonly { tone: 'normal' | 'retry' | 'escalate'; name: string; desc: string }[];
+    shortcutsTitle: string;
+    shortcuts: readonly { keys: string; desc: string }[];
+    dontShowAgain: string;
+    getStarted: string;
+  };
 }
 
 export const MESSAGES: Record<Locale, Messages> = {
@@ -151,6 +177,9 @@ export const MESSAGES: Record<Locale, Messages> = {
       localConnected: 'Local Connected',
       standaloneDemo: 'Standalone Demo',
       languageAria: 'Interface language',
+      guideButton: 'Guide',
+      switchToLight: 'Switch to light theme',
+      switchToDark: 'Switch to dark theme',
     },
     tabs: {
       ariaLabel: 'Workspace views',
@@ -327,6 +356,44 @@ export const MESSAGES: Record<Locale, Messages> = {
       runStarted: (runId, pid) => `Run ${runId} started (pid ${pid})`,
       reportCopied: 'Battle report copied to clipboard',
     },
+    quickStart: {
+      title: 'Quick Start & Tutorial',
+      subtitle: 'Orchestrate multiple AI models like a relay race — click any step below to try it live.',
+      tablistAria: 'Guide sections',
+      tabQuickStart: 'Quick Start',
+      tabLegend: 'Legend & Shortcuts',
+      steps: {
+        tryStarterTitle: '1. Run Starter 2-Tier Flow Demo',
+        tryStarterDesc: 'Load the minimal DeepSeek API starter workflow and animate Happy Path playback.',
+        watchReplayTitle: '2. Watch Stage 1 Real Run (60×)',
+        watchReplayDesc: 'Replay how VibeBaton built itself across 3 milestones, catching bugs and auto-escalating.',
+        inspectNodeTitle: '3. Inspect & Hot-Swap Models',
+        inspectNodeDesc: 'Select a worker card on the canvas to edit its provider/model or share via #recipe link.',
+      },
+      legendTiersTitle: 'Tier Colors & Roles',
+      legendTiers: [
+        { key: 'L0', name: 'L0 · Brainstorm & Sign-Off', desc: 'Interactive specification alignment and final human gate.' },
+        { key: 'L1', name: 'L1 · Planner & Milestone Gate', desc: 'Decomposes RFC into a milestone DAG and audits final delivery.' },
+        { key: 'L2', name: 'L2 · Critical & Micro Review', desc: 'Handles core architecture tasks, escalations, and per-task code review.' },
+        { key: 'L3', name: 'L3 · Parallel Bulk Workers', desc: 'Runs high-concurrency routine implementation tasks via DeepSeek API.' },
+        { key: 'GATE', name: 'Mechanical Gate', desc: 'Runs deterministic unit tests & lint checks before spending review quota.' },
+        { key: 'MERGE', name: 'Milestone Merge', desc: 'Verifies file whitelists and squash-merges completed worktrees.' },
+      ],
+      legendEdgesTitle: 'Baton Flow Edge Semantics',
+      legendEdges: [
+        { tone: 'normal', name: 'Forward / Pass', desc: 'Cyan-emerald animated pulse on normal handoffs and passed gates.' },
+        { tone: 'retry', name: 'Self-Heal / Minor Fix', desc: 'Amber loop bounded by max_loops for automated retry or review fixes.' },
+        { tone: 'escalate', name: 'Circuit-Breaker Escalate', desc: 'Magenta escalation path handing stuck L3 tasks to L2 specialists.' },
+      ],
+      shortcutsTitle: 'Shortcuts & Tips',
+      shortcuts: [
+        { keys: 'Space', desc: 'Play or pause simulation playback' },
+        { keys: '→', desc: 'Advance playback one step forward' },
+        { keys: 'Delete / Backspace', desc: 'Remove selected canvas node or edge' },
+      ],
+      dontShowAgain: "Don't show automatically on startup",
+      getStarted: 'Get Started',
+    },
   },
   zh: {
     docTitle: 'VibeBaton — 多智能体工作流画布',
@@ -334,6 +401,9 @@ export const MESSAGES: Record<Locale, Messages> = {
       localConnected: '已连接本地',
       standaloneDemo: '独立演示模式',
       languageAria: '界面语言',
+      guideButton: '教程',
+      switchToLight: '切换到浅色模式',
+      switchToDark: '切换到深色模式',
     },
     tabs: {
       ariaLabel: '工作区视图',
@@ -509,6 +579,44 @@ export const MESSAGES: Record<Locale, Messages> = {
       savedRole: (role, model) => `已保存 ${role} → ${model}（热重载生效）`,
       runStarted: (runId, pid) => `运行 ${runId} 已启动（进程 ${pid}）`,
       reportCopied: '已复制战报 Markdown 到剪贴板',
+    },
+    quickStart: {
+      title: '快速开始与新手教程',
+      subtitle: '像接力赛一样编排多个 AI 模型协同编码 —— 点击下方任意引导卡片即可直接上手。',
+      tablistAria: '教程分页',
+      tabQuickStart: '快速开始',
+      tabLegend: '图例与快捷键',
+      steps: {
+        tryStarterTitle: '1. 运行「极简入门双层流」演示',
+        tryStarterDesc: '加载低成本 DeepSeek API 双层工作流，并播放正常流转接力动画。',
+        watchReplayTitle: '2. 观看一期自举 60× 真实回放',
+        watchReplayDesc: '重温 VibeBaton 在 3 个里程碑中的真实自举轨迹、门禁拦截与熔断升级过程。',
+        inspectNodeTitle: '3. 编辑节点配置与模型热切换',
+        inspectNodeDesc: '选中画布上的执行节点，可在右侧修改模型或通过 #recipe 链接分享整套工作流。',
+      },
+      legendTiersTitle: '层级配色与职责说明',
+      legendTiers: [
+        { key: 'L0', name: 'L0 · 头脑风暴与终审', desc: '在开工前对齐规格需求，并在最终合并前由用户签字把关。' },
+        { key: 'L1', name: 'L1 · 规划与里程碑评审', desc: '将主规格拆解为无环任务图，并在里程碑合入前把关质量。' },
+        { key: 'L2', name: 'L2 · 核心攻坚与微观审校', desc: '负责核心架构编写、熔断升级接管以及常规任务的逐项审校。' },
+        { key: 'L3', name: 'L3 · 并发批量执行', desc: '通过 DeepSeek API 高并发完成大量常规模块与单元测试开发。' },
+        { key: 'GATE', name: '机械测试门禁', desc: '先运行本地单测与静态检查拦截低级缺陷，节省上层审校额度。' },
+        { key: 'MERGE', name: '里程碑分支合入', desc: '自动校验文件改动白名单并执行工作树压缩合并。' },
+      ],
+      legendEdgesTitle: '语义流转边颜色说明',
+      legendEdges: [
+        { tone: 'normal', name: '正常推进 / 校验通过', desc: '青蓝脉冲与翠绿实线代表正常任务接力与门禁/审校通过。' },
+        { tone: 'retry', name: '本地自愈 / 退回修改', desc: '琥珀金回环在 max_loops 次数限制内驱动自动修 bug 与复检。' },
+        { tone: 'escalate', name: '熔断升级专家接管', desc: '品红色升级边在低成本节点连续阻塞时自动转交专家级模型。' },
+      ],
+      shortcutsTitle: '常用快捷键',
+      shortcuts: [
+        { keys: 'Space', desc: '播放或暂停当前工作流动画回放' },
+        { keys: '→', desc: '单步前进一帧轨迹事件' },
+        { keys: 'Delete / Backspace', desc: '删除当前选中的节点或连线' },
+      ],
+      dontShowAgain: '下次打开不再自动弹出',
+      getStarted: '开始使用',
     },
   },
 };

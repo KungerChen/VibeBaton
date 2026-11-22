@@ -8,12 +8,12 @@ export const EN_TO_ZH_PRESET_TEXT: Record<string, string> = {
   'Review-Only Audit': '只读审计流水线',
 
   // Preset descriptions
-  'Antigravity brainstorm & final sign-off -> Claude planning & milestone gate -> Codex critical execution & micro-review -> DSH parallel bulk execution. Built for commercial full-stack projects and overnight unattended runs.':
-    'Antigravity 头脑风暴与终审 → Claude 规划与里程碑把关 → Codex 核心攻坚与微审 → DSH 高并发批量执行，适合中大型商业级项目与通宵无人值守。',
+  'Antigravity brainstorm & final sign-off -> Claude planning & milestone gate -> Codex critical execution & micro-review -> DeepSeek API parallel bulk execution. Built for commercial full-stack projects and overnight unattended runs.':
+    'Antigravity 头脑风暴与终审 → Claude 规划与里程碑把关 → Codex 核心攻坚与微审 → DeepSeek API 高并发批量执行，适合中大型商业级项目与通宵无人值守。',
   'Zero-friction, ultra-low-cost workflow. Run planning, parallel coding, automated testing, and human preview sign-off with a single affordable API/CLI.':
     '零门槛、超低成本！只需一个高性价比 API 或 CLI 即可完成规划、并发编程、自动测试和人工预览验收。',
-  'Claude plans tasks, DSH implements code, and Codex reviews changes before merging for final human sign-off.':
-    'Claude 拆解任务，DSH 编写代码，Codex 审校，通过测试与审校后合入分支，由用户最终验收。',
+  'Claude plans tasks, DeepSeek API implements code, and Codex reviews changes before merging for final human sign-off.':
+    'Claude 拆解任务，DeepSeek API 编写代码，Codex 审校，通过测试与审校后合入分支，由用户最终验收。',
   'Read-only audit pipeline: runs automated tests and lint checks, followed by Codex security micro-review and Claude Opus architecture review. Never modifies code; hands findings to a human for final sign-off.':
     '只读审计流水线：自动运行测试与静态检查，由 Codex 做安全微审、Claude Opus 做架构评审。全程只读、不改代码，审校结论交由用户最终确认。',
 
@@ -22,7 +22,7 @@ export const EN_TO_ZH_PRESET_TEXT: Record<string, string> = {
   'L1 Tactical Plan (Claude Fable)': 'L1 战术拆解 (Claude Fable)',
   'Tier Router': '任务分级分流',
   'L2 Critical Specialist (Codex Sol)': 'L2 核心攻坚 (Codex Sol)',
-  'L3 Bulk Workers (DSH OpenCode)': 'L3 并发批量 (DSH OpenCode)',
+  'L3 Bulk Workers (DeepSeek API)': 'L3 并发批量 (DeepSeek API)',
   'Mechanical Gate (Lint/Test)': '机械门禁（测试/检查）',
   'L2 Micro Review (Codex Astra)': 'L2 微观审校 (Codex Astra)',
   'Milestone Merge': '里程碑分支合入',
@@ -31,13 +31,13 @@ export const EN_TO_ZH_PRESET_TEXT: Record<string, string> = {
 
   // starter_2tier nodes
   'Task Breakdown (Any Reasoning Model)': '方案拆解（任意推理模型）',
-  'Parallel Worker (OpenCode / DeepSeek)': '并发执行 (OpenCode / DeepSeek)',
+  'Parallel Worker (DeepSeek API)': '并发执行 (DeepSeek API)',
   'Automated Test Gate': '自动测试门禁',
   'Preview & Sign-Off': '预览并确认成果',
 
   // solo_coder_3tier nodes
   'Task Planning (Claude Fable)': '任务规划 (Claude Fable)',
-  'Code Execution (DSH OpenCode)': '代码实现 (DSH OpenCode)',
+  'Code Execution (DeepSeek API)': '代码实现 (DeepSeek API)',
   'Test Gate': '测试门禁',
   'Code Review (Codex Astra)': '代码审校 (Codex Astra)',
   'Branch Merge': '分支合入',
@@ -92,6 +92,10 @@ export function translatePresetText(text: string, locale: Locale): string {
 export function translateRole(role: string, locale: Locale): string {
   if (locale === 'en') return ROLE_LABELS_EN[role] ?? role;
   return ROLE_LABELS_ZH[role] ?? role;
+}
+
+export function formatProviderDisplay(provider: string): string {
+  return provider === 'dsh_opencode' ? 'DeepSeek API' : provider;
 }
 
 export function translateHandle(handle: string, locale: Locale): string {

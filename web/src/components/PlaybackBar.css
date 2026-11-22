@@ -9,14 +9,16 @@
   gap: 0.75rem;
   max-width: calc(100% - 2rem);
   padding: 0.5rem 0.75rem;
-  background: color-mix(in srgb, var(--panel) 82%, transparent);
-  box-shadow: 0 0.75rem 2rem rgb(2 6 23 / 45%);
-  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--glass-bg);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(12px) saturate(140%);
   transform: translateX(-50%);
 }
 
 .playback-bar:focus-visible {
-  outline: 2px solid var(--sky);
+  outline: 2px solid var(--accent-ring);
   outline-offset: 3px;
 }
 
@@ -26,7 +28,7 @@
   padding: 2px;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-  background: var(--bg);
+  background: var(--panel-subtle);
 }
 
 .playback-bar__segment {
@@ -37,18 +39,23 @@
   color: var(--muted);
   font: inherit;
   font-size: 0.75rem;
+  font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .playback-bar__segment:not(:disabled):hover {
-  color: var(--text);
+  color: var(--text-strong);
 }
 
 .playback-bar__segment--active {
-  background: color-mix(in srgb, var(--violet) 28%, var(--panel));
-  color: var(--text);
+  background: var(--panel);
+  color: var(--text-strong);
   font-weight: 600;
+  box-shadow: var(--shadow-sm);
 }
 
 .playback-bar__segment--replay {
@@ -61,18 +68,18 @@
 }
 
 .playback-bar__segment--replay-active {
-  background: color-mix(in srgb, var(--sky) 22%, var(--panel));
-  color: #e0f2fe;
+  background: var(--sky-soft);
+  color: var(--sky);
   font-weight: 600;
 }
 
 .playback-bar__segment:disabled {
-  opacity: 0.5;
+  opacity: 0.48;
   cursor: not-allowed;
 }
 
 .playback-bar__segment:focus-visible {
-  outline: 2px solid var(--sky);
+  outline: 2px solid var(--accent-ring);
   outline-offset: 2px;
 }
 
@@ -88,8 +95,8 @@
 }
 
 .playback-bar .playback-bar__speed {
-  min-width: 3.25rem;
-  padding-inline: 0.6rem;
+  min-width: 3.1rem;
+  padding-inline: 0.55rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -112,13 +119,13 @@
   height: 3px;
   overflow: hidden;
   border-radius: 999px;
-  background: var(--border);
+  background: var(--border-strong);
 }
 
 .playback-bar__fill {
   height: 100%;
   border-radius: inherit;
-  background: var(--violet);
+  background: var(--accent);
   transition: width 0.2s ease;
 }
 

@@ -5,6 +5,7 @@ import { CanvasWorkspace } from './components/CanvasWorkspace';
 import { HeaderBar } from './components/HeaderBar';
 import { LeftSidebar } from './components/LeftSidebar';
 import { PlaybackBar } from './components/PlaybackBar';
+import { QuickStartModal, type QuickStartStepId } from './components/QuickStartModal';
 import { RightInspector } from './components/RightInspector';
 import type { EdgePatch, NodePatch } from './components/types';
 import { ToastHost, useToasts } from './components/ui/Toast';
@@ -15,6 +16,7 @@ import { deriveStates, stepIntervalMs } from './engine/playback';
 import { buildShareUrl, decodeRecipeHash, encodeRecipeHash } from './engine/shareUrl';
 import { I18nProvider, useI18n } from './i18n';
 import { translatePresetText } from './i18n/presets';
+import { ThemeProvider } from './theme';
 import type {
   GraphTraceEvent,
   GraphValidationResult,
@@ -29,7 +31,17 @@ const starter = graphToFlow(starter_2tier);
 const emptySelection: { nodeId: string | null; edgeId: string | null } = { nodeId: null, edgeId: null };
 const emptyTrace: GraphTraceEvent[] = [];
 const initialPlayback = { stepIndex: 0, playing: false };
+const GUIDE_DISMISSED_KEY = 'vibebaton.quickstartDismissed';
 type WorkspacePane = 'canvas' | 'sidebar' | 'inspector';
+
+function readGuideDismissed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(GUIDE_DISMISSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -79,6 +91,12 @@ function AppContent() {
   const [replayActive, setReplayActive] = useState(false);
   const replayActiveRef = useRef(false);
   replayActiveRef.current = replayActive;
+  const pendingAutoPlayRef = useRef(false);
+  const [dontShowGuide, setDontShowGuide] = useState<boolean>(() => readGuideDismissed());
+  const [guideOpen, setGuideOpen] = useState<boolean>(
+    () => typeof window !== 'undefined' && !window.location.hash.startsWith('#recipe=') && !readGuideDismissed(),
+  );
+  const [completedGuideSteps, setCompletedGuideSteps] = useState<Set<QuickStartStepId>>(() => new Set());
   const [playback, setPlayback] = useState(initialPlayback);
   const [speed, setSpeed] = useState(1);
   const [checkedGraph, setCheckedGraph] = useState<{
@@ -175,7 +193,12 @@ function AppContent() {
     async function simulate() {
       try {
         const result = await client.simulate(getGraph(), scenario);
-        if (active) setSimulation({ validation: validGraph, scenario, trace: result.trace });
+        if (!active) return;
+        setSimulation({ validation: validGraph, scenario, trace: result.trace });
+        if (pendingAutoPlayRef.current) {
+          pendingAutoPlayRef.current = false;
+          setPlayback({ stepIndex: result.trace.length > 0 ? 1 : 0, playing: result.trace.length > 0 });
+        }
       } catch (error) {
         if (active) push(errorMessage(error), 'err');
       }
@@ -337,10 +360,77 @@ function AppContent() {
     setPlayback({ stepIndex: Math.min(Math.max(index, 0), stepCount), playing: false });
   }
 
+  function onDontShowGuideChange(next: boolean) {
+    setDontShowGuide(next);
+    if (typeof window !== 'undefined') {
+      try {
+        if (next) {
+          window.localStorage.setItem(GUIDE_DISMISSED_KEY, '1');
+        } else {
+          window.localStorage.removeItem(GUIDE_DISMISSED_KEY);
+        }
+      } catch {
+        // Ignore storage errors in restricted contexts.
+      }
+    }
+  }
+
+  function markGuideStep(step: QuickStartStepId) {
+    setCompletedGuideSteps((current) => {
+      if (current.has(step)) return current;
+      const next = new Set(current);
+      next.add(step);
+      return next;
+    });
+  }
+
+  function onGuideTryStarter() {
+    markGuideStep('starter');
+    latestPresetRequest.current += 1;
+    setReplayActive(false);
+    setScenario('happy_path');
+    setGuideOpen(false);
+    if (graph.id !== starter_2tier.id) {
+      pendingAutoPlayRef.current = true;
+      replaceGraph(starter_2tier);
+      return;
+    }
+    if (simulation?.scenario === 'happy_path' && simulation.trace.length > 0) {
+      setPlayback({ stepIndex: 1, playing: true });
+    } else {
+      pendingAutoPlayRef.current = true;
+    }
+  }
+
+  function onGuideWatchReplay() {
+    markGuideStep('replay');
+    setGuideOpen(false);
+    if (!replayActive) {
+      onToggleReplay();
+    } else {
+      setPlayback({ stepIndex: 1, playing: true });
+    }
+  }
+
+  function onGuideInspectWorker() {
+    markGuideStep('inspect');
+    setGuideOpen(false);
+    const targetNode = nodes.find((node) => node.data.nodeType === 'worker_node') ?? nodes[0];
+    if (!targetNode) return;
+    setNodes((current) => current.map((node) => ({ ...node, selected: node.id === targetNode.id })));
+    setSelection({ nodeId: targetNode.id, edgeId: null });
+    setPane('inspector');
+  }
+
   const version = client.health?.version;
   return (
     <div className="app">
-      <HeaderBar mode={mode ?? 'demo'} version={typeof version === 'string' ? version : undefined} graphName={graph.name} />
+      <HeaderBar
+        mode={mode ?? 'demo'}
+        version={typeof version === 'string' ? version : undefined}
+        graphName={graph.name}
+        onOpenGuide={() => setGuideOpen(true)}
+      />
       <nav className="app-tabs tabs" aria-label={messages.tabs.ariaLabel}>
         {panes.map(({ id, label }) => (
           <button
@@ -412,6 +502,16 @@ function AppContent() {
           onToast={push}
         />
       </div>
+      <QuickStartModal
+        open={guideOpen}
+        onClose={() => setGuideOpen(false)}
+        completedSteps={completedGuideSteps}
+        dontShowAgain={dontShowGuide}
+        onDontShowAgainChange={onDontShowGuideChange}
+        onTryStarter={onGuideTryStarter}
+        onWatchReplay={onGuideWatchReplay}
+        onInspectWorker={onGuideInspectWorker}
+      />
       <ToastHost toasts={toasts} />
     </div>
   );
@@ -419,8 +519,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <I18nProvider>
-      <AppContent />
-    </I18nProvider>
+    <ThemeProvider>
+      <I18nProvider>
+        <AppContent />
+      </I18nProvider>
+    </ThemeProvider>
   );
 }
