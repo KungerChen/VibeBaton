@@ -1,6 +1,8 @@
 import './BatonEdge.css';
 import { memo } from 'react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from '@xyflow/react';
+import { useI18n } from '../../i18n';
+import { translateHandle } from '../../i18n/presets';
 
 export type EdgeSemanticTone = 'normal' | 'retry' | 'escalate';
 
@@ -36,6 +38,7 @@ export const BatonEdge = memo(function BatonEdge({
   selected,
   data,
 }: EdgeProps) {
+  const { locale } = useI18n();
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -44,6 +47,7 @@ export const BatonEdge = memo(function BatonEdge({
     targetY,
     targetPosition,
   });
+  const localizedLabel = typeof label === 'string' ? translateHandle(label, locale) : label;
 
   const edgeData = (data ?? {}) as {
     active?: boolean;
@@ -91,7 +95,7 @@ export const BatonEdge = memo(function BatonEdge({
               background: active || traversed ? palette.labelBg : undefined,
             }}
           >
-            {label}
+            {localizedLabel}
           </div>
         </EdgeLabelRenderer>
       )}

@@ -1,11 +1,7 @@
 import { useId, useState, type FormEvent } from 'react';
+import { useI18n } from '../../i18n';
 import type { RightInspectorProps } from '../types';
 import { Modal } from '../ui/Modal';
-
-const rfcSources = [
-  { value: 'markdown', label: 'RFC markdown' },
-  { value: 'path', label: 'Repo path' },
-] as const;
 
 type StartRunModalProps = Pick<RightInspectorProps, 'client' | 'onToast'> & {
   onClose(): void;
@@ -15,20 +11,25 @@ type StartRunModalProps = Pick<RightInspectorProps, 'client' | 'onToast'> & {
 type StartPayload = Parameters<RightInspectorProps['client']['startRun']>[0];
 type StartError = { field: 'rfc' | 'overrides'; message: string };
 
-function parseOverrides(text: string): StartPayload['model_overrides'] {
+function parseOverrides(text: string, errorMsg: string): StartPayload['model_overrides'] {
   if (!text.trim()) return undefined;
   const value: unknown = JSON.parse(text);
   if (
     typeof value !== 'object' || value === null || Array.isArray(value)
     || !Object.values(value).every((model: unknown) => typeof model === 'string')
   ) {
-    throw new Error('Model overrides must map role names to model strings.');
+    throw new Error(errorMsg);
   }
   return value as Record<string, string>;
 }
 
 export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunModalProps) {
-  const [source, setSource] = useState<typeof rfcSources[number]['value']>('markdown');
+  const { messages } = useI18n();
+  const rfcSources = [
+    { value: 'markdown' as const, label: messages.inspector.rfcMarkdownOption },
+    { value: 'path' as const, label: messages.inspector.rfcRepoPathOption },
+  ];
+  const [source, setSource] = useState<'markdown' | 'path'>('markdown');
   const [markdown, setMarkdown] = useState('');
   const [path, setPath] = useState('');
   const [mode, setMode] = useState<NonNullable<StartPayload['mode']>>('overnight');
@@ -45,23 +46,23 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
     setError(null);
 
     if (source === 'markdown' && !markdown.trim()) {
-      setError({ field: 'rfc', message: 'Enter RFC markdown.' });
+      setError({ field: 'rfc', message: messages.inspector.errors.enterRfcMarkdown });
       return;
     }
     const repoPath = path.trim();
     if (source === 'path' && (!repoPath || /^[\\/]|^[a-z]:/i.test(repoPath))) {
-      setError({ field: 'rfc', message: 'Enter a path relative to the repository.' });
+      setError({ field: 'rfc', message: messages.inspector.errors.enterRelativePath });
       return;
     }
 
     let modelOverrides: StartPayload['model_overrides'];
     try {
-      modelOverrides = parseOverrides(overrides);
+      modelOverrides = parseOverrides(overrides, messages.inspector.errors.overridesMustMapStrings);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setError({
         field: 'overrides',
-        message: error instanceof SyntaxError ? 'Enter valid JSON for model overrides.' : message,
+        message: error instanceof SyntaxError ? messages.inspector.errors.invalidOverridesJson : message,
       });
       return;
     }
@@ -73,7 +74,7 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
         mode,
         ...(modelOverrides === undefined ? {} : { model_overrides: modelOverrides }),
       });
-      onToast(`Run ${run_id} started (pid ${daemon_pid})`, 'ok');
+      onToast(messages.toasts.runStarted(run_id, daemon_pid), 'ok');
       onClose();
       onStarted();
     } catch (error) {
@@ -84,10 +85,10 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
   }
 
   return (
-    <Modal open title="Start Real Run" onClose={() => { if (!submitting) onClose(); }}>
+    <Modal open title={messages.inspector.modalStartTitle} onClose={() => { if (!submitting) onClose(); }}>
       <form className="right-inspector__section" onSubmit={(event) => void startRun(event)}>
         <fieldset className="right-inspector__section right-inspector__sources" disabled={submitting}>
-          <legend>RFC source</legend>
+          <legend>{messages.inspector.rfcSourceLegend}</legend>
           <div className="right-inspector__actions">
             {rfcSources.map(({ value, label }) => (
               <label key={value}>
@@ -101,7 +102,7 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
           {source === 'markdown' ? (
             <textarea
               className="input right-inspector__mono"
-              aria-label="RFC markdown"
+              aria-label={messages.inspector.rfcMarkdownAria}
               aria-invalid={Boolean(rfcError)}
               aria-describedby={rfcError ? `${id}-rfc-error` : undefined}
               rows={7}
@@ -112,7 +113,7 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
             <input
               className="input"
               type="text"
-              aria-label="Repo path"
+              aria-label={messages.inspector.rfcRepoPathAria}
               aria-invalid={Boolean(rfcError)}
               aria-describedby={rfcError ? `${id}-rfc-error` : undefined}
               placeholder=".baton/00_RFC.md"
@@ -123,19 +124,19 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
           {rfcError && <p className="right-inspector__error" id={`${id}-rfc-error`} role="alert">{rfcError}</p>}
         </fieldset>
         <label className="right-inspector__field">
-          <span>Mode</span>
+          <span>{messages.inspector.runModeLabel}</span>
           <select
             className="select"
             value={mode}
             disabled={submitting}
             onChange={(event) => setMode(event.currentTarget.value === 'interactive' ? 'interactive' : 'overnight')}
           >
-            <option value="overnight">overnight</option>
-            <option value="interactive">interactive</option>
+            <option value="overnight">{messages.inspector.runModes.overnight}</option>
+            <option value="interactive">{messages.inspector.runModes.interactive}</option>
           </select>
         </label>
         <label className="right-inspector__field">
-          <span>Model overrides JSON (optional)</span>
+          <span>{messages.inspector.modelOverridesLabel}</span>
           <textarea
             className="input right-inspector__mono"
             aria-invalid={Boolean(overridesError)}
@@ -150,9 +151,11 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
           <p className="right-inspector__error" id={`${id}-overrides-error`} role="alert">{overridesError}</p>
         )}
         <div className="right-inspector__actions right-inspector__actions--end">
-          <button className="btn" type="button" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button className="btn" type="button" onClick={onClose} disabled={submitting}>
+            {messages.inspector.cancel}
+          </button>
           <button className="btn btn--primary" type="submit" disabled={submitting}>
-            {submitting ? 'Starting…' : 'Start Run'}
+            {submitting ? messages.inspector.startingRun : messages.inspector.startRun}
           </button>
         </div>
       </form>

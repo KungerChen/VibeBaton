@@ -33,9 +33,50 @@
   white-space: nowrap;
 }
 
+.header-bar__right {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.65rem;
+  margin-inline-start: auto;
+}
+
+.header-bar__lang {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+}
+
+.header-bar__lang-btn {
+  padding: 0.2rem 0.5rem;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.header-bar__lang-btn:hover {
+  color: var(--text);
+}
+
+.header-bar__lang-btn--active {
+  background: color-mix(in srgb, var(--violet) 28%, var(--panel));
+  color: var(--text);
+}
+
+.header-bar__lang-btn:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+
 .header-bar__status {
   flex-shrink: 0;
-  margin-inline-start: auto;
 }
 
 .header-bar__dot {

@@ -1,26 +1,29 @@
 import './RightInspector.css';
 import './ui/ui.css';
 import { useEffect, useEffectEvent, useId, useRef, useState } from 'react';
+import { useI18n } from '../i18n';
+import { translateHandle, translatePresetText } from '../i18n/presets';
 import { EdgeEditor, NodeEditor } from './inspector/GraphEditor';
 import { LiveRunPanel } from './inspector/LiveRunPanel';
 import type { RightInspectorProps } from './types';
 
-const tabs = [
-  { id: 'inspector', label: 'Inspector' },
-  { id: 'trace', label: 'Trace & Live Run' },
-] as const;
-
-type InspectorTab = typeof tabs[number]['id'];
+type InspectorTab = 'inspector' | 'trace';
 
 function GraphDetails({ graph }: Pick<RightInspectorProps, 'graph'>) {
+  const { locale, messages } = useI18n();
+  const difficultyLabel = graph.difficulty
+    ? messages.sidebar.difficulty[graph.difficulty] ?? graph.difficulty
+    : '—';
+
   return (
     <dl className="right-inspector__details">
-      <dt>ID</dt><dd><code>{graph.id}</code></dd>
-      <dt>Name</dt><dd>{graph.name}</dd>
-      <dt>Difficulty</dt><dd>{graph.difficulty ?? '—'}</dd>
-      <dt>Description</dt><dd>{graph.description ?? '—'}</dd>
-      <dt>Nodes</dt><dd>{graph.nodes.length}</dd>
-      <dt>Edges</dt><dd>{graph.edges.length}</dd>
+      <dt>{messages.inspector.detailsId}</dt><dd><code>{graph.id}</code></dd>
+      <dt>{messages.inspector.detailsName}</dt><dd>{translatePresetText(graph.name, locale)}</dd>
+      <dt>{messages.inspector.detailsDifficulty}</dt><dd>{difficultyLabel}</dd>
+      <dt>{messages.inspector.detailsDescription}</dt>
+      <dd>{graph.description ? translatePresetText(graph.description, locale) : '—'}</dd>
+      <dt>{messages.inspector.detailsNodes}</dt><dd>{graph.nodes.length}</dd>
+      <dt>{messages.inspector.detailsEdges}</dt><dd>{graph.edges.length}</dd>
     </dl>
   );
 }
@@ -29,6 +32,11 @@ export function RightInspector({
   mode, client, graph, selectedNodeId, selectedEdgeId, onUpdateNode, onUpdateEdge,
   trace, stepIndex, onJumpToStep, onToast,
 }: RightInspectorProps) {
+  const { locale, messages } = useI18n();
+  const tabs: readonly { id: InspectorTab; label: string }[] = [
+    { id: 'inspector', label: messages.inspector.tabInspector },
+    { id: 'trace', label: messages.inspector.tabTrace },
+  ];
   const [tab, setTab] = useState<InspectorTab>('inspector');
   const [providers, setProviders] = useState<string[]>([]);
   const id = useId();
@@ -64,8 +72,8 @@ export function RightInspector({
   }, [tab, activeIndex, trace]);
 
   return (
-    <aside className="right-inspector" aria-label="Workflow inspector">
-      <div className="tabs right-inspector__tabs" role="tablist" aria-label="Workflow inspector views">
+    <aside className="right-inspector" aria-label={messages.inspector.asideAria}>
+      <div className="tabs right-inspector__tabs" role="tablist" aria-label={messages.inspector.tablistAria}>
         {tabs.map(({ id: key, label }) => (
           <button
             key={key}
@@ -141,12 +149,13 @@ export function RightInspector({
         tabIndex={0}
         hidden={tab !== 'trace'}
       >
-        <section className="right-inspector__section" aria-label="Simulation trace">
-          <h2 className="panel__title">Trace</h2>
-          {trace.length === 0 ? <p className="right-inspector__muted">No trace yet.</p> : (
+        <section className="right-inspector__section" aria-label={messages.inspector.traceAria}>
+          <h2 className="panel__title">{messages.inspector.traceTitle}</h2>
+          {trace.length === 0 ? <p className="right-inspector__muted">{messages.inspector.noTrace}</p> : (
             <ol className="right-inspector__trace">
               {trace.map((row, index) => {
                 const active = index === activeIndex;
+                const localizedOutcome = row.outcome ? translateHandle(row.outcome, locale) : null;
                 return (
                   <li key={row.seq}>
                     <button
@@ -158,10 +167,10 @@ export function RightInspector({
                     >
                       <span className="right-inspector__trace-seq">{row.seq}</span>
                       <span className="right-inspector__trace-content">
-                        <strong>{row.kind}</strong>
-                        {(row.node_id || row.edge_id || row.outcome) && (
+                        <strong>{messages.playback.traceKinds[row.kind] ?? row.kind}</strong>
+                        {(row.node_id || row.edge_id || localizedOutcome) && (
                           <span className="right-inspector__muted right-inspector__mono">
-                            {[row.node_id, row.edge_id, row.outcome].filter(Boolean).join(' · ')}
+                            {[row.node_id, row.edge_id, localizedOutcome].filter(Boolean).join(' · ')}
                           </span>
                         )}
                         <span>{row.message}</span>

@@ -3,15 +3,15 @@ import type { WorkflowGraph } from '../../types/graph';
 export const flagship_4tier: WorkflowGraph = {
   schema_version: '1.0',
   id: 'flagship_4tier',
-  name: '旗舰四层工业工厂 (Flagship 4-Tier Factory)',
+  name: 'Flagship 4-Tier Factory',
   difficulty: 'pro',
-  description: 'Antigravity 头脑风暴与终审 → Claude 规划与里程碑把关 → Codex 攻坚与微审 → DSH 高并发批量执行，适合中大型商业级项目与通宵无人值守。',
-  recommended_for: ['中大型全栈应用', '多模块后端/桌面工具', '通宵无人值守开发'],
+  description: 'Antigravity brainstorm & final sign-off -> Claude planning & milestone gate -> Codex critical execution & micro-review -> DSH parallel bulk execution. Built for commercial full-stack projects and overnight unattended runs.',
+  recommended_for: ['Full-stack applications', 'Multi-module backends & CLI tools', 'Overnight unattended runs'],
   nodes: [
     {
       id: 'l0_brainstorm',
       type: 'planner_node',
-      label: 'L0 头脑风暴 (Antigravity)',
+      label: 'L0 Brainstorm (Antigravity)',
       role: 'brainstorm_and_final_gate',
       position: { x: 60, y: 180 },
       config: { provider: 'host_native', model: 'gemini-4-neon-high' },
@@ -19,7 +19,7 @@ export const flagship_4tier: WorkflowGraph = {
     {
       id: 'l1_plan',
       type: 'planner_node',
-      label: 'L1 战术拆解 (Claude Fable)',
+      label: 'L1 Tactical Plan (Claude Fable)',
       role: 'tactical_planner',
       position: { x: 340, y: 180 },
       config: { provider: 'claude_sub', model: 'fable@high' },
@@ -27,14 +27,14 @@ export const flagship_4tier: WorkflowGraph = {
     {
       id: 'router_tier',
       type: 'router_node',
-      label: '任务分级分流',
+      label: 'Tier Router',
       position: { x: 620, y: 180 },
       config: { route_by: 'tier' },
     },
     {
       id: 'l2_specialist',
       type: 'worker_node',
-      label: 'L2 核心攻坚 (Codex Sol)',
+      label: 'L2 Critical Specialist (Codex Sol)',
       role: 'critical_executor',
       position: { x: 920, y: 60 },
       config: { provider: 'codex_sub', model: 'gpt-6.2-sol@max', concurrency: 1 },
@@ -42,7 +42,7 @@ export const flagship_4tier: WorkflowGraph = {
     {
       id: 'l3_bulk',
       type: 'worker_node',
-      label: 'L3 并发批量 (DSH OpenCode)',
+      label: 'L3 Bulk Workers (DSH OpenCode)',
       role: 'bulk_worker',
       position: { x: 920, y: 300 },
       config: { provider: 'dsh_opencode', model: 'deepseek-v4.1-flash@max', concurrency: 4 },
@@ -50,14 +50,14 @@ export const flagship_4tier: WorkflowGraph = {
     {
       id: 'gate_unit',
       type: 'gate_node',
-      label: '机械门禁 (Lint/Test)',
+      label: 'Mechanical Gate (Lint/Test)',
       position: { x: 1220, y: 300 },
       config: { max_loops: 2 },
     },
     {
       id: 'l2_review',
       type: 'reviewer_node',
-      label: 'L2 微观审校 (Codex Astra)',
+      label: 'L2 Micro Review (Codex Astra)',
       role: 'micro_orchestrator',
       position: { x: 1500, y: 300 },
       config: { provider: 'codex_sub', model: 'gpt-6.2-astra@xhigh', max_rejects: 2 },
@@ -65,14 +65,14 @@ export const flagship_4tier: WorkflowGraph = {
     {
       id: 'git_merge',
       type: 'merge_node',
-      label: '分支合入 (Milestone Merge)',
+      label: 'Milestone Merge',
       position: { x: 1780, y: 180 },
       config: { strategy: 'squash' },
     },
     {
       id: 'l1_milestone_review',
       type: 'reviewer_node',
-      label: 'L1 里程碑把关 (Claude Opus)',
+      label: 'L1 Milestone Gate (Claude Opus)',
       role: 'milestone_reviewer',
       position: { x: 2060, y: 180 },
       config: { provider: 'claude_sub', model: 'opus@high' },
@@ -80,7 +80,7 @@ export const flagship_4tier: WorkflowGraph = {
     {
       id: 'l0_final_gate',
       type: 'human_gate_node',
-      label: 'L0 终审验收 (Antigravity + 用户)',
+      label: 'L0 Final Sign-Off (Antigravity + User)',
       role: 'brainstorm_and_final_gate',
       position: { x: 2360, y: 180 },
       config: { provider: 'host_native', model: 'gemini-4-neon-high' },

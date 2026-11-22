@@ -3,6 +3,8 @@ import './ui/ui.css';
 import { useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
 import { ChevronDown, Download, Link2, Upload } from 'lucide-react';
 import { validateGraph } from '../engine/localSimulator';
+import { useI18n } from '../i18n';
+import { translatePresetText } from '../i18n/presets';
 import { NODE_TYPES, tierForNodeType, type WorkflowEdge, type WorkflowGraph } from '../types/graph';
 import { NODE_ICONS, TIER_COLORS } from './nodes/BatonNode';
 import type { LeftSidebarProps } from './types';
@@ -49,6 +51,7 @@ export function LeftSidebar({
   onShare,
   validation,
 }: LeftSidebarProps) {
+  const { locale, messages } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const latestImport = useRef(0);
   const [importErrors, setImportErrors] = useState<string[]>([]);
@@ -75,7 +78,7 @@ export function LeftSidebar({
 
       const invalidRoleIndex = graph.nodes.findIndex(({ role }) => role !== undefined && typeof role !== 'string');
       if (invalidRoleIndex !== -1) {
-        setImportErrors([`nodes[${invalidRoleIndex}].role must be a string`]);
+        setImportErrors([messages.sidebar.roleMustBeString(invalidRoleIndex)]);
         return;
       }
 
@@ -90,12 +93,14 @@ export function LeftSidebar({
   return (
     <aside className="left-sidebar">
       <section className="left-sidebar__section">
-        <h2 className="left-sidebar__title">Presets</h2>
+        <h2 className="left-sidebar__title">{messages.sidebar.presetsTitle}</h2>
         <div className="left-sidebar__presets">
           {presets.map((preset) => {
             const active = preset.id === currentGraphId;
             const difficultyClass = difficultyClasses.get(preset.difficulty)
               ?? 'left-sidebar__difficulty--slate';
+            const difficultyLabel = messages.sidebar.difficulty[preset.difficulty] ?? preset.difficulty;
+            const presetName = translatePresetText(preset.name, locale);
 
             return (
               <button
@@ -106,13 +111,13 @@ export function LeftSidebar({
                 onClick={() => onSelectPreset(preset.id)}
               >
                 <span className="left-sidebar__preset-header">
-                  <span className="left-sidebar__preset-name">{preset.name}</span>
-                  <span className={`left-sidebar__difficulty ${difficultyClass}`} title={preset.difficulty}>
-                    {preset.difficulty}
+                  <span className="left-sidebar__preset-name">{presetName}</span>
+                  <span className={`left-sidebar__difficulty ${difficultyClass}`} title={difficultyLabel}>
+                    {difficultyLabel}
                   </span>
                 </span>
                 <span className="left-sidebar__preset-meta">
-                  {preset.node_count} nodes · {preset.edge_count} edges
+                  {messages.sidebar.presetCounts(preset.node_count, preset.edge_count)}
                 </span>
               </button>
             );
@@ -121,12 +126,12 @@ export function LeftSidebar({
       </section>
 
       <section className="left-sidebar__section">
-        <h2 className="left-sidebar__title">Node Palette</h2>
+        <h2 className="left-sidebar__title">{messages.sidebar.nodePaletteTitle}</h2>
         <div className="left-sidebar__palette">
           {NODE_TYPES.map((type) => {
             const Icon = NODE_ICONS[type];
             const accent = TIER_COLORS[tierForNodeType(type)];
-            const label = type.replace(/_node$/, '');
+            const label = messages.nodeTypes[type];
 
             return (
               <button
@@ -149,7 +154,7 @@ export function LeftSidebar({
       </section>
 
       <section className="left-sidebar__section">
-        <h2 className="left-sidebar__title">Import / Export</h2>
+        <h2 className="left-sidebar__title">{messages.sidebar.importExportTitle}</h2>
         <div className="left-sidebar__actions">
           <button
             className="btn left-sidebar__action"
@@ -157,7 +162,7 @@ export function LeftSidebar({
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload size={16} aria-hidden="true" />
-            Import .baton.json
+            {messages.sidebar.importButton}
           </button>
           <input
             ref={fileInputRef}
@@ -169,12 +174,12 @@ export function LeftSidebar({
           />
           <button className="btn left-sidebar__action" type="button" onClick={onExport}>
             <Download size={16} aria-hidden="true" />
-            Export JSON
+            {messages.sidebar.exportButton}
           </button>
           {onShare && (
             <button className="btn left-sidebar__action" type="button" onClick={onShare}>
               <Link2 size={16} aria-hidden="true" />
-              Share Link
+              {messages.sidebar.shareButton}
             </button>
           )}
         </div>
@@ -188,13 +193,13 @@ export function LeftSidebar({
       </section>
 
       <section className="left-sidebar__section">
-        <h2 className="left-sidebar__title">Validation</h2>
+        <h2 className="left-sidebar__title">{messages.sidebar.validationTitle}</h2>
         {validation === null ? (
-          <span className="pill pill--muted" role="status">Not validated</span>
+          <span className="pill pill--muted" role="status">{messages.sidebar.notValidated}</span>
         ) : !validation.valid ? (
           <div className="left-sidebar__validation">
             <span className="pill pill--err" role="status">
-              Invalid · {validation.errors.length} errors
+              {messages.sidebar.invalidWithErrors(validation.errors.length)}
             </span>
             <ul className="left-sidebar__validation-list left-sidebar__validation-list--err">
               {validation.errors.map((error, index) => (
@@ -203,7 +208,7 @@ export function LeftSidebar({
             </ul>
           </div>
         ) : validation.warnings.length === 0 ? (
-          <span className="pill pill--ok" role="status">Valid</span>
+          <span className="pill pill--ok" role="status">{messages.sidebar.valid}</span>
         ) : (
           <div className="left-sidebar__validation">
             <button
@@ -212,7 +217,7 @@ export function LeftSidebar({
               aria-expanded={warningsOpen}
               onClick={() => setWarningsOpen((open) => !open)}
             >
-              Valid · {validation.warnings.length} warnings
+              {messages.sidebar.validWithWarnings(validation.warnings.length)}
               <ChevronDown className="left-sidebar__validation-chevron" size={14} aria-hidden="true" />
             </button>
             {warningsOpen && (

@@ -1,9 +1,11 @@
 import './ui.css';
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef } from 'react';
+import { useI18n } from '../../i18n';
 import type { ModalProps } from '../types';
 
 export function Modal({ open, title, onClose, children }: ModalProps) {
+  const { messages } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -31,7 +33,7 @@ export function Modal({ open, title, onClose, children }: ModalProps) {
       <div className="modal__panel panel">
         <div className="modal__header">
           <h2 className="panel__title" id={titleId}>{title}</h2>
-          <button className="modal__close btn" type="button" aria-label="Close dialog" onClick={onClose}>
+          <button className="modal__close btn" type="button" aria-label={messages.inspector.modalCloseAria} onClick={onClose}>
             <X size={18} aria-hidden="true" />
           </button>
         </div>

@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from 'react';
+import { useI18n } from '../../i18n';
 import type { WorkflowEdge, WorkflowNode } from '../../types/graph';
 import type { RightInspectorProps } from '../types';
 
 type EditableFieldProps = {
   name: string;
+  label: string;
   placeholder?: string;
   list?: string;
 } & (
@@ -12,13 +14,13 @@ type EditableFieldProps = {
 );
 
 function EditableField(props: EditableFieldProps) {
-  const { name, type = 'text', placeholder, list } = props;
+  const { name, label, type = 'text', placeholder, list } = props;
   const [draft, setDraft] = useState<string | null>(null);
   const savedValue = props.value?.toString() ?? '';
 
   return (
     <label className="right-inspector__field">
-      <span>{name}</span>
+      <span>{label}</span>
       <input
         className="input"
         name={name}
@@ -53,6 +55,7 @@ type NodeEditorProps = Pick<RightInspectorProps, 'mode' | 'client' | 'onUpdateNo
 };
 
 export function NodeEditor({ node, mode, client, providerListId, onUpdateNode, onToast }: NodeEditorProps) {
+  const { messages } = useI18n();
   const [saving, setSaving] = useState(false);
   const { id, type, label, role, config } = node;
   const { provider, model, max_loops: maxLoops } = config ?? {};
@@ -70,7 +73,7 @@ export function NodeEditor({ node, mode, client, providerListId, onUpdateNode, o
     setSaving(true);
     try {
       await client.updateRole(roleName, { provider: providerName, model: modelName });
-      onToast(`Saved ${roleName} → ${modelName} (hot-reloaded)`, 'ok');
+      onToast(messages.toasts.savedRole(roleName, modelName), 'ok');
     } catch (error) {
       onToast(error instanceof Error ? error.message : String(error), 'err');
     } finally {
@@ -80,17 +83,29 @@ export function NodeEditor({ node, mode, client, providerListId, onUpdateNode, o
 
   return (
     <form className="right-inspector__section" onSubmit={(event) => void saveRole(event)}>
-      <h2 className="panel__title">Node <code>{id}</code></h2>
-      <EditableField name="label" value={label} onCommit={(value) => onUpdateNode(id, { label: value })} />
-      <EditableField name="role" value={role} onCommit={(value) => onUpdateNode(id, { role: value })} />
+      <h2 className="panel__title">{messages.inspector.nodeHeadingPrefix} <code>{id}</code></h2>
+      <EditableField
+        name="label"
+        label={messages.inspector.fields.label}
+        value={label}
+        onCommit={(value) => onUpdateNode(id, { label: value })}
+      />
+      <EditableField
+        name="role"
+        label={messages.inspector.fields.role}
+        value={role}
+        onCommit={(value) => onUpdateNode(id, { role: value })}
+      />
       <EditableField
         name="provider"
+        label={messages.inspector.fields.provider}
         value={typeof provider === 'string' ? provider : undefined}
         list={mode === 'local' ? providerListId : undefined}
         onCommit={(value) => onUpdateNode(id, { provider: value })}
       />
       <EditableField
         name="model"
+        label={messages.inspector.fields.model}
         value={typeof model === 'string' ? model : undefined}
         placeholder="deepseek-v4.1-flash@max"
         onCommit={(value) => onUpdateNode(id, { model: value })}
@@ -98,6 +113,7 @@ export function NodeEditor({ node, mode, client, providerListId, onUpdateNode, o
       {hasLoopField && (
         <EditableField
           name="max_loops"
+          label={messages.inspector.fields.maxLoops}
           type="number"
           value={typeof maxLoops === 'number' ? maxLoops : undefined}
           onCommit={(value) => onUpdateNode(id, { max_loops: value })}
@@ -105,33 +121,41 @@ export function NodeEditor({ node, mode, client, providerListId, onUpdateNode, o
       )}
       {mode === 'local' && role && (
         <button className="btn btn--primary" type="submit" disabled={saving}>
-          Save to baton.toml (Hot-Reload)
+          {messages.inspector.saveHotReload}
         </button>
       )}
       {mode === 'demo' && (
-        <p className="right-inspector__muted">Run <code>baton ui</code> locally to hot-swap models</p>
+        <p className="right-inspector__muted">
+          {messages.inspector.demoHotSwapHintPrefix}
+          <code>baton ui</code>
+          {messages.inspector.demoHotSwapHintSuffix}
+        </p>
       )}
     </form>
   );
 }
 
 export function EdgeEditor({ edge, onUpdateEdge }: Pick<RightInspectorProps, 'onUpdateEdge'> & { edge: WorkflowEdge }) {
+  const { messages } = useI18n();
   const { id, sourceHandle, targetHandle, max_loops: maxLoops } = edge;
   return (
     <div className="right-inspector__section">
-      <h2 className="panel__title">Edge <code>{id}</code></h2>
+      <h2 className="panel__title">{messages.inspector.edgeHeadingPrefix} <code>{id}</code></h2>
       <EditableField
         name="sourceHandle"
+        label={messages.inspector.fields.sourceHandle}
         value={sourceHandle}
         onCommit={(value) => onUpdateEdge(id, { sourceHandle: value || undefined })}
       />
       <EditableField
         name="targetHandle"
+        label={messages.inspector.fields.targetHandle}
         value={targetHandle}
         onCommit={(value) => onUpdateEdge(id, { targetHandle: value || undefined })}
       />
       <EditableField
         name="max_loops"
+        label={messages.inspector.fields.maxLoops}
         type="number"
         value={maxLoops}
         onCommit={(value) => onUpdateEdge(id, { max_loops: value })}

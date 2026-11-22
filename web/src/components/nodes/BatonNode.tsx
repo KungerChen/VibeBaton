@@ -11,6 +11,8 @@ import {
   UserCheck,
   type LucideIcon,
 } from 'lucide-react';
+import { useI18n } from '../../i18n';
+import { translateHandle, translatePresetText, translateRole } from '../../i18n/presets';
 import {
   tierForNodeType,
   type ExecutionState,
@@ -63,15 +65,8 @@ export const NODE_HANDLES: Record<NodeType, { targets: string[]; sources: string
   human_gate_node: { targets: ['in'], sources: ['approve', 'reject'] },
 };
 
-const STATE_BADGES: Partial<Record<ExecutionState, { text: string; className: string }>> = {
-  active: { text: '● RUN', className: 'baton-node__badge--active' },
-  retrying: { text: '↻ RETRY', className: 'baton-node__badge--retrying' },
-  escalated: { text: '▲ ESC', className: 'baton-node__badge--escalated' },
-  passed: { text: '✓ OK', className: 'baton-node__badge--passed' },
-  failed: { text: '✕ FAIL', className: 'baton-node__badge--failed' },
-};
-
 export const BatonNode = memo(function BatonNode({ data, isConnectable, selected }: NodeProps<BatonFlowNode>) {
+  const { locale, messages } = useI18n();
   const { label, nodeType, role, provider, model, max_loops: maxLoops, concurrency, state = 'idle' } = data;
   const tier = tierForNodeType(nodeType, role);
   const tierColor = TIER_COLORS[tier];
@@ -79,7 +74,11 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
   const { targets, sources } = NODE_HANDLES[nodeType];
   const modelLabel = model && (provider ? `${provider} / ${model}` : model);
   const parallelCount = concurrency !== undefined && concurrency > 1 ? concurrency : undefined;
-  const stateBadge = STATE_BADGES[state];
+  const stateText = state !== 'idle' ? messages.nodeStates[state] : undefined;
+  const stateBadge = stateText ? { text: stateText, className: `baton-node__badge--${state}` } : undefined;
+  const localizedLabel = translatePresetText(label, locale);
+  const localizedRole = role ? translateRole(role, locale) : undefined;
+  const nodeTypeLabel = messages.nodeTypes[nodeType];
 
   const style = {
     '--tier-color': tierColor,
@@ -108,14 +107,14 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
         <div className="baton-node__header">
           <Icon className="baton-node__icon" size={14} aria-hidden="true" />
           <span className="baton-node__tier">
-            {tier} · {nodeType}
+            {tier} · {nodeTypeLabel}
           </span>
-          <span className="baton-node__label" title={label}>
-            {label}
+          <span className="baton-node__label" title={localizedLabel}>
+            {localizedLabel}
           </span>
         </div>
 
-        {role && <div className="baton-node__role">{role}</div>}
+        {localizedRole && <div className="baton-node__role">{localizedRole}</div>}
 
         {(modelLabel || maxLoops !== undefined || parallelCount !== undefined || stateBadge) && (
           <div className="baton-node__meta">
@@ -125,7 +124,7 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
               </span>
             )}
             {parallelCount !== undefined && (
-              <span className="baton-node__concurrency" title="Parallel workers">
+              <span className="baton-node__concurrency" title={messages.nodeCard.parallelWorkersTitle}>
                 ⚡ ×{parallelCount}
               </span>
             )}
@@ -142,7 +141,7 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
       <div className="baton-node__sources">
         {sources.map((id) => (
           <div key={id} className="baton-node__source">
-            {id}
+            {translateHandle(id, locale)}
             <Handle
               className="baton-node__handle"
               type="source"

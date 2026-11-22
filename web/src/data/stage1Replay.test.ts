@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { deriveStates } from '../engine/playback';
 import { flagship_4tier } from './presets/flagship_4tier';
-import { STAGE1_REPLAY_META, STAGE1_REPLAY_TRACE } from './stage1Replay';
+import { getStage1ReplayTrace, STAGE1_REPLAY_META, STAGE1_REPLAY_TRACE } from './stage1Replay';
 
 describe('STAGE1_REPLAY_TRACE', () => {
   test('references only valid flagship_4tier node and edge IDs in monotonic seq order', () => {
@@ -32,5 +32,19 @@ describe('STAGE1_REPLAY_TRACE', () => {
     expect(derived.traversedEdgeIds.has('e6')).toBe(true);
     expect(derived.traversedEdgeIds.has('e8')).toBe(true);
     expect(derived.traversedEdgeIds.has('e9')).toBe(true);
+  });
+
+  test('provides aligned pure Chinese replay messages without altering graph structure', () => {
+    const enTrace = getStage1ReplayTrace('en');
+    const zhTrace = getStage1ReplayTrace('zh');
+
+    expect(zhTrace).toHaveLength(enTrace.length);
+    for (let i = 0; i < enTrace.length; i += 1) {
+      expect(zhTrace[i].seq).toBe(enTrace[i].seq);
+      expect(zhTrace[i].node_id).toBe(enTrace[i].node_id);
+      expect(zhTrace[i].edge_id).toBe(enTrace[i].edge_id);
+      expect(zhTrace[i].outcome).toBe(enTrace[i].outcome);
+      expect(/[\u4e00-\u9fff]/.test(zhTrace[i].message)).toBe(true);
+    }
   });
 });

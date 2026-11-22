@@ -1,0 +1,499 @@
+import type { ExecutionState, NodeType, Scenario, TraceKind } from '../types/graph';
+
+export type Locale = 'en' | 'zh';
+
+export interface Messages {
+  docTitle: string;
+  header: {
+    localConnected: string;
+    standaloneDemo: string;
+    languageAria: string;
+  };
+  tabs: {
+    ariaLabel: string;
+    canvas: string;
+    sidebar: string;
+    inspector: string;
+  };
+  sidebar: {
+    presetsTitle: string;
+    nodePaletteTitle: string;
+    importExportTitle: string;
+    importButton: string;
+    exportButton: string;
+    shareButton: string;
+    validationTitle: string;
+    notValidated: string;
+    valid: string;
+    validWithWarnings(count: number): string;
+    invalidWithErrors(count: number): string;
+    presetCounts(nodes: number, edges: number): string;
+    difficulty: Record<string, string>;
+    roleMustBeString(index: number): string;
+  };
+  nodeTypes: Record<NodeType, string>;
+  nodeStates: Partial<Record<ExecutionState, string>>;
+  nodeCard: {
+    parallelWorkersTitle: string;
+  };
+  playback: {
+    scenarioAria: string;
+    scenarios: Record<Scenario, string>;
+    replayButton: string;
+    replayTitle: string;
+    play: string;
+    pause: string;
+    stepForward: string;
+    reset: string;
+    speedAria(speed: number): string;
+    stepCount(step: number, total: number): string;
+    ready: string;
+    traceKinds: Record<TraceKind, string>;
+  };
+  inspector: {
+    asideAria: string;
+    tablistAria: string;
+    tabInspector: string;
+    tabTrace: string;
+    detailsId: string;
+    detailsName: string;
+    detailsDifficulty: string;
+    detailsDescription: string;
+    detailsNodes: string;
+    detailsEdges: string;
+    nodeHeadingPrefix: string;
+    edgeHeadingPrefix: string;
+    fields: {
+      label: string;
+      role: string;
+      provider: string;
+      model: string;
+      maxLoops: string;
+      sourceHandle: string;
+      targetHandle: string;
+    };
+    saveHotReload: string;
+    demoHotSwapHintPrefix: string;
+    demoHotSwapHintSuffix: string;
+    traceTitle: string;
+    traceAria: string;
+    noTrace: string;
+    liveSectionAria: string;
+    liveTitle: string;
+    reconnecting: string;
+    startRealRun: string;
+    battleReport: string;
+    pauseRun: string;
+    resumeRun: string;
+    decisionNote: string;
+    approve: string;
+    reject: string;
+    tasksAria: string;
+    table: {
+      id: string;
+      title: string;
+      tier: string;
+      status: string;
+      assignee: string;
+    };
+    noTasks: string;
+    noRuns: string;
+    runStatuses: Record<string, string>;
+    eventLogTitle: string;
+    eventLogAria: string;
+    noEvents: string;
+    modalStartTitle: string;
+    modalReportTitle: string;
+    rfcSourceLegend: string;
+    rfcMarkdownOption: string;
+    rfcRepoPathOption: string;
+    rfcMarkdownAria: string;
+    rfcRepoPathAria: string;
+    runModeLabel: string;
+    runModes: {
+      overnight: string;
+      interactive: string;
+    };
+    modelOverridesLabel: string;
+    cancel: string;
+    startRun: string;
+    startingRun: string;
+    errors: {
+      enterRfcMarkdown: string;
+      enterRelativePath: string;
+      invalidOverridesJson: string;
+      overridesMustMapStrings: string;
+    };
+    modalCloseAria: string;
+  };
+  toasts: {
+    imported(name: string): string;
+    loadedShared(name: string): string;
+    invalidShared(reason: string): string;
+    shareCopied: string;
+    shareUpdatedBar: string;
+    replayLoaded: string;
+    unknownPreset(id: string): string;
+    savedRole(role: string, model: string): string;
+    runStarted(runId: string, pid: number): string;
+  };
+}
+
+export const MESSAGES: Record<Locale, Messages> = {
+  en: {
+    docTitle: 'VibeBaton — Multi-Agent Workflow Canvas',
+    header: {
+      localConnected: 'Local Connected',
+      standaloneDemo: 'Standalone Demo',
+      languageAria: 'Interface language',
+    },
+    tabs: {
+      ariaLabel: 'Workspace views',
+      canvas: 'Canvas',
+      sidebar: 'Sidebar',
+      inspector: 'Inspector',
+    },
+    sidebar: {
+      presetsTitle: 'Presets',
+      nodePaletteTitle: 'Node Palette',
+      importExportTitle: 'Import / Export',
+      importButton: 'Import .baton.json',
+      exportButton: 'Export JSON',
+      shareButton: 'Share Link',
+      validationTitle: 'Validation',
+      notValidated: 'Not validated',
+      valid: 'Valid',
+      validWithWarnings: (count) => `Valid · ${count} warnings`,
+      invalidWithErrors: (count) => `Invalid · ${count} errors`,
+      presetCounts: (nodes, edges) => `${nodes} nodes · ${edges} edges`,
+      difficulty: {
+        beginner: 'Beginner',
+        intermediate: 'Intermediate',
+        pro: 'Pro',
+        expert: 'Expert',
+      },
+      roleMustBeString: (index) => `nodes[${index}].role must be a string`,
+    },
+    nodeTypes: {
+      planner_node: 'Planner',
+      router_node: 'Router',
+      worker_node: 'Worker',
+      gate_node: 'Gate',
+      reviewer_node: 'Reviewer',
+      merge_node: 'Merge',
+      human_gate_node: 'Human Gate',
+    },
+    nodeStates: {
+      active: '● RUN',
+      retrying: '↻ RETRY',
+      escalated: '▲ ESC',
+      passed: '✓ OK',
+      failed: '✕ FAIL',
+    },
+    nodeCard: {
+      parallelWorkersTitle: 'Parallel workers',
+    },
+    playback: {
+      scenarioAria: 'Scenario',
+      scenarios: {
+        happy_path: 'Happy Path',
+        gate_retry: 'Gate Retry',
+        escalate: 'Escalate',
+      },
+      replayButton: 'Stage 1 60×',
+      replayTitle: 'Replay real Stage 1 self-hosting run (run-20261121-044454-3b1845 · 107m @ 60×)',
+      play: 'Play',
+      pause: 'Pause',
+      stepForward: 'Step forward',
+      reset: 'Reset playback',
+      speedAria: (speed) => `Playback speed ${speed}x`,
+      stepCount: (step, total) => `Step ${step} / ${total}`,
+      ready: 'Ready',
+      traceKinds: {
+        node_started: 'Node started',
+        node_completed: 'Node completed',
+        node_failed: 'Node failed',
+        edge_traversed: 'Edge traversed',
+        loop_limit_reached: 'Loop limit reached',
+        graph_completed: 'Workflow completed',
+        graph_halted: 'Workflow halted',
+      },
+    },
+    inspector: {
+      asideAria: 'Workflow inspector',
+      tablistAria: 'Workflow inspector views',
+      tabInspector: 'Inspector',
+      tabTrace: 'Trace & Live Run',
+      detailsId: 'ID',
+      detailsName: 'Name',
+      detailsDifficulty: 'Difficulty',
+      detailsDescription: 'Description',
+      detailsNodes: 'Nodes',
+      detailsEdges: 'Edges',
+      nodeHeadingPrefix: 'Node',
+      edgeHeadingPrefix: 'Edge',
+      fields: {
+        label: 'Label',
+        role: 'Role',
+        provider: 'Provider',
+        model: 'Model',
+        maxLoops: 'Max Loops',
+        sourceHandle: 'Source Handle',
+        targetHandle: 'Target Handle',
+      },
+      saveHotReload: 'Save to baton.toml (Hot-Reload)',
+      demoHotSwapHintPrefix: 'Run ',
+      demoHotSwapHintSuffix: ' locally to hot-swap models',
+      traceTitle: 'Trace',
+      traceAria: 'Simulation trace',
+      noTrace: 'No trace yet.',
+      liveSectionAria: 'Live run',
+      liveTitle: 'Live Run',
+      reconnecting: 'reconnecting…',
+      startRealRun: '▶ Start Real Run',
+      battleReport: 'Battle Report',
+      pauseRun: 'Pause',
+      resumeRun: 'Resume',
+      decisionNote: 'Decision note (optional)',
+      approve: 'Approve',
+      reject: 'Reject',
+      tasksAria: 'Run tasks',
+      table: {
+        id: 'ID',
+        title: 'Title',
+        tier: 'Tier',
+        status: 'Status',
+        assignee: 'Assignee',
+      },
+      noTasks: 'No tasks yet.',
+      noRuns: 'No runs yet.',
+      runStatuses: {
+        RUNNING: 'RUNNING',
+        PAUSED: 'PAUSED',
+        WAITING_HUMAN: 'WAITING_HUMAN',
+        READY_FOR_FINAL_GATE: 'READY_FOR_FINAL_GATE',
+        COMPLETED: 'COMPLETED',
+        FAILED: 'FAILED',
+        HALTED: 'HALTED',
+        PASSED: 'PASSED',
+        PENDING: 'PENDING',
+        UNKNOWN: 'UNKNOWN',
+      },
+      eventLogTitle: 'Event Log',
+      eventLogAria: 'Run event log',
+      noEvents: 'No events yet.',
+      modalStartTitle: 'Start Real Run',
+      modalReportTitle: 'Battle Report',
+      rfcSourceLegend: 'RFC source',
+      rfcMarkdownOption: 'RFC markdown',
+      rfcRepoPathOption: 'Repo path',
+      rfcMarkdownAria: 'RFC markdown',
+      rfcRepoPathAria: 'Repo path',
+      runModeLabel: 'Mode',
+      runModes: {
+        overnight: 'overnight',
+        interactive: 'interactive',
+      },
+      modelOverridesLabel: 'Model overrides JSON (optional)',
+      cancel: 'Cancel',
+      startRun: 'Start Run',
+      startingRun: 'Starting…',
+      errors: {
+        enterRfcMarkdown: 'Enter RFC markdown.',
+        enterRelativePath: 'Enter a path relative to the repository.',
+        invalidOverridesJson: 'Enter valid JSON for model overrides.',
+        overridesMustMapStrings: 'Model overrides must map role names to model strings.',
+      },
+      modalCloseAria: 'Close dialog',
+    },
+    toasts: {
+      imported: (name) => `Imported ${name}`,
+      loadedShared: (name) => `Loaded shared recipe: ${name}`,
+      invalidShared: (reason) => `Invalid shared recipe link: ${reason}`,
+      shareCopied: 'Shareable link copied to clipboard',
+      shareUpdatedBar: 'Shareable URL updated in address bar',
+      replayLoaded: 'Stage 1 Real Run (v0.2.0 · 107m @ 60×) loaded',
+      unknownPreset: (id) => `Unknown preset '${id}'`,
+      savedRole: (role, model) => `Saved ${role} -> ${model} (hot-reloaded)`,
+      runStarted: (runId, pid) => `Run ${runId} started (pid ${pid})`,
+    },
+  },
+  zh: {
+    docTitle: 'VibeBaton — 多智能体工作流画布',
+    header: {
+      localConnected: '已连接本地',
+      standaloneDemo: '独立演示模式',
+      languageAria: '界面语言',
+    },
+    tabs: {
+      ariaLabel: '工作区视图',
+      canvas: '画布',
+      sidebar: '侧边栏',
+      inspector: '属性检查',
+    },
+    sidebar: {
+      presetsTitle: '预置工作流',
+      nodePaletteTitle: '节点面板',
+      importExportTitle: '导入与导出',
+      importButton: '导入 .baton.json',
+      exportButton: '导出 JSON',
+      shareButton: '分享链接',
+      validationTitle: '图校验',
+      notValidated: '未校验',
+      valid: '校验通过',
+      validWithWarnings: (count) => `通过 · ${count} 条警告`,
+      invalidWithErrors: (count) => `无效 · ${count} 条错误`,
+      presetCounts: (nodes, edges) => `${nodes} 节点 · ${edges} 连线`,
+      difficulty: {
+        beginner: '入门',
+        intermediate: '进阶',
+        pro: '专业',
+        expert: '专家',
+      },
+      roleMustBeString: (index) => `第 ${index} 个节点的角色字段必须为字符串`,
+    },
+    nodeTypes: {
+      planner_node: '规划',
+      router_node: '路由',
+      worker_node: '执行',
+      gate_node: '门禁',
+      reviewer_node: '审校',
+      merge_node: '合入',
+      human_gate_node: '人工终审',
+    },
+    nodeStates: {
+      active: '● 运行中',
+      retrying: '↻ 重试中',
+      escalated: '▲ 已升级',
+      passed: '✓ 通过',
+      failed: '✕ 失败',
+    },
+    nodeCard: {
+      parallelWorkersTitle: '并发执行数',
+    },
+    playback: {
+      scenarioAria: '仿真场景',
+      scenarios: {
+        happy_path: '正常流转',
+        gate_retry: '门禁重试',
+        escalate: '熔断升级',
+      },
+      replayButton: '一期真跑 60×',
+      replayTitle: '回放真实一期自举记录（run-20261121-044454-3b1845 · 107 分钟 @ 60×）',
+      play: '播放',
+      pause: '暂停',
+      stepForward: '单步前进',
+      reset: '重置回放',
+      speedAria: (speed) => `回放倍速 ${speed}x`,
+      stepCount: (step, total) => `步骤 ${step} / ${total}`,
+      ready: '就绪',
+      traceKinds: {
+        node_started: '节点启动',
+        node_completed: '节点完成',
+        node_failed: '节点失败',
+        edge_traversed: '连线流转',
+        loop_limit_reached: '达到循环上限',
+        graph_completed: '流程完成',
+        graph_halted: '流程中止',
+      },
+    },
+    inspector: {
+      asideAria: '工作流属性面板',
+      tablistAria: '属性检查视图',
+      tabInspector: '属性检查',
+      tabTrace: '轨迹与实时运行',
+      detailsId: '编号',
+      detailsName: '名称',
+      detailsDifficulty: '难度',
+      detailsDescription: '说明',
+      detailsNodes: '节点数',
+      detailsEdges: '连线数',
+      nodeHeadingPrefix: '节点',
+      edgeHeadingPrefix: '连线',
+      fields: {
+        label: '名称',
+        role: '角色',
+        provider: '供应方',
+        model: '模型',
+        maxLoops: '最大循环',
+        sourceHandle: '源端口',
+        targetHandle: '目标端口',
+      },
+      saveHotReload: '保存到 baton.toml（热重载）',
+      demoHotSwapHintPrefix: '本地运行 ',
+      demoHotSwapHintSuffix: ' 即可实时热切换模型',
+      traceTitle: '执行轨迹',
+      traceAria: '仿真轨迹',
+      noTrace: '暂无轨迹数据。',
+      liveSectionAria: '实时运行',
+      liveTitle: '实时运行',
+      reconnecting: '重连中…',
+      startRealRun: '▶ 启动真实运行',
+      battleReport: '战报',
+      pauseRun: '暂停',
+      resumeRun: '恢复',
+      decisionNote: '审批备注（可选）',
+      approve: '批准',
+      reject: '驳回',
+      tasksAria: '任务列表',
+      table: {
+        id: '编号',
+        title: '标题',
+        tier: '层级',
+        status: '状态',
+        assignee: '执行角色',
+      },
+      noTasks: '暂无任务。',
+      noRuns: '暂无运行记录。',
+      runStatuses: {
+        RUNNING: '运行中',
+        PAUSED: '已暂停',
+        WAITING_HUMAN: '等待人工审批',
+        READY_FOR_FINAL_GATE: '待终审合入',
+        COMPLETED: '已完成',
+        FAILED: '已失败',
+        HALTED: '已中止',
+        PASSED: '已通过',
+        PENDING: '排队中',
+        UNKNOWN: '未知状态',
+      },
+      eventLogTitle: '事件日志',
+      eventLogAria: '运行事件日志',
+      noEvents: '暂无事件。',
+      modalStartTitle: '启动真实运行',
+      modalReportTitle: '战报详情',
+      rfcSourceLegend: 'RFC 来源',
+      rfcMarkdownOption: 'RFC Markdown',
+      rfcRepoPathOption: '仓库路径',
+      rfcMarkdownAria: 'RFC Markdown 内容',
+      rfcRepoPathAria: '仓库相对路径',
+      runModeLabel: '运行模式',
+      runModes: {
+        overnight: '通宵无人值守',
+        interactive: '交互式',
+      },
+      modelOverridesLabel: '模型覆盖 JSON（可选）',
+      cancel: '取消',
+      startRun: '立即启动',
+      startingRun: '启动中…',
+      errors: {
+        enterRfcMarkdown: '请输入 RFC Markdown 内容。',
+        enterRelativePath: '请输入相对于仓库根目录的路径。',
+        invalidOverridesJson: '请输入有效的 JSON 模型覆盖配置。',
+        overridesMustMapStrings: '模型覆盖配置必须为“角色名: 模型名”的字符串映射。',
+      },
+      modalCloseAria: '关闭弹窗',
+    },
+    toasts: {
+      imported: (name) => `已导入工作流：${name}`,
+      loadedShared: (name) => `已加载分享工作流：${name}`,
+      invalidShared: (reason) => `无效的分享链接：${reason}`,
+      shareCopied: '已复制分享链接到剪贴板',
+      shareUpdatedBar: '已将分享链接更新至地址栏',
+      replayLoaded: '已加载一期真实自举回放（v0.2.0 · 107 分钟 @ 60×）',
+      unknownPreset: (id) => `未知预置工作流 '${id}'`,
+      savedRole: (role, model) => `已保存 ${role} → ${model}（热重载生效）`,
+      runStarted: (runId, pid) => `运行 ${runId} 已启动（进程 ${pid}）`,
+    },
+  },
+};

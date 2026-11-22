@@ -3,15 +3,15 @@ import type { WorkflowGraph } from '../../types/graph';
 export const review_only_audit: WorkflowGraph = {
   schema_version: '1.0',
   id: 'review_only_audit',
-  name: '只读审计流水线 (Review-Only Audit)',
+  name: 'Review-Only Audit',
   difficulty: 'beginner',
-  description: '只读审计流水线：自动运行测试与静态检查，由 Codex 做安全微审、Claude Opus 做架构评审。全程只读、不写代码、不产生修复循环，审校结论交由用户最终确认，适合审计现有代码库。',
-  recommended_for: ['代码审计 (Code audit)', '安全审查 (Security review)', 'PR 验证 (PR verification)'],
+  description: 'Read-only audit pipeline: runs automated tests and lint checks, followed by Codex security micro-review and Claude Opus architecture review. Never modifies code; hands findings to a human for final sign-off.',
+  recommended_for: ['Code audit', 'Security review', 'PR verification'],
   nodes: [
     {
       id: 'audit_gate',
       type: 'gate_node',
-      label: '审计门禁 (Tests / Lint)',
+      label: 'Audit Gate (Tests / Lint)',
       position: { x: 80, y: 160 },
       config: {
         commands: ['python -m unittest discover -s tests', 'python -m ruff check .'],
@@ -20,7 +20,7 @@ export const review_only_audit: WorkflowGraph = {
     {
       id: 'micro_security_review',
       type: 'reviewer_node',
-      label: '安全微审 (Codex Astra)',
+      label: 'Security Micro-Review (Codex Astra)',
       role: 'micro_orchestrator',
       position: { x: 380, y: 160 },
       config: { provider: 'codex_sub', model: 'gpt-6.2-astra@xhigh' },
@@ -28,7 +28,7 @@ export const review_only_audit: WorkflowGraph = {
     {
       id: 'architecture_review',
       type: 'reviewer_node',
-      label: '架构评审 (Claude Opus)',
+      label: 'Architecture Review (Claude Opus)',
       role: 'milestone_reviewer',
       position: { x: 680, y: 160 },
       config: { provider: 'claude_sub', model: 'opus@high' },
@@ -36,7 +36,7 @@ export const review_only_audit: WorkflowGraph = {
     {
       id: 'human_final',
       type: 'human_gate_node',
-      label: '人工审计确认',
+      label: 'Human Audit Sign-Off',
       position: { x: 980, y: 160 },
       config: {},
     },

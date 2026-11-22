@@ -3,15 +3,15 @@ import type { WorkflowGraph } from '../../types/graph';
 export const starter_2tier: WorkflowGraph = {
   schema_version: '1.0',
   id: 'starter_2tier',
-  name: '小白极简入门双层流 (Starter 2-Tier Flow)',
+  name: 'Starter 2-Tier Flow',
   difficulty: 'beginner',
-  description: '零门槛、超低成本！只需一个高性价比 API/CLI（如 OpenCode Go / DeepSeek / Gemini）即可跑完规划、写代码、自动测试和人工预览验收。',
-  recommended_for: ['个人网页 / 小工具', '零代码小白第一次 Vibe Coding', '快速原型验证'],
+  description: 'Zero-friction, ultra-low-cost workflow. Run planning, parallel coding, automated testing, and human preview sign-off with a single affordable API/CLI.',
+  recommended_for: ['Personal sites & mini tools', 'First Vibe Coding project', 'Rapid prototyping'],
   nodes: [
     {
       id: 'plan',
       type: 'planner_node',
-      label: '方案拆解 (任意推理模型)',
+      label: 'Task Breakdown (Any Reasoning Model)',
       role: 'tactical_planner',
       position: { x: 80, y: 160 },
       config: { provider: 'dsh_opencode', model: 'deepseek-v4.1-flash@max' },
@@ -19,7 +19,7 @@ export const starter_2tier: WorkflowGraph = {
     {
       id: 'worker',
       type: 'worker_node',
-      label: '并发执行 (OpenCode / DeepSeek)',
+      label: 'Parallel Worker (OpenCode / DeepSeek)',
       role: 'bulk_worker',
       position: { x: 380, y: 160 },
       config: { provider: 'dsh_opencode', model: 'deepseek-v4.1-flash@max', concurrency: 3 },
@@ -27,14 +27,14 @@ export const starter_2tier: WorkflowGraph = {
     {
       id: 'gate',
       type: 'gate_node',
-      label: '自动测试门禁',
+      label: 'Automated Test Gate',
       position: { x: 680, y: 160 },
       config: { max_loops: 2 },
     },
     {
       id: 'final',
       type: 'human_gate_node',
-      label: '预览并确认成果',
+      label: 'Preview & Sign-Off',
       role: 'brainstorm_and_final_gate',
       position: { x: 980, y: 160 },
       config: { provider: 'host_native', model: 'any' },

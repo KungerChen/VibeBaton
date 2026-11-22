@@ -3,15 +3,15 @@ import type { WorkflowGraph } from '../../types/graph';
 export const solo_coder_3tier: WorkflowGraph = {
   schema_version: '1.0',
   id: 'solo_coder_3tier',
-  name: '个人开发三层流 (Solo Coder 3-Tier Flow)',
+  name: 'Solo Coder 3-Tier Flow',
   difficulty: 'intermediate',
-  description: 'Claude 拆解任务，DSH 编写代码，Codex 审校。通过测试与审校后合入分支，由用户验收。',
-  recommended_for: ['个人应用', '命令行工具', '小型全栈项目'],
+  description: 'Claude plans tasks, DSH implements code, and Codex reviews changes before merging for final human sign-off.',
+  recommended_for: ['Personal apps', 'CLI tools', 'Small full-stack projects'],
   nodes: [
     {
       id: 'plan',
       type: 'planner_node',
-      label: '任务规划 (Claude Fable)',
+      label: 'Task Planning (Claude Fable)',
       role: 'tactical_planner',
       position: { x: 80, y: 160 },
       config: { provider: 'claude_sub', model: 'fable@high' },
@@ -19,7 +19,7 @@ export const solo_coder_3tier: WorkflowGraph = {
     {
       id: 'worker',
       type: 'worker_node',
-      label: '代码实现 (DSH OpenCode)',
+      label: 'Code Execution (DSH OpenCode)',
       role: 'bulk_worker',
       position: { x: 380, y: 160 },
       config: { provider: 'dsh_opencode', model: 'deepseek-v4.1-flash@max' },
@@ -27,14 +27,14 @@ export const solo_coder_3tier: WorkflowGraph = {
     {
       id: 'gate',
       type: 'gate_node',
-      label: '测试门禁',
+      label: 'Test Gate',
       position: { x: 680, y: 160 },
       config: { commands: ['python -m unittest discover -s tests'] },
     },
     {
       id: 'review',
       type: 'reviewer_node',
-      label: '代码审校 (Codex Astra)',
+      label: 'Code Review (Codex Astra)',
       role: 'micro_orchestrator',
       position: { x: 980, y: 160 },
       config: { provider: 'codex_sub', model: 'gpt-6.2-astra@xhigh' },
@@ -42,14 +42,14 @@ export const solo_coder_3tier: WorkflowGraph = {
     {
       id: 'merge',
       type: 'merge_node',
-      label: '分支合入',
+      label: 'Branch Merge',
       position: { x: 1280, y: 160 },
       config: { strategy: 'squash' },
     },
     {
       id: 'human_final',
       type: 'human_gate_node',
-      label: '人工验收',
+      label: 'Human Sign-Off',
       position: { x: 1580, y: 160 },
       config: {},
     },

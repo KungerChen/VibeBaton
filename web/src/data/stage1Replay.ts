@@ -1,3 +1,4 @@
+import type { Locale } from '../i18n/messages';
 import type { GraphTraceEvent } from '../types/graph';
 
 export const STAGE1_REPLAY_META = {
@@ -13,7 +14,10 @@ export const STAGE1_REPLAY_META = {
   escalations: 1,
 } as const;
 
-type RawReplayEvent = Omit<GraphTraceEvent, 'seq' | 'timestamp'> & { elapsedSec: number };
+type RawReplayEvent = Omit<GraphTraceEvent, 'seq' | 'timestamp'> & {
+  elapsedSec: number;
+  messageZh: string;
+};
 
 const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
   {
@@ -23,6 +27,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L0 · 00m] Antigravity locks Master RFC for Node-Graph Engine (v0.2.0)',
+    messageZh: '[L0 · 00分] Antigravity 敲定节点图引擎主规格文档（v0.2.0）',
   },
   {
     elapsedSec: 75,
@@ -31,6 +36,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'out',
     message: '[L0 · 01m] Zero-dep RFC approved -> passing baton to Claude Fable (L1)',
+    messageZh: '[L0 · 01分] 零依赖规格已确认，传递接力棒给 Claude Fable（L1）',
   },
   {
     elapsedSec: 90,
@@ -39,6 +45,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e1',
     outcome: 'rfc',
     message: '[Baton -> L1] Master RFC dispatched to tactical planner',
+    messageZh: '[接力 → L1] 主规格文档已派发至战术规划器',
   },
   {
     elapsedSec: 120,
@@ -47,6 +54,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L1 · 02m] Claude Fable decomposes RFC into 3 Milestones, 9 Tasks DAG',
+    messageZh: '[L1 · 02分] Claude Fable 将需求拆解为 3 个里程碑、9 个任务的有向无环图',
   },
   {
     elapsedSec: 240,
@@ -55,6 +63,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'dag',
     message: '[L1 · 04m] Acyclic 3-milestone DAG ready for tier routing',
+    messageZh: '[L1 · 04分] 无环三里程碑任务图已生成，准备分级路由',
   },
   {
     elapsedSec: 255,
@@ -63,6 +72,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e2',
     outcome: 'dag',
     message: '[Baton -> Router] Routing M1 foundation contracts',
+    messageZh: '[接力 → 路由] 开始派发 M1 基础契约任务',
   },
   {
     elapsedSec: 270,
@@ -71,6 +81,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[Router · M1] Dispatching M1-T1/T2/T3 contracts to Codex Sol (L2)',
+    messageZh: '[路由 · M1] 将 M1-T1/T2/T3 核心契约派发至 Codex Sol（L2）',
   },
   {
     elapsedSec: 285,
@@ -79,6 +90,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'critical',
     message: '[Router · M1] Critical path assigned to critical_executor',
+    messageZh: '[路由 · M1] 核心路径已分配至核心执行层',
   },
   {
     elapsedSec: 300,
@@ -87,6 +99,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e3',
     outcome: 'critical',
     message: '[Baton -> L2 Sol] M1-T1 graph_schema + M1-T2 graph_engine + Golden Example',
+    messageZh: '[接力 → L2 Sol] 执行 M1-T1 图谱模式、M1-T2 执行引擎与黄金预设',
   },
   {
     elapsedSec: 360,
@@ -95,6 +108,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L2 Sol · M1] Implementing graph_schema (421.9s), graph_engine (464.0s), preset (271.0s)',
+    messageZh: '[L2 Sol · M1] 实现图谱模式（421.9s）、执行引擎（464.0s）与黄金预设（271.0s）',
   },
   {
     elapsedSec: 1456,
@@ -103,6 +117,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'out',
     message: '[L2 Sol · M1] 3/3 foundation contracts green on first pass',
+    messageZh: '[L2 Sol · M1] 3/3 核心契约任务一次通过全部检查',
   },
   {
     elapsedSec: 1470,
@@ -111,6 +126,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e11',
     outcome: 'out',
     message: '[Baton -> Merge] Merging M1 worktrees into milestone branch',
+    messageZh: '[接力 → 合入] 将 M1 工作区合入里程碑分支',
   },
   {
     elapsedSec: 1500,
@@ -119,6 +135,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[Merge · M1] Squash-merging M1 & checking path whitelist',
+    messageZh: '[合入 · M1] 压缩合并 M1 分支并校验路径白名单',
   },
   {
     elapsedSec: 1530,
@@ -127,6 +144,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'out',
     message: '[Merge · M1] Clean squash merge -> handing baton to Claude Opus',
+    messageZh: '[合入 · M1] 合入完成，传递接力棒给 Claude Opus',
   },
   {
     elapsedSec: 1545,
@@ -135,6 +153,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e12',
     outcome: 'out',
     message: '[Baton -> L1 Opus] Requesting M1 milestone gate review',
+    messageZh: '[接力 → L1 Opus] 请求 M1 里程碑把关评审',
   },
   {
     elapsedSec: 1575,
@@ -143,6 +162,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L1 Opus · M1] Auditing NodeType, GraphExecutionEngine & preset alignment',
+    messageZh: '[L1 Opus · M1] 审计节点类型、图执行引擎与预设对齐情况',
   },
   {
     elapsedSec: 1740,
@@ -151,6 +171,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'pass',
     message: '[L1 Opus · M1 PASS] 7-value NodeType & engine contracts verified',
+    messageZh: '[L1 Opus · M1 通过] 七类节点与执行引擎契约验收合格',
   },
   {
     elapsedSec: 1760,
@@ -159,6 +180,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e4',
     outcome: 'routine',
     message: '[M2 Fan-Out] Dispatching M2-T1/T2/T3 to DSH OpenCode (x4 parallel)',
+    messageZh: '[M2 并发扇出] 将 M2-T1/T2/T3 派发至 DSH OpenCode（×4 并发）',
   },
   {
     elapsedSec: 1800,
@@ -167,6 +189,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L3 DSH ×4 · M2] Building presets.py, review_only_audit preset, test_presets.py',
+    messageZh: '[L3 DSH ×4 · M2] 并行编写预设加载器、只读审计预设与单元测试',
   },
   {
     elapsedSec: 2280,
@@ -175,6 +198,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'out',
     message: '[L3 DSH · M2] Initial M2 output ready -> running mechanical test gate',
+    messageZh: '[L3 DSH · M2] 初步产出完成，进入机械测试门禁',
   },
   {
     elapsedSec: 2295,
@@ -183,6 +207,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e5',
     outcome: 'out',
     message: '[Baton -> Gate] Executing unittest gate on M2 tasks',
+    messageZh: '[接力 → 门禁] 对 M2 任务执行单元测试门禁',
   },
   {
     elapsedSec: 2310,
@@ -191,6 +216,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[Gate · M2-T3] Running test_presets.py validation assertions',
+    messageZh: '[门禁 · M2-T3] 运行预设单元测试校验断言',
   },
   {
     elapsedSec: 2340,
@@ -199,6 +225,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'fail',
     message: '[Gate Catch!] M2-T3 test defect caught locally (0 upper-tier quota spent)',
+    messageZh: '[门禁拦截！] 本地拦截 M2-T3 测试缺陷（零消耗高层额度）',
   },
   {
     elapsedSec: 2355,
@@ -207,6 +234,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e6',
     outcome: 'fail',
     message: '[Amber Retry · e6] Returning M2-T3 to L3 DSH for self-heal (1/2)',
+    messageZh: '[琥珀重试 · e6] 退回 L3 DSH 本地自愈修复（1/2）',
   },
   {
     elapsedSec: 2400,
@@ -215,6 +243,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L3 DSH · Self-Heal] Patching M2-T3 test_presets.py assertions (519.1s)',
+    messageZh: '[L3 DSH · 自愈] 修正 M2-T3 预设测试断言（519.1s）',
   },
   {
     elapsedSec: 2560,
@@ -223,6 +252,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'out',
     message: '[L3 DSH · Self-Heal] M2-T3 fix ready for gate re-check',
+    messageZh: '[L3 DSH · 自愈] M2-T3 修复完成，重新提交门禁校验',
   },
   {
     elapsedSec: 2575,
@@ -231,6 +261,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e5',
     outcome: 'out',
     message: '[Baton -> Gate] Re-running unittest on M2',
+    messageZh: '[接力 → 门禁] 重新运行 M2 单元测试',
   },
   {
     elapsedSec: 2590,
@@ -239,6 +270,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[Gate · M2] Re-verifying presets loader and tests',
+    messageZh: '[门禁 · M2] 复检预设加载器与测试用例',
   },
   {
     elapsedSec: 2620,
@@ -247,6 +279,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'pass',
     message: '[Gate PASS] M2 mechanical tests green -> handing baton to Codex Astra',
+    messageZh: '[门禁通过] M2 机械测试全绿，传递接力棒给 Codex Astra',
   },
   {
     elapsedSec: 2635,
@@ -255,6 +288,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e7',
     outcome: 'pass',
     message: '[Baton -> L2 Astra] Micro-reviewing M2-T1 presets.py',
+    messageZh: '[接力 → L2 Astra] 对 M2-T1 预设加载器进行微观审校',
   },
   {
     elapsedSec: 2700,
@@ -263,6 +297,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L2 Astra · M2-T1] Auditing presets.py loader contract & edge cases',
+    messageZh: '[L2 Astra · M2-T1] 审计预设加载契约与边界条件',
   },
   {
     elapsedSec: 2920,
@@ -271,6 +306,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'fail',
     message: '[L2 Astra Reject] M2-T1 presets.py loader minor fixes requested (reject x2)',
+    messageZh: '[L2 Astra 退回] M2-T1 预设加载边界需补充修复（退回 2 次）',
   },
   {
     elapsedSec: 2935,
@@ -279,6 +315,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e8',
     outcome: 'minor_fix',
     message: '[Amber Fix · e8] Sending M2-T1 presets.py fix instructions back to L3 DSH',
+    messageZh: '[琥珀返修 · e8] 将 M2-T1 修改意见退回 L3 DSH 执行修复',
   },
   {
     elapsedSec: 3000,
@@ -287,6 +324,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L3 DSH · M2-T1] Updating presets.py loader sorting & error cases (977.0s)',
+    messageZh: '[L3 DSH · M2-T1] 完善预设排序加载与异常分支处理（977.0s）',
   },
   {
     elapsedSec: 3420,
@@ -295,6 +333,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'out',
     message: '[L3 DSH · M2-T1] Resubmitting presets.py through gate to Codex Astra',
+    messageZh: '[L3 DSH · M2-T1] 修复通过门禁后重送 Codex Astra 复审',
   },
   {
     elapsedSec: 3450,
@@ -303,6 +342,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e7',
     outcome: 'pass',
     message: '[Baton -> L2 Astra] Re-reviewing updated presets.py',
+    messageZh: '[接力 → L2 Astra] 复审更新后的预设加载模块',
   },
   {
     elapsedSec: 3500,
@@ -311,6 +351,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L2 Astra · M2-T1] Re-verifying 4 presets sorted load & stdlib-only imports',
+    messageZh: '[L2 Astra · M2-T1] 复验 4 套预设排序加载与纯标准库导入约束',
   },
   {
     elapsedSec: 3580,
@@ -318,7 +359,8 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     node_id: 'l2_review',
     edge_id: null,
     outcome: 'pass',
-    message: '[L2 Astra · M2-T1 PASS] 全部验收条件通过 · 4 presets validated',
+    message: '[L2 Astra · M2-T1 PASS] All acceptance criteria passed · 4 presets validated',
+    messageZh: '[L2 Astra · M2-T1 通过] 全部验收条件通过 · 4 套预设校验成功',
   },
   {
     elapsedSec: 3595,
@@ -327,6 +369,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e10',
     outcome: 'pass',
     message: '[Baton -> Merge] Merging M2 parallel branches',
+    messageZh: '[接力 → 合入] 合并 M2 并行开发分支',
   },
   {
     elapsedSec: 3630,
@@ -335,6 +378,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'pass',
     message: '[L1 Opus · M2 PASS] presets.py matches RFC API; review_only_audit valid',
+    messageZh: '[L1 Opus · M2 通过] 预设模块符合规格接口，只读审计预设校验通过',
   },
   {
     elapsedSec: 3800,
@@ -343,6 +387,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e3',
     outcome: 'critical',
     message: '[M3 Critical] Dispatching M3-T1 CLI (347.4s) & M3-T2 MCP (698.3s) to L2 Sol',
+    messageZh: '[M3 核心] 将 CLI 子命令（347.4s）与 MCP 工具（698.3s）派发至 L2 Sol',
   },
   {
     elapsedSec: 4400,
@@ -351,6 +396,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e4',
     outcome: 'routine',
     message: '[M3 Routine] Dispatching M3-T3 test_graph_cli_mcp.py to L3 DSH',
+    messageZh: '[M3 常规] 将 CLI/MCP 集成测试任务派发至 L3 DSH',
   },
   {
     elapsedSec: 4450,
@@ -359,6 +405,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L3 DSH · M3-T3] Writing CLI+MCP integration tests (hit Windows Sandbox stall)',
+    messageZh: '[L3 DSH · M3-T3] 编写集成测试时触发沙箱阻塞超时',
   },
   {
     elapsedSec: 4950,
@@ -367,6 +414,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'escalate',
     message: '[Circuit Breaker!] M3-T3 stalled in L3 DSH -> auto-escalating to Specialist',
+    messageZh: '[熔断触发！] M3-T3 在 L3 连续停滞，自动升级至核心攻坚层',
   },
   {
     elapsedSec: 4970,
@@ -375,6 +423,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e9',
     outcome: 'escalate',
     message: '[Magenta Escalate · e9] Handing M3-T3 baton directly to Codex Sol (L2)',
+    messageZh: '[品红升级 · e9] 将 M3-T3 接力棒移交 Codex Sol（L2）接管',
   },
   {
     elapsedSec: 5000,
@@ -383,6 +432,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L2 Sol · Rescue] Completing M3-T3 test_graph_cli_mcp.py (692.9s)',
+    messageZh: '[L2 Sol · 接管] 编写并补全 M3-T3 CLI 与 MCP 集成测试（692.9s）',
   },
   {
     elapsedSec: 5720,
@@ -391,6 +441,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'out',
     message: '[L2 Sol · Rescue PASS] Full suite 63/63 passed in 10.77s · zero Python deps',
+    messageZh: '[L2 Sol · 接管成功] 63/63 全量测试 10.77s 绿灯通过 · 零 Python 依赖',
   },
   {
     elapsedSec: 5740,
@@ -399,6 +450,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e11',
     outcome: 'out',
     message: '[Baton -> Merge] Merging M3 CLI & MCP deliverables',
+    messageZh: '[接力 → 合入] 合并 M3 CLI 与 MCP 交付成果',
   },
   {
     elapsedSec: 5800,
@@ -407,6 +459,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[Merge · M3] Merging M3 into dev branch with clean whitelist check',
+    messageZh: '[合入 · M3] 通过白名单校验并合入 dev 分支',
   },
   {
     elapsedSec: 5840,
@@ -415,6 +468,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'out',
     message: '[Merge · M3] Merged cleanly -> sending to Claude Opus final review',
+    messageZh: '[合入 · M3] 合入完成，送交 Claude Opus 最终审计',
   },
   {
     elapsedSec: 5860,
@@ -423,6 +477,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e12',
     outcome: 'out',
     message: '[Baton -> L1 Opus] Requesting M3 milestone review',
+    messageZh: '[接力 → L1 Opus] 请求 M3 里程碑审校',
   },
   {
     elapsedSec: 5900,
@@ -431,6 +486,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L1 Opus · M3] Auditing v0.2.0-dev bump, CLI subcommands, 9 MCP tools & tests',
+    messageZh: '[L1 Opus · M3] 审计版本号、CLI 子命令、9 项 MCP 工具及完整测试',
   },
   {
     elapsedSec: 6180,
@@ -439,6 +495,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'pass',
     message: '[L1 Opus · M3 PASS] Deliverable 4 verified · Ready for L0 Final Gate',
+    messageZh: '[L1 Opus · M3 通过] 第 4 项交付验证完毕 · 等待 L0 终审',
   },
   {
     elapsedSec: 6200,
@@ -447,6 +504,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: 'e13',
     outcome: 'pass',
     message: '[Baton -> L0 Final Gate] All 3/3 milestones & 9/9 tasks ready',
+    messageZh: '[接力 → L0 终审] 全部 3 个里程碑、9 项任务就绪',
   },
   {
     elapsedSec: 6240,
@@ -455,6 +513,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: null,
     message: '[L0 Final Gate] User + Antigravity inspecting Stage 1 Battle Report (107m 31s)',
+    messageZh: '[L0 终审] 用户与 Antigravity 联合审查一期战报（107 分 31 秒）',
   },
   {
     elapsedSec: 6420,
@@ -463,6 +522,7 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'approve',
     message: '[v0.2.0 Released!] Signed off, merged dev -> main, tagged v0.2.0',
+    messageZh: '[v0.2.0 正式发布！] 终审签字合入主干并打上 v0.2.0 标签',
   },
   {
     elapsedSec: 6450.9,
@@ -471,13 +531,27 @@ const RAW_STAGE1_EVENTS: readonly RawReplayEvent[] = [
     edge_id: null,
     outcome: 'completed',
     message: 'Stage 1 Replay Complete (60×) · 3/3 Milestones · 9/9 Tasks · 63/63 Tests OK',
+    messageZh: '一期回放完毕（60×）· 3/3 里程碑 · 9/9 任务 · 63/63 测试通过',
   },
 ];
 
 export const STAGE1_REPLAY_TRACE: GraphTraceEvent[] = RAW_STAGE1_EVENTS.map(
-  ({ elapsedSec, ...event }, index) => ({
+  ({ elapsedSec, messageZh: _zh, ...event }, index) => ({
     ...event,
     seq: index + 1,
     timestamp: Math.round((elapsedSec / 60) * 100) / 100,
   }),
 );
+
+export const STAGE1_REPLAY_TRACE_ZH: GraphTraceEvent[] = RAW_STAGE1_EVENTS.map(
+  ({ elapsedSec, message: _en, messageZh, ...event }, index) => ({
+    ...event,
+    message: messageZh,
+    seq: index + 1,
+    timestamp: Math.round((elapsedSec / 60) * 100) / 100,
+  }),
+);
+
+export function getStage1ReplayTrace(locale: Locale): GraphTraceEvent[] {
+  return locale === 'zh' ? STAGE1_REPLAY_TRACE_ZH : STAGE1_REPLAY_TRACE;
+}

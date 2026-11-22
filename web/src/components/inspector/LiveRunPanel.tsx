@@ -1,4 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useI18n } from '../../i18n';
 import type { LiveRunSnapshot } from '../../types/graph';
 import type { RightInspectorProps } from '../types';
 import { Modal } from '../ui/Modal';
@@ -40,6 +41,7 @@ type LiveRunPanelProps = Pick<RightInspectorProps, 'client' | 'onToast'> & { vis
 type RunAction = 'pause' | 'resume' | 'approve' | 'reject';
 
 export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
+  const { messages } = useI18n();
   const [snapshot, setSnapshot] = useState<LiveRunSnapshot>(emptySnapshot);
   const [reconnecting, setReconnecting] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
@@ -158,23 +160,27 @@ export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
   }
 
   return (
-    <section className="right-inspector__section right-inspector__live" aria-label="Live run">
+    <section className="right-inspector__section right-inspector__live" aria-label={messages.inspector.liveSectionAria}>
       <div className="right-inspector__heading">
-        <h2 className="panel__title">Live Run</h2>
-        {reconnecting && <span className="pill pill--warn" role="status">reconnecting…</span>}
+        <h2 className="panel__title">{messages.inspector.liveTitle}</h2>
+        {reconnecting && <span className="pill pill--warn" role="status">{messages.inspector.reconnecting}</span>}
       </div>
       <div className="right-inspector__actions">
-        <button className="btn btn--primary" type="button" onClick={() => setStartOpen(true)}>▶ Start Real Run</button>
+        <button className="btn btn--primary" type="button" onClick={() => setStartOpen(true)}>
+          {messages.inspector.startRealRun}
+        </button>
         {runId && (
           <button className="btn" type="button" onClick={() => void showReport()} disabled={loadingReport}>
-            Battle Report
+            {messages.inspector.battleReport}
           </button>
         )}
       </div>
       {runId ? (
         <>
           <div className="right-inspector__heading">
-            <span className={`pill ${statusStyles.get(status) ?? 'pill--muted'}`} role="status">{status}</span>
+            <span className={`pill ${statusStyles.get(status) ?? 'pill--muted'}`} role="status">
+              {messages.inspector.runStatuses[status] ?? status}
+            </span>
             <code>{runId}</code>
           </div>
           {(status === 'RUNNING' || status === 'PAUSED') && (
@@ -185,14 +191,14 @@ export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
                 disabled={controlling}
                 onClick={() => void changeRun(status === 'RUNNING' ? 'pause' : 'resume')}
               >
-                {status === 'RUNNING' ? 'Pause' : 'Resume'}
+                {status === 'RUNNING' ? messages.inspector.pauseRun : messages.inspector.resumeRun}
               </button>
             </div>
           )}
           {status === 'WAITING_HUMAN' && (
             <>
               <label className="right-inspector__field">
-                <span>Decision note (optional)</span>
+                <span>{messages.inspector.decisionNote}</span>
                 <input
                   className="input"
                   value={note?.runId === runId ? note.text : ''}
@@ -202,51 +208,66 @@ export function LiveRunPanel({ client, onToast, visible }: LiveRunPanelProps) {
               </label>
               <div className="right-inspector__actions">
                 <button className="btn btn--primary" type="button" disabled={controlling} onClick={() => void changeRun('approve')}>
-                  Approve
+                  {messages.inspector.approve}
                 </button>
                 <button className="btn btn--danger" type="button" disabled={controlling} onClick={() => void changeRun('reject')}>
-                  Reject
+                  {messages.inspector.reject}
                 </button>
               </div>
             </>
           )}
-          <div className="right-inspector__tasks" tabIndex={0} role="region" aria-label="Run tasks">
+          <div className="right-inspector__tasks" tabIndex={0} role="region" aria-label={messages.inspector.tasksAria}>
             <table className="table">
               <thead>
-                <tr><th>ID</th><th>Title</th><th>Tier</th><th>Status</th><th>Assignee</th></tr>
+                <tr>
+                  <th>{messages.inspector.table.id}</th>
+                  <th>{messages.inspector.table.title}</th>
+                  <th>{messages.inspector.table.tier}</th>
+                  <th>{messages.inspector.table.status}</th>
+                  <th>{messages.inspector.table.assignee}</th>
+                </tr>
               </thead>
               <tbody>
-                {snapshot.tasks.map((task, index) => (
-                  <tr key={display(task.id, `task-${index}`)}>
-                    <td><code>{display(task.id)}</code></td>
-                    <td>{display(task.title)}</td>
-                    <td>{display(task.tier)}</td>
-                    <td>{display(task.status)}</td>
-                    <td>{display(task.current_role ?? task.assignee_role)}</td>
-                  </tr>
-                ))}
-                {snapshot.tasks.length === 0 && <tr><td colSpan={5}>No tasks yet.</td></tr>}
+                {snapshot.tasks.map((task, index) => {
+                  const taskStatus = display(task.status);
+                  return (
+                    <tr key={display(task.id, `task-${index}`)}>
+                      <td><code>{display(task.id)}</code></td>
+                      <td>{display(task.title)}</td>
+                      <td>{display(task.tier)}</td>
+                      <td>{messages.inspector.runStatuses[taskStatus] ?? taskStatus}</td>
+                      <td>{display(task.current_role ?? task.assignee_role)}</td>
+                    </tr>
+                  );
+                })}
+                {snapshot.tasks.length === 0 && <tr><td colSpan={5}>{messages.inspector.noTasks}</td></tr>}
               </tbody>
             </table>
           </div>
         </>
       ) : (
-        <p className="right-inspector__muted">No runs yet.</p>
+        <p className="right-inspector__muted">{messages.inspector.noRuns}</p>
       )}
       <div className="right-inspector__section">
-        <h3 className="right-inspector__label">Event log</h3>
-        <div className="right-inspector__event-log right-inspector__mono" ref={eventLog} role="log" aria-label="Run event log" tabIndex={0}>
+        <h3 className="right-inspector__label">{messages.inspector.eventLogTitle}</h3>
+        <div
+          className="right-inspector__event-log right-inspector__mono"
+          ref={eventLog}
+          role="log"
+          aria-label={messages.inspector.eventLogAria}
+          tabIndex={0}
+        >
           {snapshot.events.map((event, index) => (
             <div className="right-inspector__event" key={display(event.id, `event-${index}`)}>
               <span className="right-inspector__event-kind">{display(event.kind, 'event')}</span>
               <span>{[display(event.task_id, ''), display(event.message, '')].filter(Boolean).join(' · ')}</span>
             </div>
           ))}
-          {snapshot.events.length === 0 && <p className="right-inspector__muted">No events yet.</p>}
+          {snapshot.events.length === 0 && <p className="right-inspector__muted">{messages.inspector.noEvents}</p>}
         </div>
       </div>
       {visible && report && (
-        <Modal open title="Battle Report" onClose={() => setReport(null)}>
+        <Modal open title={messages.inspector.modalReportTitle} onClose={() => setReport(null)}>
           <code className="right-inspector__muted">{report.runId}</code>
           <pre className="right-inspector__report">{report.markdown}</pre>
         </Modal>
