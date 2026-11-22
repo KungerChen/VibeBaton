@@ -30,7 +30,7 @@
 
 ---
 
-## ✅ Stage 3 · `v0.9.0-beta`（已完成自举与体验精修，待 L0 终审合入 `main`）
+## ✅ Stage 3 · `v0.9.0-beta`（已正式合入 `main`：`0287990`）
 
 详见技术规格与新手教程：[RFC_STAGE3_DRAFT.md](RFC_STAGE3_DRAFT.md) · [新手保姆级教程 TUTORIAL.md](TUTORIAL.md)。核心落地特性与精修：
 
@@ -49,9 +49,9 @@
 
 ---
 
-## 🚀 Stage 4 · `v1.0`（正式全网首发）
+## 🚧 Stage 4 · `v1.0.0`（正在自举构建中：正式全网首发）
 
-1. **原生 OpenAI 兼容 API Provider**：不依赖外部 CLI 即可直连 API，提供精确 Token 用量与美元成本账单。
-2. **Auto-Conflict-Resolver 兜底节点**：并发分支合入冲突时自动派发 Specialist 解决而非直接报错停机。
-3. **Docker / DevContainer 隔离运行模板**：为跑不可信第三方仓库提供 OS 级容器沙箱（见 [SECURITY.md](SECURITY.md)）。
-4. **Windows 一键安装打包 & 国内外正式发布**（Show HN / Product Hunt / 科技周刊 / V2EX / Linux.do）。
+1. **原生 OpenAI 兼容 API Provider**：纯标准库直连 `/v1/chat/completions` 接口（不依赖外部 CLI），内置精确 Token 用量统计与美元成本账单，接入现有 429 冷却池与双语战报。
+2. **Auto-Conflict-Resolver 兜底机制**：并发分支在隔离合入工作树发生冲突时自动派发 Specialist 解决并复检冲突标记与机械门禁，替代直接报错停机。
+3. **Docker / DevContainer 隔离运行模板与 `baton sandbox init`**：为运行不可信第三方仓库提供最小权限 OS 级容器沙箱（见 [SECURITY.md](SECURITY.md)）。
+4. **Windows 一键安装脚本、Web Studio 成本与冲突看板、`v1.0.0` 正式发版**（`scripts/install.ps1`、`CHANGELOG.md` 与国内外公开发布文档）。
