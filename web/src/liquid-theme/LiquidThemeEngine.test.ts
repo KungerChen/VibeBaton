@@ -330,13 +330,14 @@ describe('createLiquidThemeController', () => {
     expect(clipPath.getAttribute('clipPathUnits')).toBe('userSpaceOnUse');
 
     const initialD = clipPathEl.getAttribute('d');
-    expect(initialD).toBe('');
+    expect(initialD?.startsWith('M ')).toBe(true);
 
     // Step across pour -> splash -> rise -> complete timestamps.
     env.flushFrame(1000); // startTimestamp = 1000, progress = 0 (pour stage enters)
     env.flushFrame(1100); // progress = 0.10 (active pour column)
     const pourD = clipPathEl.getAttribute('d');
-    expect(pourD?.startsWith('M')).toBe(true);
+    expect(pourD?.startsWith('M ')).toBe(true);
+    expect(pourD).not.toBe(initialD);
 
     env.flushFrame(1270); // progress = 0.27 (splash)
     env.flushFrame(1600); // progress = 0.60 (rise)
@@ -351,9 +352,13 @@ describe('createLiquidThemeController', () => {
     expect(audio.completeCount).toBe(1);
     expect(audio.interruptCount).toBe(0);
     expect(committed).toEqual(['light']);
-    expect(env.rafQueue.size).toBe(1); // postCommit cleanup rAF
+    expect(env.rafQueue.size).toBe(1); // postCommit cleanup rAF #1
 
-    env.flushFrame(2016); // post-commit cleanup
+    env.flushFrame(2016); // frame #1: overlay remains mounted covering React commit
+    expect(controller.isAnimating()).toBe(true);
+    expect(env.rafQueue.size).toBe(1); // postCommit cleanup rAF #2
+
+    env.flushFrame(2032); // frame #2: post-commit paint settled -> overlay removed
     expect(controller.isAnimating()).toBe(false);
     expect(env.body.children).toHaveLength(1);
   });

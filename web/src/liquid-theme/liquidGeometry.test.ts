@@ -17,6 +17,7 @@ describe('liquidGeometry', () => {
         const frame = computeLiquidFrame(ox, oy, width, height, p);
 
         expect(Number.isFinite(frame.waveLevelY)).toBe(true);
+        expect(frame.clipPathD.startsWith('M ')).toBe(true);
         expect(frame.clipPathD).not.toContain('NaN');
         expect(frame.clipPathD).not.toContain('Infinity');
         expect(frame.rimPathD).not.toContain('NaN');

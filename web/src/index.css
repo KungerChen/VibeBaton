@@ -273,3 +273,16 @@
     width: 100%;
   }
 }
+
+/* Freeze CSS transitions atomically during theme commits and inside static liquid reveal clones. */
+[data-theme-switching='true'],
+[data-theme-switching='true'] *,
+[data-theme-switching='true'] *::before,
+[data-theme-switching='true'] *::after,
+[data-liquid-reveal-overlay='true'],
+[data-liquid-reveal-overlay='true'] *,
+[data-liquid-reveal-overlay='true'] *::before,
+[data-liquid-reveal-overlay='true'] *::after {
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+}

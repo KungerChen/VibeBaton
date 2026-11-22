@@ -66,13 +66,45 @@ const ThemeContext = createContext<ThemeContextValue>({
   previewSound: () => {},
 });
 
+let themeSwitchRaf1: number | null = null;
+let themeSwitchRaf2: number | null = null;
+
+function cancelThemeSwitchFlush() {
+  if (typeof cancelAnimationFrame === 'function') {
+    if (themeSwitchRaf1 !== null) {
+      cancelAnimationFrame(themeSwitchRaf1);
+    }
+    if (themeSwitchRaf2 !== null) {
+      cancelAnimationFrame(themeSwitchRaf2);
+    }
+  }
+  themeSwitchRaf1 = null;
+  themeSwitchRaf2 = null;
+}
+
 function commitThemeSync(next: Theme) {
   if (typeof document !== 'undefined') {
-    document.documentElement.dataset.theme = next;
+    const root = document.documentElement;
+    cancelThemeSwitchFlush();
+    root.dataset.themeSwitching = 'true';
+    root.dataset.theme = next;
     document.querySelectorAll('.react-flow').forEach((el) => {
       el.classList.remove('dark', 'light');
       el.classList.add(next);
     });
+    // Flush computed styles while transitions are frozen so React commit & browser paint never interpolate colors.
+    void root.offsetHeight;
+    if (typeof requestAnimationFrame === 'function') {
+      themeSwitchRaf1 = requestAnimationFrame(() => {
+        themeSwitchRaf1 = null;
+        themeSwitchRaf2 = requestAnimationFrame(() => {
+          themeSwitchRaf2 = null;
+          delete root.dataset.themeSwitching;
+        });
+      });
+    } else {
+      delete root.dataset.themeSwitching;
+    }
   }
   if (typeof window !== 'undefined') {
     try {
@@ -138,6 +170,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.addEventListener('visibilitychange', onHidden);
     return () => {
       document.removeEventListener('visibilitychange', onHidden);
+      cancelThemeSwitchFlush();
+      if (typeof document !== 'undefined') {
+        delete document.documentElement.dataset.themeSwitching;
+      }
       controllerRef.current?.dispose();
     };
   }, []);

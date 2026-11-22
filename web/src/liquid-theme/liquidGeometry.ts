@@ -211,11 +211,12 @@ export function computeLiquidFrame(
     subpaths.push(`${crest} L ${r1(W + 2)} ${r1(H + 2)} L -2 ${r1(H + 2)} Z`);
   }
 
+  const joinedPath = subpaths.filter(Boolean).join(' ');
   return {
     stage,
     progress: p,
     waveLevelY: r1(waveLevelY),
-    clipPathD: subpaths.filter(Boolean).join(' '),
+    clipPathD: joinedPath || `M ${r1(ox)} ${r1(oy)} Z`,
     rimPathD,
   };
 }

@@ -51,6 +51,7 @@ export function createLiquidThemeController(options: LiquidRevealOptions): Liqui
   const durationMs = Math.max(200, options.durationMs ?? DEFAULT_DURATION_MS);
   let rafId: number | null = null;
   let postCommitRafId: number | null = null;
+  let postCommitRafId2: number | null = null;
   let overlay: LiquidOverlayHandle | null = null;
   let activeTargetTheme: LiquidTheme | null = null;
   let activeDirection: LiquidDirection | null = null;
@@ -73,6 +74,10 @@ export function createLiquidThemeController(options: LiquidRevealOptions): Liqui
     if (postCommitRafId !== null) {
       cancelAnimationFrame(postCommitRafId);
       postCommitRafId = null;
+    }
+    if (postCommitRafId2 !== null) {
+      cancelAnimationFrame(postCommitRafId2);
+      postCommitRafId2 = null;
     }
     detachWindowListeners();
     overlay?.destroy();
@@ -186,14 +191,18 @@ export function createLiquidThemeController(options: LiquidRevealOptions): Liqui
       options.audio?.onComplete(finishedDirection);
       options.onCommitTheme(finishedTheme);
 
-      // Keep the covered overlay for 1 frame so React updates underneath with zero flicker.
+      // Keep the covered overlay for 2 frames so React 19 commits and the browser paints the new theme underneath cleanly.
       postCommitRafId = requestAnimationFrame(() => {
         postCommitRafId = null;
-        overlay?.destroy();
-        overlay = null;
-        activeTargetTheme = null;
-        activeDirection = null;
-        lastStage = null;
+        if (disposed) return;
+        postCommitRafId2 = requestAnimationFrame(() => {
+          postCommitRafId2 = null;
+          overlay?.destroy();
+          overlay = null;
+          activeTargetTheme = null;
+          activeDirection = null;
+          lastStage = null;
+        });
       });
     };
 
@@ -203,7 +212,7 @@ export function createLiquidThemeController(options: LiquidRevealOptions): Liqui
   return {
     trigger,
     interrupt,
-    isAnimating: () => rafId !== null || postCommitRafId !== null || overlay !== null,
+    isAnimating: () => rafId !== null || postCommitRafId !== null || postCommitRafId2 !== null || overlay !== null,
     dispose: () => {
       disposed = true;
       interrupt(false);
