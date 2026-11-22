@@ -19,22 +19,18 @@
 
 ---
 
-## 🚧 Stage 2 · `v0.3.0-canvas`（可视化画布与免配置双模试玩）
+## ✅ Stage 2 · `v0.3.0-canvas`（已完成并合入 `main`：`9a1e662`）
 
-### 底座核心（正在自举构建中）
 - **零依赖本地后端（`baton ui`）**：Python stdlib `ThreadingHTTPServer` + SSE 实时事件流，默认仅绑定 `127.0.0.1`；支持 REST API、TOML 配置热写回与 `web/dist/` 静态托管。
-- **React Flow 三栏暗黑画布（`web/`）**：基于 `Vite + React + TypeScript + @xyflow/react`，支持拖拽连线、节点属性检查器、导入/导出 `.baton.json` 与 `baton.toml` 热更新。
-- **双模运行（Connected Local / Standalone Demo）**：自动探测 `/api/health`，无后端时纯前端 `localSimulator.ts` 零报错接管，支持静态构建部署到 GitHub Pages（`base: './'`），30 秒零配置试玩。
-- **Live Run 实时监控与发车**：直连 `/api/runs/stream` SSE 驱动画布亮灯、事件日志流、战报预览及 `Start Real Run` / `Pause` / `Resume` / `Resolve`。
-
-### 终审发布前的 3 项高传播精修（已定型纳入 `v0.3.0`）
-1. ⚡ **“接力棒”三色语义粒子流（Baton Flow Visuals）**：在激活边上通过 SVG `<animateMotion>` 渲染流动接力粒子并按事件语义变色（正常交棒 **青绿** / 门禁或微审打回 **琥珀橙** / 熔断升级 **洋红**），节点显示呼吸光环、运行计时与并发角标。
-2. 🎬 **Stage 1 真实自举战报 60× 时间旅行回放（Real Run Replay）**：将 `run-20261121-044454-3b1845` 的脱敏真实事件流内嵌进画布，路人可在 GitHub Pages 一键回放四层真 AI 如何抓出 3 个架构 Bug、打回返修与触发沙箱熔断。
-3. 🔗 **零后端 URL 配方分享（Shareable `#recipe=...` Hash）**：将当前 `.baton.json` 压缩编码进 URL Hash，实现无需服务器的社区工作流一键分享与打开试跑。
+- **现代工作室双模画布（`web/`）**：基于 `Vite + React 19 + TypeScript + @xyflow/react + Tailwind CSS v4 + shadcn/ui + React Flow UI`，Dify / n8n 现代工作流审美，支持拖拽连线、节点属性检查器、导入/导出 `.baton.json`、`baton.toml` 热更新与 `localSimulator.ts` 纯前端离线试玩（141 前端 + 106 后端全栈测试全绿）。
+- **已落地精修与体验升级**：
+  1. ⚡ **接力棒三色语义粒子流（Baton Flow Visuals）**、🎬 **Stage 1 60× 真实自举战报回放**、🔗 **零后端 `#recipe=` URL 分享**；
+  2. 🌐 **纯英文默认 + `EN | 中文` 完整双语切换**、DeepSeek API 展示统一、事件日志本地化与战报 Markdown 渲染、交互式 Quick Start 新手引导；
+  3. 💧 **Liquid Theme Reveal + 同步 Web Audio 音效**（SVG `<clipPath>` 双层无闪烁揭示、音画阶段同步、开关与音量记忆、移动端响应式适配）。
 
 ---
 
-## 📋 Stage 3 · `v0.9-beta`（智能配给、场景配方生态与硬核对比实测）
+## 🚧 Stage 3 · `v0.9-beta`（正在自举构建中：智能配给、场景配方生态与硬核对比实测）
 
 详见完整技术草案：[RFC_STAGE3_DRAFT.md](RFC_STAGE3_DRAFT.md)。核心五大特性：
 
