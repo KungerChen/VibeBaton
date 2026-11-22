@@ -188,6 +188,36 @@ textarea.right-inspector__mono {
   background: linear-gradient(90deg, var(--primary), #14b8a6);
 }
 
+.right-inspector__billing-summary,
+.right-inspector__billing-model {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  gap: 0.25rem 0.5rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+.right-inspector__billing-summary > span,
+.right-inspector__billing-model > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.right-inspector__billing-badge {
+  padding: 0.1rem 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.right-inspector__billing-model {
+  justify-content: space-between;
+}
+
 .right-inspector__task-row {
   cursor: pointer;
   transition: background-color 120ms ease;

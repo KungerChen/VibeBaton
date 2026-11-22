@@ -223,12 +223,30 @@ export interface ModelTelemetry {
   estimated: boolean;
   avg_sec: number;
   share_pct: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  cost_usd?: number | null;
+}
+
+export interface BillingTelemetry {
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_cached_tokens: number;
+  total_tokens: number;
+  total_cost_usd: number | null;
+  has_exact_billing: boolean;
 }
 
 export interface RunTelemetry {
   elapsed_sec: number;
   stages: StageTelemetry[];
   models: ModelTelemetry[];
+  billing?: BillingTelemetry | null;
+  conflicts?: {
+    conflicts_detected: number;
+    conflicts_auto_resolved: number;
+    conflicts_failed: number;
+  } | null;
 }
 
 export interface LiveRunSnapshot {
