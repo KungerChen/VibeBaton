@@ -145,6 +145,45 @@ export interface CredentialStatus {
   masked: string;
 }
 
+export interface PricingModelEntry {
+  model: string;
+  input_per_1m: number;
+  output_per_1m: number;
+  cached_input_per_1m: number;
+  source: 'custom' | 'official_cache' | 'builtin';
+}
+
+export interface PricingCacheStatus {
+  path: string;
+  fetched_at: string | null;
+  age_sec: number | null;
+  stale: boolean;
+  refresh_interval_hours: number;
+  auto_sync: boolean;
+  source_url: string;
+}
+
+export interface PricingStatusResponse {
+  models: PricingModelEntry[];
+  cache: PricingCacheStatus;
+  custom_path: string;
+}
+
+export interface PricingSyncResponse {
+  ok: boolean;
+  fetched: boolean;
+  skipped_fresh: boolean;
+  model_count: number;
+  error: string | null;
+  catalog: PricingStatusResponse;
+}
+
+// A null entry clears the override for that model.
+export type CustomPricingUpdate = Record<
+  string,
+  Pick<PricingModelEntry, 'input_per_1m' | 'output_per_1m' | 'cached_input_per_1m'> | null
+>;
+
 export interface RfcReadinessResult {
   score: number;
   safe_for_overnight: boolean;

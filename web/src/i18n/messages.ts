@@ -292,6 +292,29 @@ export interface Messages {
     label: string;
     options: Record<BudgetProfile, { label: string; tooltip: string }>;
   };
+  pricing: {
+    title: string;
+    openButton: string;
+    syncButton: string;
+    lastSynced: string;
+    neverSynced: string;
+    autoSyncEvery24h: string;
+    stale: string;
+    syncing: string;
+    syncFailed: string;
+    columns: Record<'model' | 'source' | 'input' | 'cached' | 'output' | 'actions', string>;
+    unit: string;
+    sourceCustom: string;
+    sourceOfficialCache: string;
+    sourceBuiltin: string;
+    edit: string;
+    save: string;
+    cancel: string;
+    resetToOfficial: string;
+    invalidNumber: string;
+    saved: string;
+    close: string;
+  };
   nodeReadiness: {
     statuses: Record<'ready' | 'cooldown' | 'missing', string>;
     doctorButton: string;
@@ -792,6 +815,36 @@ export const MESSAGES: Record<Locale, Messages> = {
         balanced: { label: 'Balanced', tooltip: 'Balance cost and reasoning effort across tasks.' },
         max_quality: { label: 'Max Quality', tooltip: 'Favor the strongest available models and highest reasoning effort.' },
       },
+    },
+    pricing: {
+      title: 'API Pricing',
+      openButton: 'API Pricing',
+      syncButton: 'Sync Official Prices',
+      lastSynced: 'Last synced',
+      neverSynced: 'Never synced',
+      autoSyncEvery24h: 'Auto-sync every 24 hours',
+      stale: 'Cache is stale',
+      syncing: 'Syncing prices…',
+      syncFailed: 'Could not sync official prices',
+      columns: {
+        model: 'Model',
+        source: 'Source',
+        input: 'Input',
+        cached: 'Cached Input',
+        output: 'Output',
+        actions: 'Actions',
+      },
+      unit: 'USD / 1M tokens',
+      sourceCustom: 'Custom',
+      sourceOfficialCache: 'Official Cache',
+      sourceBuiltin: 'Built-in',
+      edit: 'Edit',
+      save: 'Save',
+      cancel: 'Cancel',
+      resetToOfficial: 'Reset to Official',
+      invalidNumber: 'Enter a finite, non-negative number.',
+      saved: 'Prices saved',
+      close: 'Close',
     },
     nodeReadiness: {
       statuses: { ready: 'Ready', cooldown: 'Cooldown', missing: 'Missing' },
@@ -1300,6 +1353,36 @@ export const MESSAGES: Record<Locale, Messages> = {
         balanced: { label: '均衡', tooltip: '根据任务平衡成本与推理强度。' },
         max_quality: { label: '质量优先', tooltip: '优先选择能力更强的可用模型和更高的推理档位。' },
       },
+    },
+    pricing: {
+      title: '模型单价',
+      openButton: '模型单价',
+      syncButton: '立即同步官方价',
+      lastSynced: '最近同步',
+      neverSynced: '尚未同步',
+      autoSyncEvery24h: '每 24 小时自动同步',
+      stale: '缓存已过期',
+      syncing: '正在同步价格…',
+      syncFailed: '官方价格同步失败',
+      columns: {
+        model: '模型',
+        source: '来源',
+        input: '输入',
+        cached: '缓存输入',
+        output: '输出',
+        actions: '操作',
+      },
+      unit: '美元 / 百万词元',
+      sourceCustom: '自定义',
+      sourceOfficialCache: '官方缓存',
+      sourceBuiltin: '内置官方价',
+      edit: '编辑',
+      save: '保存',
+      cancel: '取消',
+      resetToOfficial: '恢复官方价',
+      invalidNumber: '请输入有限的非负数。',
+      saved: '单价已保存',
+      close: '关闭',
     },
     nodeReadiness: {
       statuses: { ready: '就绪', cooldown: '冷却中', missing: '缺失' },

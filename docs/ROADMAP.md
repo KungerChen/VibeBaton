@@ -73,3 +73,12 @@
 1. 新增 `[notifications]` 配置表与纯标准库 `AttentionNotifier`：支持飞书、企业微信、钉钉、Slack、Discord 与通用 Webhook，并提供 Windows 桌面通知和终端响铃。
 2. 结构化 `human_attention_required` 事件与 `telemetry.attention`，覆盖 `waiting_human` / `ready_for_final_gate` / `failed` / `paused` / `long_cooldown` / `test` 六种注意力状态；`baton notify-test` 可逐通道自检。
 3. Web Studio 新增 `AttentionBanner`，支持浏览器通知、标签页闪烁与提示音，并保持 `EN | 中文` 双语一致。
+
+---
+
+## ✅ Stage 4.7 · v1.0.3 — 3-Tier Pricing Engine & DSH Branding（已正式发布：2026-11-22）
+
+1. **3 层定价引擎**：内置美元价目表、24h 官方价格源缓存与自定义逐模型覆盖，按 `custom` > `official_cache` > `builtin` 顺序解析；新增 `baton pricing sync` / `baton pricing show` 命令与 `/api/pricing`、`/api/pricing/sync`、`/api/pricing/custom` 接口。
+2. **全 CLI JSON / JSONL 用量与成本采集**：Claude、Codex、DSH / OpenCode 等外部 CLI 的 token 用量与 `cost_usd` 统一进入遥测与双语战报。
+3. **Studio API Pricing 弹窗**：查看解析后的费率与来源、触发官方价格同步、编辑或重置自定义费率，保持 `EN | 中文` 双语一致。
+4. **DSH 品牌统一**：CLI、Studio、战报与文档中的展示名统一为 `DSH`。

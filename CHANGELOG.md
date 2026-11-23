@@ -176,3 +176,22 @@ isolation, and turnkey Windows installation.
 
 - The Web Studio now shows an `AttentionBanner` for live attention events, with browser
   notification, tab flash, and an audio chime, localized with full `EN | 中文` parity.
+
+## [v1.0.3] - 2026-11-22
+
+### Added
+
+- **3-tier pricing engine**: built-in USD rates, a 24h official price feed cache, and custom
+  per-model overrides, resolved in `custom` > `official_cache` > `builtin` order.
+  `baton pricing sync` refreshes the official cache, `baton pricing show` prints the resolved
+  catalog, and `/api/pricing`, `/api/pricing/sync`, and `/api/pricing/custom` serve the Studio.
+- **All-CLI JSON / JSONL usage and cost collection**: Claude, Codex, DSH / OpenCode, and other
+  provider CLIs now report `prompt_tokens`, `completion_tokens`, `cached_tokens`, and `cost_usd`
+  parsed from JSON or JSONL output, matching native HTTP providers in telemetry and battle
+  reports.
+- **Studio API Pricing modal**: inspect resolved rates and their source, trigger an official
+  price sync, and edit or reset custom per-million-token rates with full `EN | 中文` parity.
+
+### Changed
+
+- DSH branding is unified across CLI output, Studio labels, battle reports, and documentation.

@@ -61,6 +61,24 @@ describe('i18n guarantees', () => {
     }
   });
 
+  test('pricing messages use the Studio titles, sync actions, and source labels', () => {
+    expect(MESSAGES.en.pricing).toMatchObject({
+      title: 'API Pricing',
+      syncButton: 'Sync Official Prices',
+      unit: 'USD / 1M tokens',
+      sourceCustom: 'Custom',
+      sourceOfficialCache: 'Official Cache',
+      sourceBuiltin: 'Built-in',
+    });
+    expect(MESSAGES.zh.pricing).toMatchObject({
+      title: '模型单价',
+      syncButton: '立即同步官方价',
+      sourceCustom: '自定义',
+      sourceOfficialCache: '官方缓存',
+      sourceBuiltin: '内置官方价',
+    });
+  });
+
   test('Stage 3 messages preserve credential identifiers and interpolate readiness values', () => {
     for (const [locale, messages] of Object.entries(MESSAGES)) {
       expect(Object.keys(messages.credentials.keyLabels).sort(), locale).toEqual([

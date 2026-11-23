@@ -9,6 +9,7 @@ import type {
   BudgetProfile,
   CostTier,
   CredentialStatus,
+  CustomPricingUpdate,
   DoctorRoleResult,
   LiveRunSnapshot,
   ModelCapability,
@@ -16,6 +17,10 @@ import type {
   NodeType,
   PresetCategory,
   PresetItem,
+  PricingCacheStatus,
+  PricingModelEntry,
+  PricingStatusResponse,
+  PricingSyncResponse,
   ProviderHealthSummary,
   RfcReadinessResult,
   RunAttentionState,
@@ -106,6 +111,43 @@ test('preset summaries support host readiness alongside legacy demo summaries', 
     host_ready?: boolean;
     missing_providers?: string[];
   }>();
+});
+
+test('Studio pricing types expose catalog, cache, sync, and override fields', () => {
+  expectTypeOf<PricingModelEntry>().toEqualTypeOf<{
+    model: string;
+    input_per_1m: number;
+    output_per_1m: number;
+    cached_input_per_1m: number;
+    source: 'custom' | 'official_cache' | 'builtin';
+  }>();
+  expectTypeOf<PricingCacheStatus>().toEqualTypeOf<{
+    path: string;
+    fetched_at: string | null;
+    age_sec: number | null;
+    stale: boolean;
+    refresh_interval_hours: number;
+    auto_sync: boolean;
+    source_url: string;
+  }>();
+  expectTypeOf<PricingStatusResponse>().toEqualTypeOf<{
+    models: PricingModelEntry[];
+    cache: PricingCacheStatus;
+    custom_path: string;
+  }>();
+  expectTypeOf<PricingSyncResponse>().toEqualTypeOf<{
+    ok: boolean;
+    fetched: boolean;
+    skipped_fresh: boolean;
+    model_count: number;
+    error: string | null;
+    catalog: PricingStatusResponse;
+  }>();
+  expectTypeOf<CustomPricingUpdate>().toEqualTypeOf<Record<string, {
+    input_per_1m: number;
+    output_per_1m: number;
+    cached_input_per_1m: number;
+  } | null>>();
 });
 
 test('run telemetry carries exact billing, per-model usage, and merge conflict counts', () => {

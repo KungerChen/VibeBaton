@@ -41,7 +41,7 @@ type = "cli"
 max_concurrency = 1
 cooldown_backoff_sec = [300, 900, 1800]
 rate_limit_regex = "(rate.?limit|usage.?limit|429|try again|overloaded|credit balance)"
-command = ["claude", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "text"]
+command = ["claude", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "json"]
 prompt_via = "stdin"
 stall_timeout_sec = 900
 hard_timeout_sec = 2400
@@ -51,7 +51,7 @@ type = "cli"
 max_concurrency = 1
 cooldown_backoff_sec = [300, 900, 1800]
 rate_limit_regex = "(rate.?limit|usage.?limit|429|too many requests|quota)"
-command = ["codex", "exec", "--model", "{model_name}", "-c", "model_reasoning_effort=\"{effort}\"", "-s", "workspace-write", "-c", "approval_policy=\"never\"", "-o", "{output_file}", "-"]
+command = ["codex", "exec", "--json", "--model", "{model_name}", "-c", "model_reasoning_effort=\"{effort}\"", "-s", "workspace-write", "-c", "approval_policy=\"never\"", "-o", "{output_file}", "-"]
 prompt_via = "stdin"
 stall_timeout_sec = 900
 hard_timeout_sec = 2400
@@ -63,7 +63,7 @@ cooldown_backoff_sec = [30, 120, 300]
 rate_limit_regex = "(rate.?limit|429|quota|temporarily unavailable|overloaded)"
 # DeepSeek Harness (dsh) headless mode calling your configured OpenCode Go API profile.
 # Uses a zero-secret patch overlay under `{package_root}/presets/` to enable credentials + opencode-go.
-command = ["dsh", "--profile", "headless", "--patch", "{package_root}/presets/dsh-headless-opencode-go.patch.yml", "--permission-mode", "workspace-write", "--approval-policy", "never", "-"]
+command = ["dsh", "--profile", "headless", "--json", "--patch", "{package_root}/presets/dsh-headless-opencode-go.patch.yml", "--permission-mode", "workspace-write", "--approval-policy", "never", "-"]
 prompt_via = "stdin"
 stall_timeout_sec = 240
 hard_timeout_sec = 1200
