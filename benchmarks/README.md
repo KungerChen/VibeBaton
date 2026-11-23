@@ -29,7 +29,7 @@ generated artifacts ignored by Git.
 | --- | --- | --- |
 | A | `deepseek-v4.1-flash@max` completes the shared task in one invocation. | Seven adapters and two edits to frozen contract files |
 | B | `opus@high` or `gpt-6.2-sol@max` implements the adapters sequentially in one session. | Nine adapters, the longest simulated runtime, and 100% flagship share |
-| C | VibeBaton runs Claude planning and review, Codex critical work, and DeepSeek API bulk work through its configured CLIs. | All ten adapters and a 30% flagship share |
+| C | VibeBaton runs Claude planning and review, Codex critical work, and DSH bulk work through its configured CLIs. | All ten adapters and a 30% flagship share |
 
 ### Live mode
 
@@ -50,7 +50,7 @@ place.
 
 In arm C, the shared task and final hidden score serve as L0 input and
 evaluation. Claude plans at L1. Codex implements the rate limiter, retry policy,
-and circuit breaker at L2. DeepSeek completes the remaining adapters and package
+and circuit breaker at L2. DSH completes the remaining adapters and package
 exports at L3. The public unittest gate must discover and pass tests before the
 L1 review. The runner verifies each stage's permitted writes and stops advancing
 arm C after a provider, path, or public test gate failure. The resulting

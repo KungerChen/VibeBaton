@@ -52,13 +52,28 @@ describe('liveEvents i18n', () => {
 
     expect(translateTier('critical', 'en')).toBe('Critical');
     expect(translateTier('routine', 'en')).toBe('Routine');
-    expect(formatLiveEventMessage('role_invoked', 'Invoking bulk_worker (dsh_opencode/deepseek-v4.1-flash@max)', 'en').summary).toContain('DeepSeek API/deepseek-v4.1-flash@max');
-    expect(formatLiveEventMessage('role_invoked', 'Invoking bulk_worker (dsh_opencode/deepseek-v4.1-flash@max)', 'zh').summary).toContain('DeepSeek API/deepseek-v4.1-flash@max');
     expect(translateEventKind('role_completed', 'en')).toBe('Role Completed');
     expect(translateEventKind('role_completed', 'zh')).toBe('角色完成');
-    expect(
-      formatLiveEventMessage('role_completed', 'Completed bulk_worker (dsh_opencode/deepseek-v4.1-flash@max) in 42.3s (OK)', 'zh').summary,
-    ).toContain('DeepSeek API/deepseek-v4.1-flash@max');
+  });
+
+  test.each(['en', 'zh'] as const)('uses DSH provider labels in %s event summaries', (locale) => {
+    for (const [target, label] of [
+      ['dsh_opencode/deepseek-v4.1-flash@max', 'DSH/deepseek-v4.1-flash@max'],
+      ['dsh_opencode:deepseek-v4.1-flash@max', 'DSH:deepseek-v4.1-flash@max'],
+      ['dsh_opencode', 'DSH'],
+      ['dsh_deepseek', 'DSH'],
+    ]) {
+      const invoked = formatLiveEventMessage('role_invoked', `Invoking bulk_worker (${target})`, locale);
+      const completed = formatLiveEventMessage(
+        'role_completed', `Completed bulk_worker (${target}) in 42.3s (OK)`, locale,
+      );
+
+      for (const { summary } of [invoked, completed]) {
+        expect(summary).toContain(label);
+        expect(summary).not.toMatch(/opencode/i);
+      }
+      expect(formatLiveEventMessage('event', target, locale)).toEqual({ summary: label });
+    }
   });
 
   test('Chinese mode localizes all engine event kinds and messages without leaking English phrases', () => {

@@ -15,7 +15,7 @@ VibeBaton 把开发拆成一场 **四层接力赛**：
 | **L0 总控大脑 + 你** | 甲方老板与总设计师 | **你 + Antigravity** | 开工前对齐《需求规格文档（RFC）》与验收测试命令；全部完成后审阅战报并签字合入主分支。 |
 | **L1 规划师 & 里程碑审校** | 架构师 & 验收官 | Claude / Codex 等推理模型 | 把需求拆成有序的里程碑和子任务（DAG）；每个里程碑合并前亲自把关架构与测试通过情况。 |
 | **L2 核心攻坚 & 微观审校** | 技术专家 & 代码评审员 | Codex / Claude 等高阶模型 | 攻克核心架构文件；常规代码改错或卡死时接手救场（熔断升档）；对每个任务做逐项 Review。 |
-| **L3 并发批量工人** | 高性价比熟练工团队 | **DeepSeek API** 等快而省模型 | 在彼此隔离的 Git Worktree 目录中并行开发常规模块与单元测试。 |
+| **L3 并发批量工人** | 高性价比熟练工团队 | **DSH** 等快而省 CLI | 在彼此隔离的 Git Worktree 目录中并行开发常规模块与单元测试。 |
 | **机械门禁 & 路径白名单** | 自动安检门（0 成本） | `unittest` / `tsc` / `lint` / Git | AI 刚交卷就先免费跑单测和路径检查——越界改动直接回滚、单测不过原地返修，绝不浪费上层高阶额度！ |
 
 > 下图与工作台右上角 **教程（Guide）→「详细教程」（Tutorial）** 标签页中的四层接力流程图一致；你也可以在「快速开始」弹窗点击 **开始 1 分钟交互式导览（Start 1-Minute Interactive Tour）** 跟着高亮上手。
@@ -23,7 +23,7 @@ VibeBaton 把开发拆成一场 **四层接力赛**：
 ```mermaid
 flowchart LR
   L0User["L0 User"] --> L1Planner["L1 Planner"]
-  L1Planner --> L3Workers["L3 DeepSeek API Workers"]
+  L1Planner --> L3Workers["L3 DSH Workers"]
   L3Workers --> Gate["Mechanical Gate"]
   Gate --> L2Reviewer["L2 Reviewer"]
   L2Reviewer --> FinalMerge["L0 Final Merge"]
@@ -56,13 +56,13 @@ python -m vibebaton ui --repo D:\Projects\YourProject
 ### 第 1 步：在左侧选预算档位和「本机就绪」配方
 1. **预算档位（Budget Profile）**：新手建议先点 **节省（Eco）**，日常开发推荐 **均衡（Balanced）**。
 2. **工作流广场（Recipe Plaza）**：在左侧筛选 **「本机就绪」**，带有绿色圆点标牌的说明你电脑上的 CLI / API Key 已配置妥当：
-   - 预算极简、只有 1 个 Key：选 **`极简入门双层流（Starter 2-Tier Flow）`** 或 **`DeepSeek API 批量工厂`**。
+   - 预算极简、只有 1 个 Key：选 **`极简入门双层流（Starter 2-Tier Flow）`** 或 **`DSH 批量工厂`**。
    - 混合多个订阅与 API：选 **`个人开发三层流`** 或 **`旗舰四层工业工厂`**。
 
 ### 第 2 步：点击右下/右侧「▶ 启动真实运行」完成三段式发车向导
 切换到右侧面板的 **「轨迹与实时运行」** 标签页，点击 **「▶ 启动真实运行」**：
 1. **向导第 1 步 —— 运行前检查与凭据**：
-   - 可以直接在页面填入并保存 `DeepSeek API Key`、`OpenAI API Key`、`Anthropic API Key` 等本地密钥（仅写入你本机用户目录，绝不提交进 Git 仓库）。
+   - 可以直接在页面填入并保存 `DSH API Key`、`OpenAI API Key`、`Anthropic API Key` 等本地密钥（仅写入你本机用户目录，绝不提交进 Git 仓库）。
    - 如果你还没安装 Claude / Codex CLI，向导会给出官方复制命令和本机已就绪的替代方案。
    - 画布节点右下角的 **5 秒诊断（5s Doctor）** 按钮可以现场实测每个模型能不能调通以及延迟多少毫秒。
 2. **向导第 2 步 —— 头脑风暴与 RFC 体检**：
@@ -81,7 +81,7 @@ python -m vibebaton ui --repo D:\Projects\YourProject
 在右侧 **「轨迹与实时运行」** 面板中，你可以随时掌握全局成本与质量：
 - **历史运行切换（Run History）**：下拉可随时切回 Stage 1 / Stage 2 / Stage 3 等历史真跑记录对比数据。
 - **阶段耗时明细（Stage Timing）**：直观看到规划阶段（`01_PLAN`）以及 `M1 / M2 / M3...` 每个里程碑各自跑了多久、多少任务通过。
-- **模型运行统计（Model Runtime）**：统计 DeepSeek API、Codex、Claude 等每个模型被调用了几次、累计耗时、平均单次耗时以及占比进度条。
+- **模型运行统计（Model Runtime）**：统计 DSH、Codex、Claude 等每个模型被调用了几次、累计耗时、平均单次耗时以及占比进度条。
 - **点击任务行看详情**：点击任务表里的任意一行，即可原地展开该任务的**分配模型、实际耗时、自愈/退修/升级次数、允许修改文件路径白名单、机械门禁报错详情与专属审计事件流**。
 
 ### 第 5 步：看中英文战报与 L0 终审签字

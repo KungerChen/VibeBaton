@@ -10,7 +10,7 @@ from typing import Any
 from unittest.mock import patch
 
 from vibebaton.db import StateStore
-from vibebaton.report import compute_run_telemetry, generate_battle_report
+from vibebaton.report import compute_run_telemetry, display_provider_name, generate_battle_report
 from vibebaton.schemas import MilestoneSpec, PlanDAG, RunStatus, TaskSpec, TaskStatus, TaskTier
 
 
@@ -41,7 +41,13 @@ class TestReportTelemetry(unittest.TestCase):
         with patch("vibebaton.db.time.time", return_value=created_at):
             self.store.log_event(self.run_id, kind, **fields)
 
-    def test_exact_role_completed_and_stage_telemetry_with_deepseek_display(self) -> None:
+    def test_dsh_provider_display_in_both_locales(self) -> None:
+        for lang in ("en", "zh"):
+            for provider in ("dsh_opencode", "dsh_deepseek"):
+                with self.subTest(lang=lang, provider=provider):
+                    self.assertEqual(display_provider_name(provider, lang), "DSH")
+
+    def test_exact_role_completed_and_stage_telemetry_with_dsh_display(self) -> None:
         base_t = time.time() - 120.0
         with self.store._connect() as conn:
             conn.execute("UPDATE runs SET created_at = ? WHERE id = ?", (base_t, self.run_id))
@@ -97,7 +103,8 @@ class TestReportTelemetry(unittest.TestCase):
         self.assertEqual(telemetry["stages"][1]["task_sum_sec"], 65.0)
 
         models_by_role = {m["role"]: m for m in telemetry["models"]}
-        self.assertEqual(models_by_role["bulk_worker"]["display_provider"], "DeepSeek API")
+        self.assertEqual(models_by_role["bulk_worker"]["provider"], "dsh_opencode")
+        self.assertEqual(models_by_role["bulk_worker"]["display_provider"], "DSH")
         self.assertEqual(models_by_role["bulk_worker"]["duration_sec"], 25.0)
         self.assertFalse(models_by_role["bulk_worker"]["estimated"])
         self.assertEqual(models_by_role["tactical_planner"]["duration_sec"], 12.5)
@@ -109,15 +116,47 @@ class TestReportTelemetry(unittest.TestCase):
         en_report = generate_battle_report(self.store, self.run_id, lang="en")
         self.assertIn("## Stage & Milestone Timing", en_report)
         self.assertIn("## Model Calls & Runtime", en_report)
-        self.assertIn("DeepSeek API", en_report)
+        self.assertIn("| DSH | `deepseek-v4.1-flash@max` |", en_report)
 
         zh_report = generate_battle_report(self.store, self.run_id, lang="zh")
         self.assertIn("# VibeBaton 运行战报", zh_report)
         self.assertIn("## 分阶段耗时拆解", zh_report)
         self.assertIn("## 模型调用与耗时统计", zh_report)
-        self.assertIn("DeepSeek API", zh_report)
+        self.assertIn("| DSH | `deepseek-v4.1-flash@max` |", zh_report)
         self.assertIn("已完成", zh_report)
         self.assertNotIn("Why It Matters", zh_report)
+
+    def test_report_formats_dsh_references_in_allocation_events(self) -> None:
+        self.store.log_event(
+            self.run_id,
+            "task_allocated",
+            payload={
+                "task_id": "T1",
+                "provider": "dsh_opencode",
+                "model": "deepseek-v4.1-flash@low",
+                "reason": "Selected dsh_opencode/deepseek-v4.1-flash@low",
+                "budget_profile": "eco",
+                "pinned": False,
+            },
+        )
+        self.store.log_event(
+            self.run_id,
+            "task_step_up",
+            payload={
+                "task_id": "T1",
+                "from": "dsh_opencode:deepseek-v4.1-flash@low",
+                "to": "dsh_deepseek:deepseek-v4.1-flash@max",
+                "attempt": 2,
+            },
+        )
+
+        for lang in ("en", "zh"):
+            with self.subTest(lang=lang):
+                report = generate_battle_report(self.store, self.run_id, lang=lang)
+                self.assertRegex(report, r"\| `T1` \| `?DSH`? \|")
+                self.assertIn("Selected DSH/deepseek-v4.1-flash@low", report)
+                self.assertIn("`DSH:deepseek-v4.1-flash@low` → `DSH:deepseek-v4.1-flash@max`", report)
+                self.assertNotRegex(report, r"\bdsh_(?:opencode|deepseek)[/:]")
 
     def test_historical_fallback_estimates_durations_from_invoked_timestamps(self) -> None:
         self._register_sample_plan()

@@ -69,6 +69,8 @@ describe('i18n guarantees', () => {
         'OPENAI_API_KEY',
         'OPENCODE_API_KEY',
       ]);
+      expect(messages.credentials.keyLabels.DEEPSEEK_API_KEY, locale).toContain('DSH');
+      expect(messages.credentials.keyLabels.OPENCODE_API_KEY, locale).toContain('DSH');
       expect(messages.nodeReadiness.latency(125), locale).toContain('125');
       expect(messages.wizard.readinessScore(85), locale).toContain('85/100');
       expect(messages.wizard.warnings.ambiguityMarker('TODO'), locale).toContain('TODO');
@@ -93,19 +95,18 @@ describe('i18n guarantees', () => {
 
   test('translates all built-in preset names, descriptions, and node labels to Chinese while preserving custom text', () => {
     for (const preset of PRESETS) {
-      const zhName = translatePresetText(preset.name, 'zh');
-      expect(zhName, preset.id).toMatch(HAN_PATTERN);
-      expect(translatePresetText(preset.name, 'en')).toBe(preset.name);
-
+      const texts = [preset.name, ...preset.nodes.map((node) => node.label)];
       if (preset.description !== undefined) {
-        expect(translatePresetText(preset.description, 'zh'), `${preset.id}.description`).toMatch(HAN_PATTERN);
-        expect(translatePresetText(preset.description, 'en')).toBe(preset.description);
+        texts.push(preset.description);
       }
-
-      for (const node of preset.nodes) {
-        const zhLabel = translatePresetText(node.label, 'zh');
-        expect(zhLabel, `${preset.id}.${node.id}`).toMatch(HAN_PATTERN);
-        expect(translatePresetText(node.label, 'en')).toBe(node.label);
+      for (const text of texts) {
+        const en = translatePresetText(text, 'en');
+        const zh = translatePresetText(text, 'zh');
+        expect(zh, text).toMatch(HAN_PATTERN);
+        expect(zh, text).toBe(EN_TO_ZH_PRESET_TEXT[en]);
+        if (Object.hasOwn(EN_TO_ZH_PRESET_TEXT, text)) {
+          expect(en, text).toBe(text);
+        }
       }
     }
 
@@ -114,11 +115,13 @@ describe('i18n guarantees', () => {
     expect(translateRole('critical_executor', 'en')).not.toMatch(CJK_PATTERN);
     expect(translateHandle('minor_fix', 'zh')).toMatch(HAN_PATTERN);
     expect(translateHandle('minor_fix', 'en')).toBe('minor_fix');
-    expect(formatProviderDisplay('dsh_opencode')).toBe('DeepSeek API');
-    expect(formatProviderDisplay('claude_sub')).toBe('claude_sub');
   });
 
-  test('displays DeepSeek API instead of OpenCode in UI labels while preserving dsh_opencode config', () => {
+  test('uses DSH in UI labels while preserving the stored provider ID', () => {
+    expect(formatProviderDisplay('dsh_opencode')).toBe('DSH');
+    expect(formatProviderDisplay('dsh_deepseek')).toBe('DSH');
+    expect(formatProviderDisplay('claude_sub')).toBe('claude_sub');
+
     for (const [en, zh] of Object.entries(EN_TO_ZH_PRESET_TEXT)) {
       expect(en.trim()).not.toBe('');
       expect(en).not.toMatch(CJK_PATTERN);
@@ -127,9 +130,17 @@ describe('i18n guarantees', () => {
       expect(zh, en).not.toMatch(OPENCODE_PATTERN);
     }
 
+    expect(translatePresetText(deepseekBulkPreset.name, 'en')).toBe('DSH Bulk Factory');
+    expect(translatePresetText(deepseekBulkPreset.name, 'zh')).toBe('DSH 批量工厂');
+    for (const [locale, messages] of Object.entries(MESSAGES)) {
+      expect(messages.quickStart.steps.tryStarterDesc, locale).toContain('DSH');
+      expect(messages.tutorialDiagrams.l3Workers, locale).toContain('DSH');
+    }
     for (const locale of ['en', 'zh'] as const) {
-      expect(translatePresetText(deepseekBulkPreset.name, locale)).toContain('DeepSeek API');
-      expect(translatePresetText(deepseekBulkPreset.description, locale)).toContain('DeepSeek API');
+      expect(translatePresetText(deepseekBulkPreset.description, locale)).toContain('DSH');
+      for (const node of deepseekBulkPreset.nodes) {
+        expect(translatePresetText(node.label, locale), node.id).toContain('DSH');
+      }
     }
 
     for (const preset of PRESETS) {
@@ -153,5 +164,14 @@ describe('i18n guarantees', () => {
     const bulkNode = flagship_4tier.nodes.find((node) => node.id === 'l3_bulk');
     expect(bulkNode?.config?.provider).toBe('dsh_opencode');
     expect(bulkNode?.config?.model).toBe('deepseek-v4.1-flash@max');
+  });
+
+  test('localizes the legacy bulk preset title and preserves custom recipe text', () => {
+    const legacyTitle = ['DeepSeek', 'API Bulk Factory'].join(' ');
+    const customTitle = ['Direct DeepSeek', 'API Migration'].join(' ');
+    expect(translatePresetText(legacyTitle, 'en')).toBe('DSH Bulk Factory');
+    expect(translatePresetText(legacyTitle, 'zh')).toBe('DSH 批量工厂');
+    expect(translatePresetText(customTitle, 'en')).toBe(customTitle);
+    expect(translatePresetText(customTitle, 'zh')).toBe(customTitle);
   });
 });

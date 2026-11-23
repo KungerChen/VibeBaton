@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 from vibebaton.graph_engine import SCENARIOS, simulate_graph
 from vibebaton.graph_schema import NodeType, WorkflowGraph
 from vibebaton.presets import list_presets, load_preset, validate_all_presets
+from vibebaton.report import display_provider_name
 
 PRESET_IDS = (
     "claude_only_3tier",
@@ -151,7 +152,7 @@ class TestPresetsModule(unittest.TestCase):
         display_strings.extend(node.label for node in graph.nodes)
         for display in display_strings:
             with self.subTest(display=display):
-                self.assertIn("DeepSeek API", display)
+                self.assertRegex(display, r"\b(?:DSH|DeepSeek\s+API)\b")
                 self.assertNotIn("opencode", display.casefold())
 
         workers = [node for node in graph.nodes if node.type is NodeType.worker_node]
@@ -159,7 +160,9 @@ class TestPresetsModule(unittest.TestCase):
         for node in graph.nodes:
             if node.type in {NodeType.planner_node, NodeType.worker_node}:
                 with self.subTest(node=node.id):
-                    self.assertEqual(node.config.get("provider"), "dsh_opencode")
+                    provider = node.config["provider"]
+                    self.assertEqual(provider, "dsh_opencode")
+                    self.assertEqual(display_provider_name(provider), "DSH")
                     self.assertEqual(node.config.get("model"), "deepseek-v4.1-flash@max")
 
     def test_load_preset_by_id_and_path(self) -> None:
