@@ -1,177 +1,157 @@
-# Master RFC: VibeBaton Stage 4.5 (`v1.0.1`) — Resizable Panes & Task Accordions, 1-Second Live Telemetry Clocks, Interactive Spotlight Tour & Visual Tutorial
+# Master RFC: Stage 4.6 (v1.0.2) — Explicit Overnight Notifications & Attention Alerts
 
-## 1. Goal
+## Goals
 
-Deliver the **`v1.0.1`** Studio UX Upgrade across **3 cohesive milestones** on top of the verified `v1.0.0` baseline:
-1. **Resizable Dual Sidebars, Adaptive Task Accordion Cards & Backend Live Timing Anchors (`M1`)** — extend `compute_run_telemetry` with `server_now`, stage/model active start anchors, and per-task timing objects; replace the cramped horizontal-scroll 5-column tasks table in `LiveRunPanel.tsx` with full-width collapsible Task Accordion cards; make both Left Sidebar (`220px..440px`) and Right Inspector (`320px..720px`) smoothly resizable via accessible split handles persisted in `localStorage`.
-2. **Real-Time 1-Second Live Clocks Across Canvas Nodes, Live Card & Right Inspector Telemetry (`M2`)** — add a single lightweight `useLiveClock` timer (active only for running runs, zero timers on historical runs) synchronized with `telemetry.server_now` so active canvas nodes (`01_PLAN`, active tasks, active milestone reviewers), top-left `Live Run Workflow` card, total elapsed, active stage row, active model runtime + percentage bar, and active task cards all tick up live every second.
-3. **Interactive 7-Step Spotlight Guided Tour, Theme-Adaptive Inline SVG Diagrams, Updated Tutorial Doc & `v1.0.1` Release (`M3`)** — build a zero-dependency SVG-mask Spotlight Guided Tour highlighting 7 core controls with click-target progression and bidirectional `EN | 中文` support, add 3 theme-adaptive inline SVG architectural diagrams to `QuickStartModal`'s `Tutorial` / `详细教程` tab plus Mermaid diagrams in `docs/TUTORIAL.md`, and bump release metadata cleanly to `1.0.1`.
+Eliminate silent hangs in unattended `overnight` and interactive VibeBaton runs by making every human-blocking or attention-requiring condition loudly, explicitly, and reliably visible across four surfaces:
 
----
+1. **Structured Attention Audit & Telemetry (`engine.py`, `report.py`)**:
+   - Emit structured `human_attention_required` events into SQLite (`events` table) with episode deduplication across all six audited attention states:
+     1. Task-level `WAITING_HUMAN` (`PLAN_AMENDMENT` or exhausted merge conflict resolution);
+     2. Milestone-level `WAITING_HUMAN` (`PLAN_AMENDMENT` or exhausted milestone merge conflict resolution);
+     3. `READY_FOR_FINAL_GATE` (all milestones passed into `dev`, ready for L0 final gate sign-off);
+     4. Hard failure halt `FAILED` (missing RFC, planner failure, milestone failure, DAG deadlock, or unhandled exception);
+     5. Long provider quota cooldown (`wait_sec >= notifications.on_long_cooldown_sec` when threshold > 0);
+     6. External/manual `PAUSED` observed by the execution loop.
+   - Expose an additive `attention` object in `compute_run_telemetry` (`None` when running cleanly or `COMPLETED`).
 
-## 2. Hard Constraints & Invariants (CRITICAL)
+2. **Pure-Stdlib Multi-Channel Host Notifier (`notifier.py`, `config.py`, `cli.py`)**:
+   - Dispatch non-blocking, failure-isolated host notifications whenever an enabled attention condition triggers:
+     - Optional signed/configured incoming webhook (`webhook_url` or `webhook_url_env`, supporting `auto`, `feishu`, `wecom`, `dingtalk`, `slack`, `discord`, and `generic` JSON payloads);
+     - Windows native desktop toast/balloon notification via PowerShell with graceful silent no-op fallback on non-Windows or headless hosts;
+     - Terminal bell (`\a`) when running interactively.
+   - Add `baton notify-test` CLI command so users can test webhook, toast, and bell configuration before launching an overnight run.
 
-- **Zero New Python Runtime Dependencies**: Python backend MUST use Python 3.11+ standard library only (`pyproject.toml` `dependencies = []` unchanged).
-- **Pre-Installed Frontend Toolchain (CRITICAL — DO NOT run `npm install`)**:
-  - `web/package.json` dependencies and `web/node_modules/` are pre-installed and automatically mounted into every task worktree via junction.
-  - **DO NOT** run `npm install`, `pnpm`, `yarn`, or modify `dependencies`/`devDependencies` in `web/package.json`. Use only React 19, TypeScript, Tailwind CSS v4, `@xyflow/react`, `lucide-react`, `vitest`, and existing utilities.
-- **Windows Gate Commands**:
-  - Never use `/dev/null` in commands; use `os.devnull` in Python or `NUL` on Windows.
-  - Always invoke `npm.cmd` and `npx.cmd` on Windows.
-  - Python gate: `python -m unittest discover -s tests -v`
-  - Frontend gate: `cmd /c "cd /d web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build"`
-- **Orchestration & Testing Hygiene**:
-  - Set `reviewer_role: null` on every `critical` task so `Claude Opus` milestone review serves as the quality gate without redundant micro-reviews.
-  - Every milestone's `gate_commands` MUST execute full regression tests plus integration tests covering that milestone's modules.
-- **UI / i18n / Brand / Secret Hygiene Invariants**:
-  - Pure English default UI (`MESSAGES.en` contains ZERO CJK characters) + complete `EN | 中文` parity (`MESSAGES.zh` every leaf string and function return value MUST contain at least one Chinese Han character to satisfy `web/src/i18n/i18n.test.ts`).
-  - Never include the substring `"opencode"` anywhere inside `web/src/i18n/messages.ts` (`i18n.test.ts` fails if matched); display **`DeepSeek API`** cleanly in all user-facing copy.
-  - Preserve shadcn/ui + Tailwind CSS v4 + React Flow UI (`BaseNode`) Studio design, `web/src/liquid-theme/`, Web Audio controls, and mobile `< 960px` zero-overflow tab layout (`375×667`).
-  - Do not commit secrets, stray root scratch files (`CLAUDE.md`, `LOG.md`, `LOG-INDEX.md`), or build artifacts (`web/dist/`).
-- **100% Backward Compatibility**:
-  - Preserve existing `compute_run_telemetry` keys (`elapsed_sec`, `stages`, `models`, `billing`, optional `conflicts`), exact legacy bytes in `generate_battle_report` (`test_report_without_allocation_events_matches_legacy_bytes`), and all `v1.0.0` entries in `CHANGELOG.md`, `README.md`, and `docs/ROADMAP.md` (`tests/test_release_collateral.py`).
+3. **Web Studio Global Attention Banner, Browser Notifications, Tab Flashing & Audio Chime (`v1.0.2`)**:
+   - Render a prominent, accessible `role="alert"` global `<AttentionBanner>` across the top of Studio whenever the selected/live run enters an attention state, displaying severity, exact blocker prompt/summary, and one-click actions (Approve / Reject with optional note for `WAITING_HUMAN`, Open Battle Report for `READY_FOR_FINAL_GATE`, Resume for `PAUSED`, Dismiss for current alert fingerprint, Enable Browser Notifications).
+   - Flash the document title (`[⚠ ...]`) while an attention alert is unresolved, fire a single deduplicated Web Notification (when permission is granted), and play a crisp Web Audio chime respecting existing `soundEnabled` and `soundVolume` localStorage preferences.
+   - Complete `EN | 中文` localization parity and bump release metadata cleanly to `1.0.2`.
 
----
+## Constraints
 
-## 3. Milestones & Module Deliverables (Contract-First)
+- **Zero new Python runtime dependencies**: `notifier.py` and `cli.py` must use Python 3.11+ standard library modules only (`urllib.request`, `urllib.parse`, `subprocess`, `json`, `os`, `sys`, `dataclasses`, `time`).
+- **Zero new npm dependencies**: Do NOT run `npm install` or edit `package-lock.json`; only bump `"version": "1.0.2"` in `web/package.json`. On Windows, invoke `npx.cmd` and `npm.cmd`.
+- **Backward compatibility**:
+  - Legacy `baton.toml` / `.baton/baton.toml` files without `[notifications]` must load cleanly with safe defaults (`NotificationSettings()`).
+  - Existing CLI subcommands, 9 MCP tools, and legacy battle-report output bytes must remain unchanged.
+  - Real network HTTP requests and real OS toast subprocesses must NEVER execute during automated `unittest` runs; inject mock/fake senders in tests.
+  - `notify()` must catch and log/report channel delivery errors in `NotificationResult` and must NEVER crash `OrchestrationEngine.execute_run()`.
+- **UI & i18n Guarantees (`web/src/i18n/i18n.test.ts`)**:
+  - Default locale is pure English (`en`) with zero CJK characters in `MESSAGES.en` and `zh` parity containing Han characters.
+  - Never expose `OpenCode` in user-facing copy (display `DeepSeek API` everywhere).
+  - Preserve existing `.app` CSS layout (`54px` header row) when `AttentionBanner` is hidden (`null`), and use `.app:has(> .attention-banner)` for responsive grid row placement on desktop (`54px auto 1fr`) and mobile `< 960px` (`minmax(54px, auto) auto auto minmax(0, 1fr)`).
+- **CHANGELOG Ordering & Cleanliness**:
+  - `CHANGELOG.md` lists releases oldest-first: append `## [v1.0.2] - 2026-11-22` strictly at the end after `## [v1.0.1] - 2026-11-22`, with zero HTML worker log comments.
 
-### Milestone M1: Live Timing Anchors API, Resizable Dual Sidebars & Adaptive Task Accordions
+## Non-Goals
 
-#### 1. Backend Live Timing Anchors (`src/vibebaton/report.py` & `tests/test_report_telemetry.py`)
-Extend `compute_run_telemetry(store, run_id, *, now_ts=None)` strictly additively (keep all existing keys intact):
-- Top-level `"server_now": round(now, 3)`.
-- Each entry in `telemetry["stages"]` adds:
-  - `"started_at": float | None` (epoch seconds when that stage began if currently active, or initial start timestamp)
-  - `"is_active": bool` (`True` when stage status is active such as `"PLANNING"`, `"RUNNING"`, `"IN_PROGRESS"`, `"REVIEWING"`, or `"GATE_CHECKING"` while run itself is active; `False` for completed/pending/terminal runs)
-- Each entry in `telemetry["models"]` adds:
-  - `"active_started_at": float | None` (earliest unpaired `role_invoked.created_at` still in flight while run status is `"PLANNING"` or `"RUNNING"`, else `None`)
-- New top-level `"task_timings": dict[str, dict[str, Any]]` mapping each task ID to:
-  - `"duration_sec": float` (recorded `task.duration_sec` or fallback sum of completed/elapsed work)
-  - `"started_at": float | None` (epoch timestamp of the currently running unpaired invocation when `task.status` is `"RUNNING"`, `"REVIEWING"`, `"GATE_CHECKING"`, or `"COOLDOWN"` and run is active, else `None`)
-  - `"is_active": bool`
-- Add unit tests in `tests/test_report_telemetry.py` covering active `server_now`, stage `is_active` + `started_at`, model `active_started_at` on unpaired `role_invoked`, per-task `task_timings`, and ensuring finished runs set `is_active=False` and `started_at=None` / `active_started_at=None`.
+- Do NOT introduce SMTP email servers, external SDK dependencies (Slack/Feishu/Twilio pip packages), or third-party tray-icon libraries.
+- Do NOT auto-approve `WAITING_HUMAN` gates or bypass human sign-off under any policy.
+- Do NOT break or alter `SplitHandle`, `LiveRunPanel` accordions, `liveClock` live counters, or `GuidedTourOverlay` introduced in `v1.0.1`.
 
-#### 2. Frontend Resizable Dual Sidebars (`web/src/components/splitPane.ts`, `splitPane.test.ts`, `SplitHandle.tsx`, `web/src/index.css`, `web/src/components/LeftSidebar.css`, `web/src/App.tsx`)
-- Create pure helper module `web/src/components/splitPane.ts` (`clampPaneWidth`, `readPaneWidths`, `writePaneWidths`, constants `DEFAULT_SIDEBAR_WIDTH = 288`, `MIN_SIDEBAR_WIDTH = 220`, `MAX_SIDEBAR_WIDTH = 440`, `DEFAULT_INSPECTOR_WIDTH = 376`, `MIN_INSPECTOR_WIDTH = 320`, `MAX_INSPECTOR_WIDTH = 720`, storage key `'vibebaton.paneWidths'`).
-- Create `web/src/components/SplitHandle.tsx` (+ CSS styling in `web/src/index.css`): thin interactive `role="separator"` divider (`6px` hit target, subtle `1px` border highlight on hover/drag, `col-resize` cursor) supporting Pointer Events (`setPointerCapture`), ArrowLeft/ArrowRight keyboard steps (`16px`), Home/End clamping, and double-click to reset width cleanly.
-- Update `.app` grid in `web/src/index.css`: desktop uses `grid-template-columns: var(--sidebar-w, 288px) 6px minmax(360px, 1fr) 6px var(--inspector-w, 376px)`; update `LeftSidebar.css` from fixed `width: 288px` to `flex: 1 1 auto; width: 100%`; hide `SplitHandle` separators on `< 960px` mobile breakpoint so existing mobile tab switcher (`375×667`) keeps working cleanly.
-- Wire persisted widths and `<SplitHandle>` dividers in `web/src/App.tsx` (passing inline CSS variables `--sidebar-w` and `--inspector-w` on `.app`).
-- Write thorough unit tests in `web/src/components/splitPane.test.ts`.
+## Architecture & Deliverables (Milestones M1–M3)
 
-#### 3. Adaptive Full-Width Task Accordion Cards (`web/src/components/inspector/LiveRunPanel.tsx`, `web/src/components/RightInspector.css`)
-- Replace the rigid 5-column HTML `<table>` inside `LiveRunPanel.tsx` with a responsive vertical **Task Accordion Card list** (`grid min-w-0 grid-cols-1 gap-2`):
-  - **Collapsed header button (`aria-expanded={isExpanded}`, `w-full min-w-0`)**:
-    - Top line: Chevron icon + monospace `task.id` + localized status `<Badge>` + task live/completed duration chip on the right;
-    - Second line: wrapping task title (natural line wrap, zero horizontal clipping) + tier & localized role metadata pills.
-  - **Expanded panel** (renders cleanly directly inside the card at `100%` of the inspector's current width — no 5-column `colSpan` table overflow!):
-    - Assigned model (using `DeepSeek API` display), live/final duration, counters (`self_heal`, `review_reject`, `escalated`), allowed file pills, `last_error` pre-wrap block, and filtered task audit events.
-  - Zero horizontal scrollbar needed at default `376px` width AND expands gracefully as the user widens the right inspector up to `720px`!
+### M1: Notification Configuration, Pure-Stdlib Multi-Channel Notifier & Tests
 
----
+- **`src/vibebaton/config.py`**:
+  - Add `@dataclass class NotificationSettings`:
+    - `enabled: bool = True`
+    - `desktop_toast: bool = True`
+    - `terminal_bell: bool = True`
+    - `webhook_url: str = ""`
+    - `webhook_url_env: str = ""`
+    - `webhook_format: str = "auto"` (validated against `auto`, `generic`, `slack`, `discord`, `feishu`, `wecom`, `dingtalk`)
+    - `webhook_timeout_sec: float = 5.0`
+    - `on_waiting_human: bool = True`
+    - `on_ready_for_final_gate: bool = True`
+    - `on_failed: bool = True`
+    - `on_paused: bool = True`
+    - `on_long_cooldown_sec: int = 300`
+  - Add `notifications: NotificationSettings = field(default_factory=NotificationSettings)` to `BatonConfig` and parse optional `[notifications]` table in `parse_config_dict`.
+- **`src/vibebaton/notifier.py`**:
+  - Define dataclasses:
+    - `AttentionEvent(run_id, category, severity, title, message, action_hint, milestone_id=None, task_id=None, created_at=...)`
+      where `category` covers `"waiting_human"`, `"ready_for_final_gate"`, `"failed"`, `"paused"`, `"long_cooldown"`, and `"test"`; `severity` covers `"warning"`, `"error"`, `"info"`.
+    - `NotificationResult(dispatched, skipped_reason, channels)` with per-channel delivery results (`{"channel": ..., "ok": bool, "detail": str}`).
+  - Implement `resolve_webhook_url(settings: NotificationSettings, credentials_path: Path | None = None) -> str` reading direct `webhook_url`, `os.environ.get(settings.webhook_url_env)`, or local credential store key `settings.webhook_url_env` without leaking secret URLs in error messages.
+  - Implement `detect_webhook_format(url: str, configured: str = "auto") -> str` and `format_webhook_payload(event: AttentionEvent, webhook_url: str, fmt: str = "auto") -> dict[str, Any]` producing valid payloads for:
+    - `feishu` (`open.feishu.cn` / `larksuite.com`): `{"msg_type": "text", "content": {"text": ...}}`
+    - `wecom` (`qyapi.weixin.qq.com`): `{"msgtype": "text", "text": {"content": ...}}`
+    - `dingtalk` (`oapi.dingtalk.com`): `{"msgtype": "text", "text": {"content": ...}}`
+    - `slack` (`hooks.slack.com`): `{"text": ...}`
+    - `discord` (`discord.com/api/webhooks` / `discordapp.com`): `{"content": ...}`
+    - `generic`: structured JSON dict (`{"event": "human_attention_required", "run_id": ..., "category": ..., "severity": ..., "title": ..., "message": ..., "action_hint": ..., "milestone_id": ..., "task_id": ..., "timestamp": ...}`).
+  - Implement `AttentionNotifier` with optional dependency-injected `http_sender`, `toast_runner`, and `bell_stream` (plus safe default Windows PowerShell BurntToast-free NotifyIcon BalloonTip script encoded cleanly without shell injection, and clean fallback when non-Windows or unavailable). Provide `should_notify(category, settings, wait_sec=None) -> bool` and exception-safe `notify(event, settings) -> NotificationResult`.
+- **`baton.example.toml`** & **`tests/test_notifier.py`**:
+  - Document commented `[notifications]` block in `baton.example.toml` with zero real webhook secrets.
+  - Add thorough unit tests in `tests/test_notifier.py` covering TOML parsing defaults + overrides, all 6 webhook payload formats + auto-detection, `webhook_url_env` lookup + masked logging, error isolation when HTTP/toast fails, cooldown threshold gating, and mock desktop toast + terminal bell invocation.
 
-### Milestone M2: Real-Time 1-Second Live Clocks Across Canvas Nodes & Sidebar Telemetry
+### M2: Engine Integration Across All 6 Blocking States, Attention Telemetry & `baton notify-test`
 
-#### 1. Types & Shared Clock Engine (`web/src/types/graph.ts`, `web/src/engine/liveClock.ts`, `web/src/engine/liveClock.test.ts`)
-- Extend `web/src/types/graph.ts`:
-  - Export `TaskTiming { duration_sec: number; started_at: number | null; is_active: boolean }`.
-  - Add optional `started_at?: number | null`, `is_active?: boolean` on `StageTelemetry`.
-  - Add optional `active_started_at?: number | null` on `ModelTelemetry`.
-  - Add optional `server_now?: number`, `task_timings?: Record<string, TaskTiming>` on `RunTelemetry`.
-- Create `web/src/engine/liveClock.ts` with pure testable functions and React hook:
-  - `isRunStatusActive(status: unknown): boolean` (`PLANNING`, `RUNNING`, `IN_PROGRESS`, `REVIEWING`, `GATE_CHECKING`).
-  - `computeLiveSeconds(baseSec: number, startedAt: number | null | undefined, isActive: boolean | undefined, nowEpochSec: number): number` — returns `baseSec` untouched when inactive or `startedAt` is null/non-finite; otherwise adds `Math.max(0, nowEpochSec - startedAt)`.
-  - `computeClockSkewSec(serverNow: number | null | undefined, clientNowSec?: number): number` — adjusts local clock safely when `server_now` is provided.
-  - `useLiveClock(active: boolean, serverNow?: number | null): number` — returns current adjusted epoch seconds, ticking every `1000ms` ONLY while `active === true`, cleaning up interval cleanly on unmount or when run finishes.
-- Add comprehensive tests in `web/src/engine/liveClock.test.ts`.
+- **`src/vibebaton/engine.py`**:
+  - Extend `OrchestrationEngine.__init__` with optional `notifier: AttentionNotifier | None = None` (defaults cleanly to `AttentionNotifier(credentials_path=self.credentials_path)`).
+  - Add episode deduplication tracking (`self._notified_episodes: set[tuple[str, str, str]]`) and helper `async def _emit_attention(...)` (or sync/threaded wrapper using `asyncio.to_thread` for network/subprocess channels so the asyncio event loop never blocks while calling webhooks or toast) that:
+    1. Logs `"human_attention_required"` event via `self.store.log_event(...)` with `task_id`, `milestone_id`, and JSON payload (`category`, `severity`, `title`, `message`, `action_hint`, `channels`);
+    2. Dispatches `notifier.notify(event, cfg.notifications)` safely inside try/except.
+  - Wire `_emit_attention` into every blocking/attention path:
+    1. Missing RFC, planner failure, or top-level unhandled exception -> `failed`;
+    2. Milestone failure or DAG deadlock -> `failed`;
+    3. Task-level `WAITING_HUMAN` (`PLAN_AMENDMENT` or `MergeConflictError`) surfaced in `_execute_milestone` -> `waiting_human` (milestone + task IDs preserved);
+    4. Milestone-level `WAITING_HUMAN` (`PLAN_AMENDMENT` or `MergeConflictError`) in `_run_milestone_gate_and_review` -> `waiting_human`;
+    5. `READY_FOR_FINAL_GATE` -> `ready_for_final_gate`;
+    6. External `PAUSED` detected inside `_execute_milestone` / `execute_run` -> `paused`;
+    7. Provider quota cooldown wait in `_invoke_role` when `cooldown >= cfg.notifications.on_long_cooldown_sec` (if `on_long_cooldown_sec > 0`) -> `long_cooldown` (and emit once per cooldown episode).
+- **`src/vibebaton/report.py`**:
+  - Add additive `attention` field to `compute_run_telemetry`:
+    - When `run_status in ("WAITING_HUMAN", "READY_FOR_FINAL_GATE", "FAILED", "PAUSED")`, build `attention` from the latest `"human_attention_required"` event if present OR synthesize cleanly from `run["status"]`, `run["human_prompt"]`, `run["summary"]`, latest error/milestone so legacy databases without `"human_attention_required"` events still surface clear attention banners in Web Studio.
+    - When `run_status in ("RUNNING", "PLANNING")` and any task is currently in `COOLDOWN` with a recent `quota_rate_limited`/`quota_cooldown_wait` or `"human_attention_required"` (`category == "long_cooldown"`), expose active cooldown attention cleanly.
+    - When running normally or `COMPLETED`, set `attention` to `None` (or omit when `unplanned pending` legacy run matches existing contract tests). Verify all existing `tests/test_report*.py` tests remain 100% passing.
+- **`src/vibebaton/cli.py`**:
+  - Add `notify-test` subcommand (`baton notify-test [--repo .] [--config ...] [--webhook-url ...] [--message "..."]`) invoking `AttentionNotifier` with explicit `--webhook-url` override or `[notifications]` settings, printing per-channel delivery status (`OK` / `SKIP` / `FAIL`) cleanly and returning non-zero only if a requested enabled channel actively errored when explicitly forced or malformed URL provided.
+- **`tests/test_engine_notifications.py`**:
+  - Integration tests using fake/stub CLI runners and injected `AttentionNotifier` verifying:
+    - All 6 engine states log `human_attention_required` and trigger notifier exactly once per episode;
+    - Short cooldown (`< on_long_cooldown_sec`) stays silent while long cooldown (`>= on_long_cooldown_sec`) triggers `long_cooldown`;
+    - Webhook failure does NOT fail or hang the engine run;
+    - `compute_run_telemetry` returns structured `attention` for active blocking states and `None` after resolution/completion (and works for legacy runs lacking `human_attention_required` events);
+    - `baton notify-test` CLI command executes cleanly.
 
-#### 2. Live Timing Badges on Canvas Nodes (`web/src/components/nodes/BatonNode.tsx`, `BatonNode.css`, `web/src/engine/flowAdapter.ts`, `web/src/engine/liveRunGraph.ts`, `liveRunGraph.test.ts`)
-- Extend `BatonNodeData` and `WorkflowNode['config']` handling cleanly with optional runtime metadata (`duration_sec?: number`, `started_at?: number | null`, `is_timing_active?: boolean`).
-- Update `buildLiveRunGraph(snapshot, locale, nowEpochSec?)` in `web/src/engine/liveRunGraph.ts` to populate each node's `config` with timing telemetry from `snapshot.telemetry` (`PLANNING` stage for `live-planner`, `task_timings[taskId]` for `live-task-*`, milestone `stages` entry for `live-ms-*`).
-- In `BatonNode.tsx` (+ `BatonNode.css`): when node `duration_sec !== undefined` (or active `is_timing_active`), render a crisp monospace timing pill inside `<BaseNodeContent>` (`● 4m 18s` / `● 4分18秒` with subtle emerald/cyan pulse while active; steady `⏱ 11m 06s` when finished). Pass live `nowEpochSec` down cleanly from `App.tsx` (updating `node.data` smoothly WITHOUT remounting React Flow or interrupting pan/zoom!) so canvas node timers tick live every second without flicker.
-- A timing-only snapshot refresh preserves the current canvas layout and selection. Apply timing by node ID to the rendered nodes. The saved and shared recipe contains the user-edited positions and workflow configuration.
-- Add unit tests in `web/src/engine/liveRunGraph.test.ts` verifying active vs completed node timings.
+### M3: Web Studio Global `AttentionBanner`, Browser Notification, Tab Flash, Audio Chime & `v1.0.2` Release
 
-#### 3. Wire Live Clocks into Left Sidebar & Right Inspector (`web/src/App.tsx`, `web/src/components/LeftSidebar.tsx`, `web/src/components/RightInspector.tsx`, `web/src/components/inspector/LiveRunPanel.tsx`)
-- Compute `liveNowSec` via `useLiveClock(isSelectedRunActive, liveSnapshot?.telemetry?.server_now)` cleanly in `App.tsx` (and pass `liveNowSec` down to `LeftSidebar`, `LiveRunPanel`, and live canvas nodes).
-- Update:
-  - `LeftSidebar.tsx`: Live Run card header elapsed time ticks live using `computeLiveSeconds` while the displayed run is active.
-  - `LiveRunPanel.tsx`:
-    - Header `Total: ...` / `总耗时：...` computes live total elapsed when active.
-    - Every Stage Timing row uses `computeLiveSeconds(stage.wall_sec, stage.started_at, stage.is_active, liveNowSec)` and renders a subtle live pulse dot on active stages.
-    - Every Model Runtime row uses `computeLiveSeconds(item.duration_sec, item.active_started_at, Boolean(item.active_started_at), liveNowSec)` and recalculates live percentage bar shares cleanly (`share_pct`) across the updated model durations!
-    - Every Task Accordion row & expanded detail view displays live `task_timings[taskId]` elapsed seconds when active.
-- Ensure historical runs (`COMPLETED`, `READY_FOR_FINAL_GATE`, `FAILED`, `HALTED`) keep static exact durations and trigger ZERO 1-second timer updates!
+- **`web/src/types/graph.ts` & `web/src/types/graph.test.ts`**:
+  - Define `AttentionSeverity = 'warning' | 'error' | 'info'`, `AttentionCategory = 'waiting_human' | 'ready_for_final_gate' | 'failed' | 'paused' | 'long_cooldown'`, `RunAttentionState` (`category`, `severity`, `title`, `message`, `action_hint`, `milestone_id`, `task_id`, `created_at`), and optional `attention?: RunAttentionState | null` on `RunTelemetry`.
+- **`web/src/i18n/messages.ts`, `web/src/i18n/liveEvents.ts`, `web/src/i18n/liveEvents.test.ts`**:
+  - Add `messages.attention` namespace in both `en` (pure English, zero CJK) and `zh` (full Han localization) covering banner titles by category, action labels (Approve, Reject, Resume, View Battle Report, Enable Desktop Alerts, Notifications Enabled, Notifications Blocked, Dismiss), default detail fallbacks, and `[⚠ ...]` document title prefix.
+  - Add `human_attention_required` formatting in `liveEvents.ts` + tests in `liveEvents.test.ts`.
+- **`web/src/engine/attentionAlerts.ts` & `web/src/engine/attentionAlerts.test.ts`**:
+  - Pure, testable helpers:
+    - `deriveAttentionAlert(snapshot: LiveRunSnapshot | null)`: reads `snapshot.telemetry?.attention` or falls back smoothly from `snapshot.run?.status` (`WAITING_HUMAN`, `READY_FOR_FINAL_GATE`, `FAILED`, `PAUSED`) so both v1.0.2 snapshots and older snapshots work seamlessly.
+    - `buildAlertFingerprint(runId, alert)`: deterministic string used for one-shot sound/notification deduplication and user dismissal per episode.
+    - `formatAttentionDocumentTitle(baseTitle, alert, locale, tickOdd)`: returns crisp alternating attention title when active and restores `baseTitle` when cleared.
+    - `dispatchBrowserNotification(alert, locale, permission, NotificationCtor)` with injectable constructor for Vitest.
+    - `playAttentionChime(category, enabled, volume, audioCtor)` synthesizing a clean dual-tone Web Audio alert using the existing `LiquidWebAudioEngine` preferences (`soundEnabled`, `soundVolume`) without throwing in non-browser/muted environments.
+- **`web/src/components/AttentionBanner.tsx`, `web/src/components/AttentionBanner.css`, `web/src/components/AttentionBanner.test.ts`**:
+  - Accessible `role="alert"` banner component anchored full-width below `HeaderBar`:
+    - Displays category badge, localized title, concise monospace `run_id`, blocker message (`human_prompt` / summary), and action buttons (`Approve` / `Reject` for `WAITING_HUMAN`, `Resume` for `PAUSED`, `Battle Report` trigger or jump-to-inspector for `READY_FOR_FINAL_GATE`, optional `Enable Browser Alerts` CTA when `Notification.permission === 'default'`, and `Dismiss`).
+- **`web/src/App.tsx`, `web/src/index.css`, `web/src/components/inspector/LiveRunPanel.tsx`**:
+  - Wire `deriveAttentionAlert(liveSnapshot)` in `App.tsx`, manage dismissed fingerprint, one-shot browser notification + Web Audio chime on new alert arrival, document title flash interval while unresolved, and action handlers calling existing `client.controlRun(...)` / opening Battle Report modal or switching inspector tab cleanly.
+  - Ensure `AttentionBanner` works cleanly at `1440×900` and `375×667` without horizontal overflow or layout overlap.
+- **Release Metadata & Collateral (`1.0.2`)**:
+  - Update version to `1.0.2` in `pyproject.toml`, `src/vibebaton/__init__.py`, `web/package.json`.
+  - Append `## [v1.0.2] - 2026-11-22` at the bottom of `CHANGELOG.md` (oldest-first order preserved, zero HTML comments).
+  - Add Stage 4.6 (`v1.0.2`) summary entry at the bottom of `docs/ROADMAP.md`.
+  - Update `RELEASE_VERSION = "1.0.2"` in `tests/test_version_consistency.py` (keeping all collateral tests green).
 
----
+## Verification & Acceptance Criteria
 
-### Milestone M3: Interactive Spotlight Guided Tour, Visual SVG Diagrams Tutorial, Doc Diagram Upgrade & `v1.0.1` Release
-
-#### 1. Semantic Tour Anchors & Pure-Stdlib Spotlight Guided Tour (`web/src/components/tour/tourSteps.ts`, `tourSteps.test.ts`, `GuidedTourOverlay.tsx`, `GuidedTourOverlay.css`)
-- Add non-invasive `data-tour-id` attributes on the 7 core regions across existing components (`HeaderBar`, `LeftSidebar`, `CanvasWorkspace`, `RightInspector`, `LiveRunPanel`):
-  1. `live-run-card` (LeftSidebar Live Run Workflow card — switches conditionally if present, else gracefully skips or highlights first preset)
-  2. `budget-profile` (LeftSidebar Budget Profile selector)
-  3. `recipe-plaza` (LeftSidebar Recipe Plaza filters & presets)
-  4. `canvas-workspace` (Center Canvas & PlaybackBar controls)
-  5. `inspector-live-tab` (RightInspector `Trace & Live Run` tab button)
-  6. `start-real-run-btn` (LiveRunPanel `▶ Start Real Run` button — only shown when `mode === 'local'`, otherwise gracefully falls back or omits local-only steps cleanly in demo!)
-  7. `header-controls` (HeaderBar language `EN | 中文`, theme reveal, audio & guide trigger)
-- Create pure testable `web/src/components/tour/tourSteps.ts` (`resolveAvailableTourSteps(mode, hasLiveRun, hasElement)`) so steps dynamically handle `local` vs `demo` mode and whether a live run exists, and automatically instruct which UI tab/pane should be activated on each step (`requiredPane`, `requiredInspectorTab`).
-- Create `web/src/components/tour/GuidedTourOverlay.tsx` + `GuidedTourOverlay.css`:
-  - Renders a full-screen portal SVG spotlight mask punching a rounded cutout around the target element's `getBoundingClientRect()` (auto-tracked on resize/scroll/`ResizeObserver`).
-  - Places a high-contrast floating popover card adjacent to the spotlight cutout with automatic viewport edge-flipping so it is never clipped at top/bottom/left/right or on mobile `375×667`.
-  - Includes clickable interactive progression: clicking the highlighted target area itself (or clicking `Next` / `下一步`) advances to the next step; also provides `Back`, `Skip`, `Finish`, step progress indicator (`1 / 7`), and `Escape` key dismissal.
-- Connect `onStartTour()` from `QuickStartModal.tsx` -> `App.tsx` (closing the modal and launching step 1 cleanly!).
-
-#### 2. Visual Inline SVG Diagrams inside QuickStart Tutorial & Mermaid Diagrams in Docs (`web/src/components/tutorial/TutorialDiagrams.tsx`, `web/src/components/QuickStartModal.tsx`, `docs/TUTORIAL.md`)
-- Create `web/src/components/tutorial/TutorialDiagrams.tsx` exporting 3 crisp, theme-adaptive (`var(--card)`, `var(--border)`, `var(--primary)`, `var(--emerald)`, `var(--amber)`) localized inline `<svg>` diagrams (`viewBox` responsive, `aria-label` accessible, zero external images/network requests):
-  1. **Diagram 1 (Chapter 1 — 4-Tier Relay Pipeline)**: visual flow showing `L0 (User)` -> `L1 Planner` -> `L3 DeepSeek API Workers` -> `Mechanical Gate` -> `L2 Reviewer` -> `L0 Final Merge`.
-  2. **Diagram 2 (Chapter 2 — Safe 5-Step Guided Flow & Live Sync)**: visual diagram linking `Budget + Recipe` -> `3-Step Wizard + Security Guards` -> `Live Run Card <-> Canvas Sync` -> `Bilingual Report + L0 Sign-Off`.
-  3. **Diagram 3 (Chapter 3 — Git Worktree Sandbox & Physical Whitelist Guard)**: visual diagram contrasting isolated parallel `.baton/worktrees/` + whitelist revert against protected `main` branch.
-- Embed these diagrams cleanly in `QuickStartModal.tsx` inside the `Tutorial` / `详细教程` tab cards AND add a prominent **"Start 1-Minute Interactive Tour"** / **「🎯 开始 1 分钟交互式导览」** CTA banner at the top of `QuickStartModal` (plus inside the `Tutorial` tab).
-- Update `docs/TUTORIAL.md` to include matching Mermaid diagrams (`flowchart LR`) for the 4-tier relay and isolated worktree protection alongside the existing beginner walkthrough.
-
-#### 3. Pure Bilingual i18n, Manifests `1.0.1` Bump & Release Verification
-- Add all new pure EN and pure ZH labels to `web/src/i18n/messages.ts` for:
-  - Resizable handle `aria-label` / tooltip / double-click reset hint
-  - Live clock status badge (`LIVE` / `实时计时`)
-  - Interactive Spotlight Tour (`startTourButton`, `tourStepProgress`, `next`, `prev`, `finish`, `skip`, and all 7 step titles/descriptions/click hints)
-  - SVG diagram captions & accessibility labels
-  - Enforce `i18n.test.ts` strictly: zero CJK in EN, Han character in every leaf of ZH, zero `"opencode"` substring anywhere in `messages.ts`.
-- Bump version string `"1.0.0"` -> `"1.0.1"` across:
-  - `pyproject.toml`, `src/vibebaton/__init__.py`, `web/package.json`
-  - Append `## [v1.0.1] - 2026-11-22` section to `CHANGELOG.md` (keeping all prior headings `[v0.1-seed]`, `[v0.2.0]`, `[v0.3.0]`, `[v0.9.0-beta]`, `[v1.0.0]` intact so `tests/test_release_collateral.py` passes cleanly!)
-  - Update `tests/test_version_consistency.py` (`RELEASE_VERSION = "1.0.1"`) and `tests/test_web_fullstack.py` (check `"/api/health"["version"] == __version__` or `"1.0.1"` so tests match `1.0.1`).
-  - Also update `docs/ROADMAP.md` (`v1.0.0` marked merged `ecab208`, `v1.0.1` Stage 4.5 documented).
-- Run both final gates and make sure everything passes cleanly:
-
-```bash
-python -m unittest discover -s tests -v
-```
+All automated unit tests, integration tests, static type checks, production builds, and release consistency checks must exit `0`:
 
 ```bash
 cmd /c "cd /d web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build"
+cmd /c "set PYTHONPATH=src&& set PYTHONUTF8=1&& python -m unittest discover -s tests -v"
 ```
 
----
-
-## 4. Non-Goals
-
-- Do not alter core task scheduling, model allocation algorithms, HTTP transport, or Git conflict resolution behavior from `v1.0.0`.
-- Do not install new npm packages or Python third-party packages.
-- Do not modify `main` directly during unattended execution or commit real API keys/runtime `.baton/state.sqlite*` files.
-
----
-
-## 5. Acceptance Criteria
-
-1. `compute_run_telemetry` exposes `server_now`, stage/model live start anchors, and `task_timings` while preserving 100% compatibility with existing `test_report_billing.py`, `test_report_telemetry.py`, and `test_web_fullstack.py`; desktop Left Sidebar (`220px..440px`) and Right Inspector (`320px..720px`) resize cleanly with `localStorage` persistence; Task Accordion cards expand at full inspector width without horizontal scrolling.
-2. Live active runs (`PLANNING`/`RUNNING`) tick elapsed time smoothly once per second across active canvas nodes (`BatonNode`), top-left `Live Run Workflow` card, total elapsed, active stages, active models + share bars, and active task cards, while historical completed runs remain static with zero active timers.
-3. `QuickStartModal` includes 3 theme-adaptive inline SVG diagrams and launches an interactive 7-step Spotlight Guided Tour (`GuidedTourOverlay`) in both pure EN and `中文`; manifests report `1.0.1`; both verification commands below pass cleanly with exit code `0`:
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-```bash
-cmd /c "cd /d web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build"
-```
+1. All automated backend tests pass (`python -m unittest discover -s tests -v`), including new `tests/test_notifier.py` and `tests/test_engine_notifications.py`, without sending real network requests or launching real desktop notifications in tests.
+2. `python -m vibebaton --version` prints `vibebaton 1.0.2`.
+3. `python -m vibebaton notify-test --help` prints valid usage and `baton notify-test` executes cleanly against mocked/configured channels.
+4. All automated frontend Vitest suites pass (`npx.cmd vitest run`), including new `attentionAlerts.test.ts` and `AttentionBanner.test.ts`, and `i18n.test.ts` guarantees zero CJK in `en`, Han characters in `zh`, and zero `OpenCode` copy leaks.
+5. `npx.cmd tsc --noEmit` and `npm.cmd run build` pass with exit code `0`.
