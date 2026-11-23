@@ -22,7 +22,7 @@ from time import monotonic
 from typing import Any, Callable, Iterable, Mapping, Protocol, TypedDict
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, credentials, presets, pricing
+from . import __version__, case_export, credentials, presets, pricing
 from .config import (
     ALLOWED_BUDGET_PROFILES,
     BatonConfig,
@@ -61,8 +61,9 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("GET", re.compile(r"/api/runs"), "_get_runs"),
     ("GET", re.compile(r"/api/runs/latest"), "_get_latest_run"),
     ("GET", re.compile(r"/api/runs/stream"), "_get_run_stream"),
-    ("GET", re.compile(r"/api/runs/([^/]+)"), "_get_run"),
     ("GET", re.compile(r"/api/runs/([^/]+)/report"), "_get_run_report"),
+    ("GET", re.compile(r"/api/runs/([^/]+)/case-export"), "_get_run_case_export"),
+    ("GET", re.compile(r"/api/runs/([^/]+)"), "_get_run"),
     ("POST", re.compile(r"/api/runs/start"), "_post_run_start"),
     ("POST", re.compile(r"/api/runs/([^/]+)/control"), "_post_run_control"),
     ("POST", re.compile(r"/api/runs/([^/]+)/resolve"), "_post_run_resolve"),
@@ -861,6 +862,28 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             200,
             {"run_id": run_id, "battle_report_markdown": generate_battle_report(store, run_id, lang=lang)},
         )
+
+    def _get_run_case_export(self, run_id: str) -> None:
+        query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+        include_reviews = query.get("include_reviews", ["1"])[0]
+        anonymize = query.get("anonymize", ["0"])[0]
+        for name, value in (("include_reviews", include_reviews), ("anonymize", anonymize)):
+            if value not in {"0", "1"}:
+                raise _BadRequest(f"{name} must be 0 or 1")
+        try:
+            bundle = case_export.export_sanitized_case(
+                self.server.store,
+                run_id,
+                title=query.get("title", [None])[0],
+                include_review_summaries=include_reviews == "1",
+                anonymize_run_id=anonymize == "1",
+            )
+        except LookupError:
+            self._send_json(404, {"error": "Run not found"})
+            return
+        except ValueError as exc:
+            raise _BadRequest(str(exc)) from exc
+        self._send_json(200, bundle)
 
     def _write_sse(self, event: str, payload: Mapping[str, Any]) -> None:
         frame = f"event: {event}\ndata: {json.dumps(dict(payload))}\n\n"

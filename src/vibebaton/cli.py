@@ -13,7 +13,7 @@ import webbrowser
 from dataclasses import replace
 from pathlib import Path
 
-from . import __version__, pricing
+from . import __version__, case_export, pricing
 from .cli_runner import check_provider_binary, run_provider_cli
 from .config import HotReloadConfig, find_config_path, parse_config_dict
 from .credentials import default_credentials_path
@@ -243,6 +243,39 @@ def cmd_report(args: argparse.Namespace) -> int:
         print(f"[ok] Wrote battle report to {out_path}")
     else:
         print(md)
+    return 0
+
+
+def cmd_export_case(args: argparse.Namespace) -> int:
+    repo = Path(args.repo).resolve()
+    cfg_path = find_config_path(repo, explicit=Path(args.config) if args.config else None)
+    _, store = _resolve_store(repo, cfg_path)
+    try:
+        bundle = case_export.export_sanitized_case(
+            store,
+            args.run_id,
+            title=args.title,
+            include_review_summaries=not args.no_reviews,
+            anonymize_run_id=args.anonymize,
+        )
+    except LookupError:
+        print(f"Run not found: {args.run_id}", file=sys.stderr)
+        return 1
+
+    report = bundle["redaction_report"]
+    clean = report["clean"]
+    print("Redaction summary")
+    for counter, count in report.items():
+        if counter != "clean":
+            print(f"{counter}: {count}")
+    print(f"clean: {'yes' if clean else 'no'}")
+    if not clean:
+        print("Case export blocked by the redaction audit.", file=sys.stderr)
+        return 2
+
+    out_path = Path(args.out if args.out is not None else f"{args.run_id}.baton-case.json")
+    pricing._write_json_atomic(out_path, bundle)
+    print(f"[ok] Wrote case bundle to {out_path}")
     return 0
 
 
@@ -609,6 +642,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_rep.add_argument("--run-id", default=None)
     p_rep.add_argument("--out", default=None, help="Optional output markdown path")
     p_rep.set_defaults(func=cmd_report)
+
+    # Keep the top-level help summary stable while documenting the subcommand.
+    p_export = sub.add_parser("export-case", description="Export a sanitized run case bundle")
+    p_export.add_argument("--repo", default=".", help="Target repository path")
+    p_export.add_argument("--config", default=None, help="Explicit configuration file path")
+    p_export.add_argument("--run-id", required=True, help="Run to export")
+    p_export.add_argument("--out", default=None, help="Output path (default: <run-id>.baton-case.json)")
+    p_export.add_argument("--title", help="Case title")
+    p_export.add_argument("--no-reviews", action="store_true", help="Omit review summaries")
+    p_export.add_argument("--anonymize", action="store_true", help="Anonymize the source run ID")
+    p_export.set_defaults(func=cmd_export_case)
 
     p_mcp = sub.add_parser("mcp", help="Run zero-dependency MCP stdio server for Antigravity")
     p_mcp.add_argument("--repo", default=None)

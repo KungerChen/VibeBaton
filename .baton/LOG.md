@@ -15,6 +15,18 @@
 | [20261122-100548-m2-live-canvas](#20261122-100548-m2-live-canvas) | 2026-11-22 | M2 实时快照保留画布位置和选中状态 | 已自测，待用户验收 |
 | [20261122-101917-m2-task-clock-anchor](#20261122-101917-m2-task-clock-anchor) | 2026-11-22 | M2 任务计时按在途调用推进 | 已自测，待用户验收 |
 | [20261122-215213-m2-dsh-report-gate](#20261122-215213-m2-dsh-report-gate) | 2026-11-22 | M2 全量门禁的 DSH 战报断言修复 | 已自测，待用户验收 |
+| [20261123-005315-m1-case-export-redaction](#20261123-005315-m1-case-export-redaction) | 2026-11-23 | M1 案例导出的 Slack 令牌与 Windows 路径脱敏 | 已自测，待用户验收 |
+
+## 20261123-005315-m1-case-export-redaction
+
+2026-11-23 00:53:15 PST 开始处理 M1 复审列出的两项阻塞。分支为 `baton/fc2591/ms-m1-r1`，起始工作树干净，基准提交为 `b85c151`。
+
+- 基准实现上运行四项回归，出现六处断言失败。合成的 Slack `xapp-` 令牌、正斜杠盘符路径和 UNC 路径均绕过了脱敏与序列化审计。
+- `src/vibebaton/case_export.py` 扩展脱敏与审计共用的规则。Slack 应用令牌替换为 `[REDACTED]`，两种 Windows 路径替换为 `<path>/` 加文件名。带协议的 URL 仍优先按 URL 处理。
+- `tests/test_case_export.py` 的 Golden Example 使用 SQLite 样例运行，核对标题、事件消息、两项替换计数和 `redaction_report.clean`。单元回归验证审计拒绝三种原始样本，路径回归核对 URL 保留原样。
+- 四条指定门禁均退出 0。案例导出专项通过 38 项，Web 与 Graph CLI/MCP 集成通过 75 项，CLI 帮助正常。全量运行 528 项，通过 525 项。两项因缺少 Docker CLI 跳过，一项因缺少 Windows 目录符号链接权限跳过。
+- Web 全栈测试通过回环 HTTP 加载本工作树的 Studio 资源。使用 `npm.cmd run build -- --configLoader runner` 构建以避开共享依赖目录的写入限制。构建报告分块体积告警，验证后已清理生成资源。
+- 集成与全量门禁的输出分别位于 `%TEMP%\vibebaton-m1-case-integration-6da272cd-5344-47f4-a0d9-a54a967f8a55.log` 和 `%TEMP%\vibebaton-m1-case-discovery-af31815c-646c-46b2-9c63-86cd32071583.log`。已自测，待用户验收。回退参考为 `b85c151` 与当前工作树差异。
 
 ## 20261122-215213-m2-dsh-report-gate
 
