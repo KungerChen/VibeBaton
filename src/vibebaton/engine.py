@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import json
+import logging
 import sys
 import time
+from collections.abc import Iterable
 from contextlib import contextmanager
 from dataclasses import replace
 from itertools import count
@@ -41,6 +43,7 @@ from .git_ops import (
     remove_worktree,
     revert_disallowed_files,
 )
+from .notifier import AttentionEvent, AttentionNotifier, ChannelResult, should_notify
 from .schemas import (
     PlanDAG,
     ReviewVerdict,
@@ -52,6 +55,9 @@ from .schemas import (
     VerdictKind,
     extract_json_object,
 )
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def run_provider_cli(provider: ProviderConfig, **kwargs: Any) -> CLIResult:
@@ -88,18 +94,95 @@ class OrchestrationEngine:
         package_root: Path | None = None,
         *,
         credentials_path: Path | None = None,
+        notifier: AttentionNotifier | None = None,
     ) -> None:
         self.repo_path = repo_path.resolve()
         self.config_loader = config_loader
         self.store = store
         self.package_root = (package_root or Path(__file__).resolve().parents[2]).resolve()
         self.credentials_path = credentials_path
+        self.notifier = notifier if notifier is not None else AttentionNotifier(credentials_path=self.credentials_path)
+        self._attention_run_id: str | None = None
+        self._notified_episodes: set[tuple[str, str, str]] = set()
         self._semaphores: dict[str, tuple[int, asyncio.Semaphore]] = {}
         self._merge_lock = asyncio.Lock()
 
     @property
     def cfg(self) -> BatonConfig:
         return self.config_loader.current
+
+    async def _emit_attention(
+        self,
+        run_id: str,
+        category: str,
+        severity: str,
+        title: str,
+        message: str,
+        action_hint: str,
+        milestone_id: str | None = None,
+        task_id: str | None = None,
+        wait_sec: float | None = None,
+    ) -> None:
+        """Record an attention episode and the outcomes of any enabled deliveries."""
+        if self._attention_run_id != run_id:
+            self._attention_run_id = run_id
+            self._notified_episodes.clear()
+        episode = (category, milestone_id or "", task_id or "")
+        if episode in self._notified_episodes:
+            return
+        # Claim the episode before dispatch can yield to a second caller.
+        self._notified_episodes.add(episode)
+        event = AttentionEvent(run_id, category, severity, title, message, action_hint, milestone_id, task_id)
+        channels: list[ChannelResult] = []
+        try:
+            settings = self.cfg.notifications
+            if should_notify(category, settings, wait_sec):
+                result = await asyncio.to_thread(self.notifier.notify, event, settings)
+                channels = result.channels
+        except Exception:
+            _LOGGER.warning("Attention notification failed for run %s (%s)", run_id, category)
+        finally:
+            self.store.log_event(
+                run_id,
+                "human_attention_required",
+                task_id=task_id,
+                milestone_id=milestone_id,
+                message=message,
+                payload={
+                    "category": category,
+                    "severity": severity,
+                    "title": title,
+                    "message": message,
+                    "action_hint": action_hint,
+                    "channels": channels,
+                },
+            )
+
+    async def _stop_if_paused(
+        self, run: dict[str, Any] | None, in_flight: Iterable[asyncio.Task[bool]] = (),
+    ) -> bool:
+        if not run or run["status"] != RunStatus.PAUSED:
+            return False
+        pending = tuple(in_flight)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        await self._emit_attention(
+            run["id"], "paused", "warning", "Run paused", "The run was paused by the user or host.",
+            "Resume the run in Studio when ready.",
+        )
+        return True
+
+    async def _request_human_decision(
+        self, run_id: str, milestone_id: str, human_prompt: str, *, task_ids: Iterable[str | None] = (None,),
+    ) -> None:
+        self.store.update_run_status(run_id, RunStatus.WAITING_HUMAN, human_prompt=human_prompt)
+        for task_id in task_ids:
+            await self._emit_attention(
+                run_id, "waiting_human", "warning", "Human decision required", human_prompt,
+                "Review and resolve the blocker in Studio.", milestone_id=milestone_id, task_id=task_id,
+            )
 
     def _worktree_root(self) -> Path:
         root = Path(self.cfg.daemon.worktree_root)
@@ -164,17 +247,36 @@ class OrchestrationEngine:
             # Respect subscription cooldown window before acquiring slot
             cooldown = self.store.get_provider_cooldown(active_provider.name)
             if cooldown > 0:
-                if task_id:
+                task = self.store.get_task(run_id, task_id) if task_id else None
+                if task is not None:
                     self.store.update_task(run_id, task_id, status=TaskStatus.COOLDOWN)
+                message = f"Waiting {cooldown:.1f}s for {active_provider.name} quota cooldown"
                 self.store.log_event(
                     run_id,
                     "quota_cooldown_wait",
                     actor=active_provider.name,
                     task_id=task_id,
                     milestone_id=milestone_id,
-                    message=f"Waiting {cooldown:.1f}s for {active_provider.name} quota cooldown",
+                    message=message,
+                    payload={"wait_sec": cooldown},
                 )
-                await asyncio.sleep(cooldown)
+                try:
+                    if cooldown >= cfg.notifications.on_long_cooldown_sec > 0:
+                        await asyncio.gather(
+                            asyncio.sleep(cooldown),
+                            self._emit_attention(
+                                run_id, "long_cooldown", "warning", "Provider quota cooldown", message,
+                                "The run will retry automatically after the cooldown.",
+                                milestone_id=milestone_id, task_id=task_id, wait_sec=cooldown,
+                            ),
+                        )
+                    else:
+                        await asyncio.sleep(cooldown)
+                finally:
+                    if self._attention_run_id == run_id:
+                        self._notified_episodes.discard(("long_cooldown", milestone_id or "", task_id or ""))
+                    if task is not None:
+                        self.store.update_task(run_id, task["id"], status=task["status"])
 
             sem = self._get_semaphore(active_provider)
             async with sem:
@@ -379,16 +481,28 @@ class OrchestrationEngine:
         if not run:
             raise ValueError(f"Run '{run_id}' not found")
 
-        overrides: dict[str, str] = json.loads(run["model_overrides_json"] or "{}")
-        rfc_path = Path(run["rfc_path"])
-        if not rfc_path.exists():
-            self.store.update_run_status(run_id, RunStatus.FAILED, summary=f"RFC file missing: {rfc_path}")
-            return RunStatus.FAILED
+        try:
+            if await self._stop_if_paused(run):
+                return RunStatus.PAUSED
+            if run["status"] == RunStatus.WAITING_HUMAN:
+                return RunStatus.WAITING_HUMAN
+            if self._attention_run_id == run_id:
+                self._notified_episodes.difference_update(
+                    {episode for episode in self._notified_episodes if episode[0] in ("waiting_human", "paused")}
+                )
 
-        rfc_text = rfc_path.read_text(encoding="utf-8")
+            overrides: dict[str, str] = json.loads(run["model_overrides_json"] or "{}")
+            rfc_path = Path(run["rfc_path"])
+            if not rfc_path.exists():
+                summary = f"RFC file missing: {rfc_path}"
+                self.store.update_run_status(run_id, RunStatus.FAILED, summary=summary)
+                await self._emit_attention(
+                    run_id, "failed", "error", "RFC file missing", summary, "Restore the RFC file and rerun.",
+                )
+                return RunStatus.FAILED
+            rfc_text = rfc_path.read_text(encoding="utf-8")
 
-        with windows_wake_lock(self.cfg.daemon.prevent_sleep_windows):
-            try:
+            with windows_wake_lock(self.cfg.daemon.prevent_sleep_windows):
                 base_branch = ensure_git_ready(
                     self.repo_path,
                     base_branch=self.cfg.daemon.base_branch,
@@ -397,9 +511,14 @@ class OrchestrationEngine:
                 dev_branch = self.cfg.daemon.dev_branch
 
                 # Stage 1: Planning (or load pre-supplied / already-registered plan)
+                if await self._stop_if_paused(self.store.get_run(run_id)):
+                    return RunStatus.PAUSED
                 plan = await self._ensure_plan(run_id, run, rfc_text, overrides)
+                current_run = self.store.get_run(run_id)
+                if await self._stop_if_paused(current_run):
+                    return RunStatus.PAUSED
                 if plan is None:
-                    return RunStatus(self.store.get_run(run_id)["status"])
+                    return RunStatus(current_run["status"])
 
                 # The engine tracks quota cooldowns, which _invoke_role handles at dispatch.
                 catalog = build_model_catalog(self.cfg, None)
@@ -425,30 +544,44 @@ class OrchestrationEngine:
                         overrides=overrides,
                         catalog=catalog,
                     )
+                    current_run = self.store.get_run(run_id)
+                    if await self._stop_if_paused(current_run):
+                        return RunStatus.PAUSED
                     if not ok:
-                        current = RunStatus(self.store.get_run(run_id)["status"])
-                        if current in (RunStatus.WAITING_HUMAN, RunStatus.PAUSED):
+                        current = RunStatus(current_run["status"])
+                        if current in (RunStatus.WAITING_HUMAN, RunStatus.FAILED):
                             return current
-                        self.store.update_run_status(
-                            run_id,
-                            RunStatus.FAILED,
-                            summary=f"Milestone {milestone.id} failed.",
+                        summary = f"Milestone {milestone.id} failed."
+                        self.store.update_run_status(run_id, RunStatus.FAILED, summary=summary)
+                        await self._emit_attention(
+                            run_id, "failed", "error", "Milestone failed", summary,
+                            "Inspect the milestone and its tasks in Studio.", milestone_id=milestone.id,
                         )
                         return RunStatus.FAILED
 
                 # Stage 3: Ready for L0 Final Gate
+                if await self._stop_if_paused(self.store.get_run(run_id)):
+                    return RunStatus.PAUSED
                 summary = (
                     f"All {len(plan.milestones)} milestone(s) passed mechanical gates and AI reviews "
                     f"and are merged into '{dev_branch}'. Ready for L0 final gate review before merging to '{base_branch}'."
                 )
                 self.store.update_run_status(run_id, RunStatus.READY_FOR_FINAL_GATE, summary=summary)
                 self.store.log_event(run_id, "ready_for_final_gate", message=summary)
+                await self._emit_attention(
+                    run_id, "ready_for_final_gate", "info", "Ready for final gate", summary,
+                    "Open the battle report and review the L0 final gate.",
+                )
                 return RunStatus.READY_FOR_FINAL_GATE
 
-            except Exception as exc:
-                self.store.log_event(run_id, "run_exception", message=str(exc))
-                self.store.update_run_status(run_id, RunStatus.FAILED, summary=f"Unhandled error: {exc}")
-                return RunStatus.FAILED
+        except Exception as exc:
+            self.store.log_event(run_id, "run_exception", message=str(exc))
+            summary = f"Unhandled error: {exc}"
+            self.store.update_run_status(run_id, RunStatus.FAILED, summary=summary)
+            await self._emit_attention(
+                run_id, "failed", "error", "Run failed", summary, "Inspect the run events in Studio.",
+            )
+            return RunStatus.FAILED
 
     async def _ensure_plan(
         self,
@@ -491,21 +624,30 @@ class OrchestrationEngine:
             )
             if res.status != "ok":
                 last_err = f"Planner CLI failed ({res.status}): {res.stderr or res.stdout}"
-                continue
-            raw_text = res.output_file_text or res.stdout
-            try:
-                parsed = extract_json_object(raw_text)
-                plan = PlanDAG.from_dict(parsed)
-                plan_out.write_text(json.dumps(plan.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
-                self.store.update_run_status(run_id, RunStatus.RUNNING, plan_path=str(plan_out))
-                self.store.register_plan(run_id, plan)
-                self.store.log_event(run_id, "plan_generated", actor=actor, message=f"Plan saved to {plan_out}")
-                return plan
-            except SchemaValidationError as exc:
-                last_err = str(exc)
-                self.store.log_event(run_id, "plan_schema_error", actor=actor, message=last_err)
+            else:
+                raw_text = res.output_file_text or res.stdout
+                try:
+                    parsed = extract_json_object(raw_text)
+                    plan = PlanDAG.from_dict(parsed)
+                    plan_out.write_text(json.dumps(plan.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+                    current = self.store.get_run(run_id)["status"]
+                    status = RunStatus.PAUSED if current == RunStatus.PAUSED else RunStatus.RUNNING
+                    self.store.update_run_status(run_id, status, plan_path=str(plan_out))
+                    self.store.register_plan(run_id, plan)
+                    self.store.log_event(run_id, "plan_generated", actor=actor, message=f"Plan saved to {plan_out}")
+                    return plan
+                except SchemaValidationError as exc:
+                    last_err = str(exc)
+                    self.store.log_event(run_id, "plan_schema_error", actor=actor, message=last_err)
 
-        self.store.update_run_status(run_id, RunStatus.FAILED, summary=f"Planning failed: {last_err}")
+            if self.store.get_run(run_id)["status"] == RunStatus.PAUSED:
+                return None
+
+        summary = f"Planning failed: {last_err}"
+        self.store.update_run_status(run_id, RunStatus.FAILED, summary=summary)
+        await self._emit_attention(
+            run_id, "failed", "error", "Planning failed", summary, "Inspect the planner output and the RFC.",
+        )
         return None
 
     async def _execute_milestone(
@@ -524,8 +666,7 @@ class OrchestrationEngine:
 
         while True:
             # Check for external pause
-            run_row = self.store.get_run(run_id)
-            if run_row and run_row["status"] == RunStatus.PAUSED.value:
+            if await self._stop_if_paused(self.store.get_run(run_id), in_flight.values()):
                 return False
 
             db_tasks = {r["id"]: r for r in self.store.get_tasks(run_id, milestone_id=milestone.id)}
@@ -540,11 +681,12 @@ class OrchestrationEngine:
                 return False
 
             if waiting_ids and not in_flight:
-                self.store.update_run_status(
-                    run_id,
-                    RunStatus.WAITING_HUMAN,
-                    human_prompt=f"Task(s) {sorted(waiting_ids)} in milestone {milestone.id} require human decision.",
-                )
+                task_ids = sorted(waiting_ids)
+                human_prompt = f"Task(s) {task_ids} in milestone {milestone.id} require human decision."
+                reasons = [f"{tid}: {db_tasks[tid]['last_error']}" for tid in task_ids if db_tasks[tid]["last_error"]]
+                if reasons:
+                    human_prompt += "\n" + "\n".join(reasons)
+                await self._request_human_decision(run_id, milestone.id, human_prompt, task_ids=task_ids)
                 return False
 
             if len(done_ids) == len(tasks_by_id):
@@ -567,13 +709,20 @@ class OrchestrationEngine:
                     )
 
             if not in_flight:
+                message = "No runnable tasks remaining before milestone completion."
                 self.store.log_event(
                     run_id,
                     "dag_deadlock",
                     milestone_id=milestone.id,
-                    message="No runnable tasks remaining before milestone completion.",
+                    message=message,
                 )
                 self.store.update_milestone(run_id, milestone.id, TaskStatus.FAILED)
+                summary = f"Milestone {milestone.id}: {message}"
+                self.store.update_run_status(run_id, RunStatus.FAILED, summary=summary)
+                await self._emit_attention(
+                    run_id, "failed", "error", "Milestone DAG deadlock", summary,
+                    "Inspect task dependencies in the plan.", milestone_id=milestone.id,
+                )
                 return False
 
             done_futures, _ = await asyncio.wait(in_flight.values(), return_when=asyncio.FIRST_COMPLETED)
@@ -1003,9 +1152,8 @@ class OrchestrationEngine:
                 return True
 
         except GitError as exc:
-            status = (
-                TaskStatus.WAITING_HUMAN if isinstance(exc.__cause__, MergeConflictError) else TaskStatus.FAILED
-            )
+            conflict = isinstance(exc, MergeConflictError) or isinstance(exc.__cause__, MergeConflictError)
+            status = TaskStatus.WAITING_HUMAN if conflict else TaskStatus.FAILED
             self.store.update_task(
                 run_id,
                 spec.id,
@@ -1134,6 +1282,8 @@ class OrchestrationEngine:
                     milestone_id=milestone.id,
                 )
 
+                if await self._stop_if_paused(self.store.get_run(run_id)):
+                    return False
                 if verdict.verdict == VerdictKind.PASS:
                     await self._merge_with_conflict_resolution(
                         run_id=run_id,
@@ -1155,11 +1305,8 @@ class OrchestrationEngine:
 
                 if verdict.verdict == VerdictKind.PLAN_AMENDMENT:
                     self.store.update_milestone(run_id, milestone.id, TaskStatus.WAITING_HUMAN, review_json=verdict.to_dict())
-                    self.store.update_run_status(
-                        run_id,
-                        RunStatus.WAITING_HUMAN,
-                        human_prompt=f"Milestone {milestone.id} reviewer requested PLAN_AMENDMENT: {verdict.summary}",
-                    )
+                    human_prompt = f"Milestone {milestone.id} reviewer requested PLAN_AMENDMENT: {verdict.summary}"
+                    await self._request_human_decision(run_id, milestone.id, human_prompt)
                     return False
 
                 self.store.update_milestone(run_id, milestone.id, TaskStatus.FAILED, review_json=verdict.to_dict())
@@ -1175,10 +1322,12 @@ class OrchestrationEngine:
                     continue
                 return False
             except GitError as exc:
-                if not isinstance(exc.__cause__, MergeConflictError):
+                if not (isinstance(exc, MergeConflictError) or isinstance(exc.__cause__, MergeConflictError)):
                     raise
+                if await self._stop_if_paused(self.store.get_run(run_id)):
+                    return False
                 self.store.update_milestone(run_id, milestone.id, TaskStatus.WAITING_HUMAN)
-                self.store.update_run_status(run_id, RunStatus.WAITING_HUMAN, human_prompt=str(exc))
+                await self._request_human_decision(run_id, milestone.id, str(exc))
                 return False
             finally:
                 remove_worktree(self.repo_path, review_wt, branch_name=fix_branch)

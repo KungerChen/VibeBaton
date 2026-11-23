@@ -113,6 +113,132 @@ class _TaskTiming(TypedDict):
     is_active: bool
 
 
+class _RunAttention(TypedDict):
+    category: str
+    severity: str
+    title: str
+    message: str
+    action_hint: str
+    milestone_id: str | None
+    task_id: str | None
+    created_at: float
+
+
+_BLOCKING_RUN_STATUSES = {"WAITING_HUMAN", "READY_FOR_FINAL_GATE", "FAILED", "PAUSED"}
+_ATTENTION_DEFAULTS = {
+    "waiting_human": (
+        "warning", "Human decision required", "The run is waiting for a human decision.",
+        "Review and resolve the blocker in Studio.",
+    ),
+    "ready_for_final_gate": (
+        "info", "Ready for final gate", "All milestones passed and the run is ready for final review.",
+        "Open the battle report and review the L0 final gate.",
+    ),
+    "failed": (
+        "error", "Run failed", "The run stopped because of an error.", "Inspect the run events in Studio.",
+    ),
+    "paused": (
+        "warning", "Run paused", "The run was paused by the user or host.", "Resume the run in Studio when ready.",
+    ),
+    "long_cooldown": (
+        "warning", "Provider quota cooldown", "A task is waiting for its provider quota to recover.",
+        "The run will retry automatically after the cooldown.",
+    ),
+}
+
+
+def _attention_from_event(
+    category: str, event: dict[str, Any], payload: dict[str, Any] | None = None,
+) -> _RunAttention:
+    severity, title, message, action_hint = _ATTENTION_DEFAULTS[category]
+    payload = payload or {}
+    return {
+        "category": category,
+        "severity": str(payload.get("severity") or severity),
+        "title": str(payload.get("title") or title),
+        "message": str(payload.get("message") or event.get("message") or message),
+        "action_hint": str(payload.get("action_hint") or action_hint),
+        "milestone_id": event.get("milestone_id"),
+        "task_id": event.get("task_id"),
+        "created_at": float(event["created_at"]),
+    }
+
+
+def _compute_run_attention(
+    run: dict[str, Any],
+    run_status: str,
+    milestones: list[dict[str, Any]],
+    task_map: dict[str, dict[str, Any]],
+    events: list[dict[str, Any]],
+    now: float,
+) -> _RunAttention | None:
+    if run_status in _BLOCKING_RUN_STATUSES:
+        category = run_status.lower()
+        for event in reversed(events):
+            if event["kind"] == "human_attention_required":
+                payload = _parse_json_payload(event.get("payload_json"))
+                if payload.get("category") == category:
+                    return _attention_from_event(category, event, payload)
+                # A prior cooldown or blocker can precede the current status transition.
+                break
+
+        context: dict[str, Any] = {}
+        task_id = milestone_id = None
+        message = run.get("summary")
+        if run_status in ("WAITING_HUMAN", "FAILED"):
+            context = next((event for event in reversed(events) if (
+                event["kind"].endswith(("_error", "_failed"))
+                or event["kind"] in (
+                    "error", "run_exception", "dag_deadlock", "milestone_rejected", "plan_amendment_requested",
+                )
+            )), {})
+            task = next((task for task in task_map.values() if task["status"] == run_status), {})
+            task_id = task.get("id") or context.get("task_id")
+            milestone_id = (
+                (task_map.get(task_id, {}).get("milestone_id") if task_id else None) or context.get("milestone_id")
+                or next((m["id"] for m in milestones if m["status"] == run_status), None)
+            )
+            if run_status == "WAITING_HUMAN":
+                message = run.get("human_prompt") or task.get("last_error") or message
+        elif run_status == "PAUSED":
+            context = next((event for event in reversed(events) if event["kind"] == "run_paused"), {})
+            message = context.get("message") or message
+
+        return _attention_from_event(category, {
+            "message": message or context.get("message"),
+            "milestone_id": milestone_id,
+            "task_id": task_id,
+            "created_at": run.get("updated_at") or run["created_at"],
+        })
+
+    if run_status not in ("RUNNING", "PLANNING"):
+        return None
+
+    cooling_tasks = {task_id for task_id, task in task_map.items() if task["status"] == "COOLDOWN"}
+    cooldown_attentions: dict[str, _RunAttention] = {}
+    for event in reversed(events):
+        if not cooling_tasks:
+            break
+        task_id = event.get("task_id")
+        if task_id not in cooling_tasks:
+            continue
+        kind = event["kind"]
+        if kind in ("role_invoked", "role_fallback"):
+            cooling_tasks.remove(task_id)
+        elif kind == "human_attention_required":
+            payload = _parse_json_payload(event.get("payload_json"))
+            if payload.get("category") == "long_cooldown" and task_id not in cooldown_attentions:
+                cooldown_attentions[task_id] = _attention_from_event("long_cooldown", event, payload)
+        elif kind in ("quota_rate_limited", "quota_cooldown_wait"):
+            cooling_tasks.remove(task_id)
+            wait_sec = _parse_json_payload(event.get("payload_json")).get("wait_sec")
+            if isinstance(wait_sec, (int, float)) and float(event["created_at"]) + wait_sec <= now:
+                cooldown_attentions.pop(task_id, None)
+            elif task_id not in cooldown_attentions:
+                cooldown_attentions[task_id] = _attention_from_event("long_cooldown", event)
+    return max(cooldown_attentions.values(), key=lambda attention: attention["created_at"], default=None)
+
+
 def _parse_token_count(value: object) -> int:
     return value if type(value) is int and value > 0 else 0
 
@@ -236,7 +362,7 @@ def compute_run_telemetry(
     *,
     now_ts: float | None = None,
 ) -> dict[str, Any]:
-    """Compute timing, billing, and merge-conflict telemetry from recorded events.
+    """Compute timing, billing, merge-conflict, and attention telemetry from recorded events.
 
     A pending run with no stages or tasks keeps its original top-level keys.
     """
@@ -512,6 +638,7 @@ def compute_run_telemetry(
     if run_status != "PENDING" or stages or tasks:
         telemetry["server_now"] = round(now, 3)
         telemetry["task_timings"] = task_timings
+        telemetry["attention"] = _compute_run_attention(run, run_status, milestones, task_map, events, now)
     return telemetry
 
 
