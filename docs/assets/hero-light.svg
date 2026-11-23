@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-labelledby="hero-title hero-description">
+  <title id="hero-title">VibeBaton (baton)</title>
+  <desc id="hero-description">Pass the baton. Ship the milestone. The orchestrator that built itself. A glowing baton travels from L0 Architect to L1 Planner, L2/L3 Workers, Mechanical Gate, and Merge &amp; Case.</desc>
+  <defs>
+    <clipPath id="hero-frame">
+      <rect x="1" y="1" width="1278" height="398" rx="25"/>
+    </clipPath>
+    <radialGradient id="hero-wash" gradientUnits="userSpaceOnUse" cx="1054" cy="37" r="578" gradientTransform="matrix(1 0 0 .59 0 15)">
+      <stop stop-color="#9bc5ff" stop-opacity=".42"/>
+      <stop offset="1" stop-color="#9bc5ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="hero-grid-fade">
+      <stop stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+    <mask id="hero-grid-mask">
+      <rect x="690" width="590" height="220" fill="url(#hero-grid-fade)"/>
+    </mask>
+    <pattern id="hero-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#6588b9" stroke-opacity=".19"/>
+    </pattern>
+    <linearGradient id="hero-wordmark">
+      <stop stop-color="#152638"/>
+      <stop offset="1" stop-color="#224c82"/>
+    </linearGradient>
+    <linearGradient id="hero-track">
+      <stop stop-color="#245eb6"/>
+      <stop offset=".28" stop-color="#5748b6"/>
+      <stop offset=".55" stop-color="#087c9f"/>
+      <stop offset="1" stop-color="#087e60"/>
+    </linearGradient>
+    <linearGradient id="hero-baton">
+      <stop stop-color="#3b83ed"/>
+      <stop offset=".58" stop-color="#a6eeff"/>
+      <stop offset="1" stop-color="#45dcab"/>
+    </linearGradient>
+    <linearGradient id="hero-trace">
+      <stop stop-color="#7b9eca" stop-opacity="0"/>
+      <stop offset=".49" stop-color="#7b9eca" stop-opacity=".62"/>
+      <stop offset=".74" stop-color="#2b61af" stop-opacity=".72"/>
+      <stop offset="1" stop-color="#7b9eca" stop-opacity=".18"/>
+    </linearGradient>
+    <filter id="hero-baton-halo" x="-60%" y="-170%" width="220%" height="440%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+    <path id="hero-route" d="M160 276H204C276 276 286 296 366 296H434C514 296 526 270 604 270H676C754 270 766 296 846 296H914C994 296 1004 276 1076 276H1120"/>
+  </defs>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    .cli { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    @media (prefers-reduced-motion: reduce) {
+      .baton-motion { display: none; }
+    }
+  </style>
+
+  <g clip-path="url(#hero-frame)">
+    <rect width="1280" height="400" fill="#ffffff"/>
+    <rect width="1280" height="224" fill="url(#hero-wash)"/>
+    <rect x="690" width="590" height="220" fill="url(#hero-grid)" mask="url(#hero-grid-mask)"/>
+    <g fill="none" stroke="url(#hero-trace)" stroke-linecap="round">
+      <path d="M777 196C887 198 942 140 1034 101S1185 33 1281 54" stroke-width="1.5"/>
+      <path d="M821 202C919 193 973 143 1050 117S1193 62 1279 80" stroke-width="1.5"/>
+      <path d="M847 161C944 144 998 82 1064 57S1191 18 1266 29" stroke-width="1.2"/>
+      <path d="M876 212C953 195 992 163 1070 135S1184 101 1238 102" stroke-width="1.2"/>
+    </g>
+    <g fill="#2b61af">
+      <circle cx="905" cy="173" r="3" opacity=".76"/>
+      <circle cx="1178" cy="30" r="3" opacity=".72"/>
+      <circle cx="1227" cy="102" r="2.5" opacity=".61"/>
+    </g>
+    <g transform="translate(1038 107) rotate(-25)">
+      <rect x="-79" y="-19" width="158" height="38" rx="19" fill="#47b6e4" opacity=".37" filter="url(#hero-baton-halo)"/>
+      <rect x="-79" y="-15" width="158" height="30" rx="15" fill="url(#hero-baton)" stroke="#237695" stroke-width="1.2"/>
+      <path d="M-65-7H65" stroke="#ffffff" stroke-opacity=".63" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M-62 5h20m6 0h8m80-16v22m8-21v20" fill="none" stroke="#0f4668" stroke-opacity=".58" stroke-width="2" stroke-linecap="round"/>
+    </g>
+  </g>
+  <rect x=".5" y=".5" width="1279" height="399" rx="25" fill="none" stroke="#d0d7de"/>
+
+  <text x="70" y="113" fill="url(#hero-wordmark)" font-size="94" font-weight="800" letter-spacing="-4">VibeBaton</text>
+  <rect x="548" y="78" width="91" height="34" rx="9" fill="#edf5ff" stroke="#c3d9f3"/>
+  <text x="593.5" y="101" fill="#225382" font-size="17" font-weight="600" text-anchor="middle" class="cli">baton</text>
+  <text x="75" y="173" fill="#152638" font-size="31" font-weight="700">Pass the baton. Ship the milestone.</text>
+  <text x="76" y="207" fill="#435a70" font-size="21" font-weight="500">The orchestrator that built itself.</text>
+
+  <rect x="56.5" y="228.5" width="1167" height="144" rx="18" fill="#f6f8fa" stroke="#d5dfe9"/>
+  <g fill="none" stroke-linecap="round">
+    <use href="#hero-route" stroke="#dce6f0" stroke-width="9"/>
+    <use href="#hero-route" stroke="url(#hero-track)" stroke-width="2.6"/>
+    <g stroke="#c3d3e4" stroke-dasharray="2 4">
+      <path d="M160 302v23m240-3v3m240-29v29m240-3v3m240-23v23"/>
+    </g>
+    <g stroke-width="1.8" stroke-linejoin="round">
+      <path d="m-3.5-4 5 4-5 4" transform="translate(285 286) rotate(11)" stroke="#245eb6"/>
+      <path d="m-3.5-4 5 4-5 4" transform="translate(520 283) rotate(-11)" stroke="#087c9f"/>
+      <path d="m-3.5-4 5 4-5 4" transform="translate(760 283) rotate(11)" stroke="#0f7280"/>
+      <path d="m-3.5-4 5 4-5 4" transform="translate(1000 286) rotate(-11)" stroke="#087e60"/>
+    </g>
+  </g>
+  <g transform="translate(160 276)" color="#245eb6">
+    <circle r="27" fill="#f6f8fa" stroke="currentColor" stroke-opacity=".22"/>
+    <circle r="20" fill="#ffffff" stroke="currentColor" stroke-width="1.7"/>
+    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M-7 10v-20m0 2c6-5 10 1 15-2v11C3 4-1-2-7 3"/>
+    </g>
+  </g>
+  <g transform="translate(400 296)" color="#5748b6">
+    <circle r="27" fill="#f6f8fa" stroke="currentColor" stroke-opacity=".22"/>
+    <circle r="20" fill="#ffffff" stroke="currentColor" stroke-width="1.7"/>
+    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M0-4v5m-7 4V1H7v4"/>
+      <rect x="-3" y="-10" width="6" height="6" rx="1"/>
+      <rect x="-10" y="5" width="6" height="6" rx="1"/>
+      <rect x="4" y="5" width="6" height="6" rx="1"/>
+    </g>
+  </g>
+  <g transform="translate(640 270)" color="#087c9f">
+    <circle r="27" fill="#f6f8fa" stroke="currentColor" stroke-opacity=".22"/>
+    <circle r="20" fill="#ffffff" stroke="currentColor" stroke-width="1.7"/>
+    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M-5-8v16m0-5C2 3 7-1 7-7"/>
+      <circle cx="-5" cy="-8" r="2.5" fill="currentColor" stroke="none"/>
+      <circle cx="-5" cy="8" r="2.5" fill="currentColor" stroke="none"/>
+      <circle cx="7" cy="-7" r="2.5" fill="currentColor" stroke="none"/>
+    </g>
+  </g>
+  <g transform="translate(880 296)" color="#0f7280">
+    <circle r="27" fill="#f6f8fa" stroke="currentColor" stroke-opacity=".22"/>
+    <circle r="20" fill="#ffffff" stroke="currentColor" stroke-width="1.7"/>
+    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M0-11 9-7v6c0 5-4 8-9 12-5-4-9-7-9-12v-6l9-4Z"/>
+      <path d="m-3 0 2 2 5-5"/>
+    </g>
+  </g>
+  <g transform="translate(1120 276)" color="#087e60">
+    <circle r="27" fill="#f6f8fa" stroke="currentColor" stroke-opacity=".22"/>
+    <circle r="20" fill="#ffffff" stroke="currentColor" stroke-width="1.7"/>
+    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M-8-11H2l6 6v14a2 2 0 0 1-2 2H-6a2 2 0 0 1-2-2Z"/>
+      <path d="M2-11v6h6M-4 2l3 3 5-5"/>
+    </g>
+  </g>
+  <g fill="#152638" font-size="21" font-weight="650" text-anchor="middle">
+    <text x="160" y="352">L0 Architect</text>
+    <text x="400" y="352">L1 Planner</text>
+    <text x="640" y="352">L2/L3 Workers</text>
+    <text x="880" y="352">Mechanical Gate</text>
+    <text x="1120" y="352" fill="#087e60">Merge &amp; Case</text>
+  </g>
+
+  <g class="baton-motion" opacity="0">
+    <animateMotion path="M160 276H204C276 276 286 296 366 296H434C514 296 526 270 604 270H676C754 270 766 296 846 296H914C994 296 1004 276 1076 276H1120" rotate="auto" dur="5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.06;.94;1" dur="5s" repeatCount="indefinite"/>
+    <rect x="-18" y="-6" width="36" height="12" rx="6" fill="#47b6e4" filter="url(#hero-baton-halo)"/>
+    <rect x="-14" y="-3.5" width="28" height="7" rx="3.5" fill="url(#hero-baton)" stroke="#237695" stroke-width="1"/>
+  </g>
+</svg>

@@ -1,170 +1,218 @@
-# VibeBaton (`baton`) v1.0.4
+<div align="center">
 
-> **Node-based multi-agent coding workflow orchestrator** — compose arbitrary AI coding tiers & local CLI models with Git worktree isolation, mechanical gates, subscription-aware quota scheduling, and Build-in-Public telemetry.
->
-> **节点式多 Agent 编程工作流编排器** —— 自由组合任意层级与模型（Antigravity / Claude CLI / Codex CLI / OpenCode Go 等），内置 Git Worktree 并发隔离、机械门禁前置、订阅配额冷却续跑与自举战报生成。
+**English** | [简体中文](README.zh-CN.md)
 
----
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/hero-dark.svg" />
+  <source media="(prefers-color-scheme: light)" srcset="./docs/assets/hero-light.svg" />
+  <img src="./docs/assets/hero-light.svg" alt="VibeBaton (baton). A relay from L0 Architect through planning, workers and mechanical gates to merge and case export." width="1280" />
+</picture>
 
-## Core Design Principles
+**Pass the baton. Ship the milestone.**
 
-1. **Zero-Dependency Seed Core (`v0.1-seed`)**: Runs purely on Python 3.11+ standard library (`sqlite3`, `asyncio`, `tomllib`, `unittest`), including a zero-dependency MCP stdio server for Antigravity.
-2. **Provider Agnostic & 1-Line Model Swaps**: Logical roles (`tactical_planner`, `milestone_reviewer`, `micro_orchestrator`, `critical_executor`, `bulk_worker`) are completely decoupled from CLI providers and model IDs. Editing `baton.toml` hot-reloads on the next dispatched task.
-3. **Machine-First, LLM-Second**: Deterministic mechanical gates (Lint / Typecheck / Unit Test) and a physical **Path Whitelist Guard** catch defects before spending expensive upper-tier AI review quota.
-4. **Subscription-Aware Overnight Execution**: Detects CLI rate-limit / `429` messages, places only the throttled provider into exponential `COOLDOWN` (instead of failing tasks), keeps other workers running, and holds a Windows wake lock until completion.
-5. **Safe Dual-Copy Self-Hosting**: Export an immutable snapshot via `baton promote-seed` so VibeBaton can safely develop its own next versions without mutating the running engine.
+*VibeBaton grew from a zero-dependency stdlib seed (`v0.1-seed`) into `v1.0.4` by orchestrating Claude, Codex, DSH, and HTTP models on its own codebase — with a human L0 Architect steering direction and Final Gate sign-off.*
 
----
+[![Release v1.0.4](https://img.shields.io/badge/release-v1.0.4-2563eb?style=flat-square)](https://github.com/KungerChen/VibeBaton/releases)
+[![Tests: 1,068 passing (536 UI + 532 Py)](https://img.shields.io/badge/tests-1%2C068%20passing%20%28536%20UI%20%2B%20532%20Py%29-0e7490?style=flat-square)](https://github.com/KungerChen/VibeBaton/tree/v1.0.4/tests)
+[![License: MIT](https://img.shields.io/badge/license-MIT-6d28d9?style=flat-square)](https://github.com/KungerChen/VibeBaton/blob/v1.0.4/LICENSE)
+[![Python 3.11+ stdlib core](https://img.shields.io/badge/Python%203.11%2B-stdlib%20core-1d4ed8?style=flat-square)](https://github.com/KungerChen/VibeBaton/blob/v1.0.4/pyproject.toml)
+[![Windows, Linux, Docker](https://img.shields.io/badge/platform-Windows%20%C2%B7%20Linux%20%C2%B7%20Docker-475569?style=flat-square)](https://github.com/KungerChen/VibeBaton/blob/v1.0.4/docs/SECURITY.md)
 
-## What's New in v1.0.4
+[Quickstart](#quickstart) · [Studio gallery](#studio-gallery)
 
-Export a sanitized run with `baton export-case --repo . --run-id <id>` and open the
-`.baton-case.json` file in the Studio's Case Replay Player. Use **Save, Import & Share**
-to transfer workflow recipes and run cases.
+</div>
 
-## What's New in v1.0.1
+## The Proof — Stage 4.8 Self-Hosting Run (`v1.0.4`)
 
-Resize the Studio side panes, expand task cards for details, and watch active run clocks update
-every second. Open **Guide** to start the one-minute interactive tour or see the illustrated
-walkthroughs in **Tutorial**.
+| **3 / 3** | **15 / 15** | **51.4M** | **\$22.50** | **1,068** |
+| :---: | :---: | :---: | :---: | :---: |
+| Milestones | Tasks | Tokens | Real Cost | Passing Tests |
 
-## What's New in v1.0.0
+*Observed from real self-hosting run `run-20261122-232618-fc2591`, inspectable inside Studio.*
 
-- **Native HTTP providers with exact Token & Cost billing**: `type = "http"` calls any OpenAI-compatible `/v1/chat/completions` endpoint directly from the Python standard library — no external CLI and no SDK. Real `prompt_tokens`, `completion_tokens`, cached tokens, and USD `cost_usd` are recorded per role, aggregated into run telemetry, and rendered in bilingual battle reports and the Studio live-run panel.
-- **Auto-Conflict-Resolver for parallel worktrees**: a squash-merge conflict is detected inside an isolated `_merge_*` worktree, dispatched to a specialist resolver role, and accepted only after zero conflict markers remain and the mechanical gates pass. Exhausted retries escalate cleanly to `WAITING_HUMAN` instead of stopping the run.
-- **Container sandbox for untrusted repositories**: `baton sandbox init` generates a hardened Docker Compose and Dev Container scaffold with a non-root user, `cap_drop: [ALL]`, `no-new-privileges`, a read-only root filesystem with scoped `tmpfs`, only the target repository mounted, and no `~/.ssh` mount.
-- **Turnkey Windows install and Studio panels**: `scripts/install.ps1` validates Python/Git, supports `-DryRun` and `-RepoPath`, and verifies the CLI; the Studio adds exact USD cost badges, token breakdowns, and localized conflict events in pure English and `EN | 中文`.
+**Token breakdown** · 50.83M prompt + 644,739 completion. **Test breakdown** · 536 Vitest + 532 Python unittest.
 
----
+## VibeBaton in 30 Seconds
 
-## Documentation & Beginner Guide
+- **Heterogeneous relay.** Build a node-based coding workflow in Studio and choose Claude, Codex, DSH, or an OpenAI-compatible HTTP endpoint for each role.
+- **Machine-first gates.** Run lint, type checks, tests, and a Git worktree path audit before spending tokens on AI review.
+- **Safe dual-copy self-hosting.** Freeze the running engine with `baton promote-seed` while agents build the next release in a separate checkout. Share the result as a sanitized replay.
 
-- **Beginner Step-by-Step Tutorial (小白保姆级教程)**: [docs/TUTORIAL.md](docs/TUTORIAL.md) — plain-language relay analogy, 5-step Web Studio walkthrough, budget setup, live canvas sync, telemetry, and FAQ.
-- **v1.0.0 Release Notes**: [docs/RELEASE_NOTES_v1.0.md](docs/RELEASE_NOTES_v1.0.md) — publishable launch notes, install paths, upgrade notes, and security posture.
-- **Built-in Web Guide**: Click **Guide → Tutorial (`详细教程`)** inside the top-right bar of the Web Studio UI (`http://127.0.0.1:7860/`).
+<img src="docs/assets/studio-overview.png" alt="Three-pane Studio with Budget Profile, Recipe Plaza, the Flagship 4-Tier Factory canvas, Stage Timing, and Live Run." width="100%" />
 
----
+*Pick a budget and recipe, then follow the live task graph and stage timings from one screen.*
 
-## Quickstart (Windows PowerShell)
+## How the Relay Works
 
-```powershell
-# 1. Install once from the VibeBaton checkout (skip to use PYTHONPATH below)
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
-# or, in any Python 3.11+ environment:
-pip install -e .
-python -m vibebaton --version
-
-# 2. Run directly without installing anything (alternative to step 1)
-$env:PYTHONPATH = "D:\Projects\VibeBaton\src"
-python -m vibebaton --version
-
-# 3. Initialize inside your target git repository
-python -m vibebaton init --repo D:\Projects\MyApp
-
-# 4. Check local CLIs (Claude, Codex, DSH) and Git health
-python -m vibebaton doctor --repo D:\Projects\MyApp
-
-# 5. Generate a hardened Docker / DevContainer sandbox for untrusted repositories
-python -m vibebaton sandbox init --repo D:\Projects\MyApp
-
-# 6a. Trusted repositories only: optionally smoke-test a role, then start an
-#     overnight detached run on the host. Both commands read this repository's
-#     config and execute its configured CLIs inside it, so never run them for
-#     untrusted code — use the container path in step 6b instead.
-python -m vibebaton doctor --repo D:\Projects\MyApp --role bulk_worker
-python -m vibebaton run --repo D:\Projects\MyApp --rfc .baton\00_RFC.md --detach
-
-# 6b. Untrusted repositories: review the sandbox files generated in step 5, then
-#     run inside the container. Do NOT run the host commands in step 6a.
-docker compose -f D:\Projects\MyApp\sandbox\docker-compose.yml run --build --rm vibebaton `
-  baton run --repo /workspace --rfc /workspace/.baton/00_RFC.md
-
-# 7. Check status and generate a Build-in-Public Markdown battle report
-python -m vibebaton status --repo D:\Projects\MyApp
-python -m vibebaton report --repo D:\Projects\MyApp --out battle_report.md
+```mermaid
+flowchart TD
+    L0["Human + L0 Architect (RFC)"] --> L1["L1 Planner (DAG)"]
+    L1 --> Route["Router"]
+    Route --> L2["L2 Critical Specialist (Git Worktree)"]
+    Route --> L3["L3 Bulk Workers (Git Worktrees)"]
+    L2 --> Gate["Mechanical Gate + Path Guard"]
+    L3 --> Gate
+    Gate --> Review["L1/L2 Reviewer (or Auto-Conflict-Resolver)"]
+    Review --> Final["L0 Final Gate + LOG & Sanitized Case"]
 ```
 
----
+## The Self-Hosting Timeline (`v0.1-seed` → `v1.0.4`)
 
-## Native HTTP Providers (OpenAI-Compatible HTTP API Example)
+Every release from `v0.2.0` to `v1.0.4` was built by VibeBaton orchestrating AI coding agents on its own repository — steered and signed off at milestone gates by a human L0 Architect.
 
-Providers with `type = "http"` bypass local CLIs and call an OpenAI-compatible HTTP API directly. To point the existing `dsh_opencode` role slot at **DeepSeek's API** over HTTP instead of the **DSH** CLI, replace that provider's CLI fields with the HTTP form:
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/timeline-dark.svg" />
+  <source media="(prefers-color-scheme: light)" srcset="./docs/assets/timeline-light.svg" />
+  <img src="./docs/assets/timeline-light.svg" alt="Nine tagged releases from the v0.1-seed stdlib runner to sanitized case replay in v1.0.4. The full release list follows." width="1280" />
+</picture>
+
+<details>
+<summary>Explore all 9 tagged releases</summary>
+
+| Tag | What shipped |
+| --- | --- |
+| [`v0.1-seed`](https://github.com/KungerChen/VibeBaton/tree/v0.1-seed) | Zero-dependency Python 3.11+ stdlib core, an MCP server, and `baton promote-seed`. |
+| [`v0.2.0`](https://github.com/KungerChen/VibeBaton/tree/v0.2.0) | The seed built the node-graph engine in 107 min. 3/3 milestones, 9/9 tasks, and 63 tests, up from 6. Zero runtime dependencies. |
+| [`v0.3.0`](https://github.com/KungerChen/VibeBaton/tree/v0.3.0) | `canvas` shipped a zero-dependency HTTP/SSE server and React 19 Studio. 141 frontend + 106 backend = 247 tests. |
+| [`v0.9.0-beta`](https://github.com/KungerChen/VibeBaton/tree/v0.9.0-beta) | Seven Recipe Plaza presets, Smart Allocation, Launch Gate, Live Sync, bilingual battle reports, and a three-arm benchmark harness. |
+| [`v1.0.0`](https://github.com/KungerChen/VibeBaton/tree/v1.0.0) | Native HTTP and token/USD billing, Auto-Conflict-Resolver, Docker/DevContainer scaffolding, and [`scripts/install.ps1`](./scripts/install.ps1). |
+| [`v1.0.1`](https://github.com/KungerChen/VibeBaton/tree/v1.0.1) | Resizable panes, one-second live clocks, a seven-step Spotlight Tour with local run data, and SVG/Mermaid guides. |
+| [`v1.0.2`](https://github.com/KungerChen/VibeBaton/tree/v1.0.2) | Overnight alerts through webhooks and Windows Toast, plus a six-state Studio `AttentionBanner`. |
+| [`v1.0.3`](https://github.com/KungerChen/VibeBaton/tree/v1.0.3) | Three-tier pricing with a 24h price-feed cache, CLI JSON/JSONL token billing, and unified DSH branding. |
+| [`v1.0.4`](https://github.com/KungerChen/VibeBaton/tree/v1.0.4) | `baton export-case`, sanitized `.baton-case.json` bundles, and the Universal Case Replay Player. |
+
+</details>
+
+## Don't Trust Our README — Replay the Run
+
+- **Recipe (`.baton.json`)** shares the workflow graph and model routing. Preview custom fields before sharing a file or `#recipe=` link.
+- **Run Case (`.baton-case.json`)** shares a replay graph, trace, metrics, and redaction report. Four layers scrub secrets, anonymize host paths and usernames, redact emails and private IPs, and strip raw diffs and stack traces.
+
+The built-in **Stage 1 Tutorial (1h 48m · 9/9 tasks)** is an interactive Case Replay. Open **Tutorial: Stage 1** in the top **PlaybackBar** to play, pause, or step through the self-hosting run. Use the same case picker to import a community `.baton-case.json` file. [Replay and sharing guide](docs/TUTORIAL.md)
+
+| Stage 1 replay | Case export |
+| :---: | :---: |
+| <img src="docs/assets/case-replay.png" alt="Stage 1 at step 19 of 57, with the canvas, task list, and trace in sync." width="100%" /> | <img src="docs/assets/recipe-share.png" alt="Export Run Case dialog with a verified redaction checklist." width="100%" /> |
+
+## Studio Gallery
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/studio-overview.png" alt="Flagship workflow canvas between Recipe Plaza and the live run inspector." width="100%" /><br /><sub><strong>Studio overview</strong> · Budget, recipes, and live canvas.</sub></td>
+    <td width="50%"><img src="docs/assets/run-telemetry.png" alt="Stage 4.8 timings, token counts, and model costs totaling $22.50." width="100%" /><br /><sub><strong>Run telemetry</strong> · See where time, tokens, and dollars went.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/case-replay.png" alt="Stage 1 playback with active workflow edges and synchronized trace events." width="100%" /><br /><sub><strong>Case replay</strong> · Step through each handoff on the canvas.</sub></td>
+    <td width="50%"><img src="docs/assets/recipe-share.png" alt="Case sharing dialog with per-category redaction counts." width="100%" /><br /><sub><strong>Case sharing</strong> · Review the redaction checklist before export.</sub></td>
+  </tr>
+</table>
+
+## Quickstart
+
+**Install from the VibeBaton checkout.** You’ll need Python 3.11+ and Git. For Studio, install Node.js and prepare the frontend with `npm --prefix web ci`.
+
+```powershell
+.\scripts\install.ps1
+.\.venv\Scripts\Activate.ps1
+```
+
+On Linux, run `python -m pip install -e .` in an active virtual environment, then `npm --prefix web run build` to build Studio.
+
+**Open Studio from a trusted target Git repo.** Run `baton init` to create `.baton/baton.toml` and the starter RFC at `.baton/00_RFC.md`. Set up providers in the config, then check readiness and launch Studio.
+
+```sh
+baton doctor
+baton ui
+```
+
+**Run overnight.** In a second terminal with the same environment, approve the RFC and start the detached run from the target repo. Get the run ID from `baton status` and substitute it for `<id>` when exporting.
+
+```sh
+baton run --repo . --rfc .baton/00_RFC.md --mode overnight --detach
+baton status
+baton export-case --repo . --run-id <id>
+```
+
+**Run untrusted repos in an isolated environment.** Generate the sandbox with a trusted `baton` installation. Review the generated or existing sandbox files before building. Inside the container, initialize and run from `/workspace` with providers configured for the container. [Sandbox setup and limits](docs/SECURITY.md#container-sandbox-stage-4-v100)
+
+```sh
+baton sandbox init --repo .
+docker compose -f sandbox/docker-compose.yml run --build --rm vibebaton sh
+```
+
+<details>
+<summary>Native HTTP Providers</summary>
+
+Add a provider to `.baton/baton.toml` for an OpenAI-compatible `/v1/chat/completions` endpoint. For example, to route a role to DeepSeek over HTTP, set its `provider = "deepseek_http"` and use a model ID supported by your endpoint.
 
 ```toml
-# User-facing display name: DeepSeek API. Backend key `dsh_opencode` is preserved.
-[providers.dsh_opencode]
+[providers.deepseek_http]
 type = "http"
 base_url = "https://api.deepseek.com/v1"
 api_key_env = "DEEPSEEK_API_KEY"
-
-# USD per 1M tokens — example rates; use your provider's current pricing.
-[providers.dsh_opencode.model_pricing."deepseek-chat"]
-input_per_1m = 0.27
-output_per_1m = 1.10
-cached_input_per_1m = 0.07
 ```
 
 ```powershell
-# Placeholder only — put the real key in your environment, never in a committed file.
-$env:DEEPSEEK_API_KEY = "sk-REDACTED"
+$env:DEEPSEEK_API_KEY = "YOUR_DEEPSEEK_API_KEY"
 ```
 
-Keep the role pointing at `provider = "dsh_opencode"` and set its `model` to a name listed under `model_pricing` (for example, `model = "deepseek-chat"`); token counts and USD cost will appear in the run telemetry and battle report. Omitting the HTTP fields leaves every existing CLI provider unchanged.
+HTTP `429` responses and `Retry-After` headers feed the provider cooldown scheduler. Studio and battle reports show prompt, completion, and cached tokens along with model costs in USD.
 
----
+</details>
 
-## Connecting to Antigravity (MCP)
+<details>
+<summary>3-Tier API Pricing</summary>
 
-Paste [`agy_integration/mcp_config.snippet.json`](agy_integration/mcp_config.snippet.json) into your Antigravity `mcp_config.json` and copy [`agy_integration/SKILL.md`](agy_integration/SKILL.md) into your skills folder. Antigravity immediately gains 7 asynchronous control-plane tools (`baton_health`, `baton_start`, `baton_status`, `baton_logs`, `baton_resolve`, `baton_control`, `baton_final_package`).
+Rates resolve in `custom > official_cache > builtin` order. The official feed cache has a 24h refresh window. Use **API Pricing** in Studio to inspect a rate’s source or override rates per million input, output, or cached input tokens. HTTP and CLI JSON/JSONL usage feed run cost totals.
 
----
-
-## Safe Self-Hosting (Using `v0.1-seed` to Build `v0.2+`)
-
-```powershell
-# Export an immutable read-only copy of the verified seed runner outside the git tree
-python -m vibebaton promote-seed --dest D:\Projects\VibeBaton-Runner
-
-# Run the immutable runner against D:\Projects\VibeBaton to build Stage 1 (v0.2-engine)
-$env:PYTHONPATH = "D:\Projects\VibeBaton-Runner\src"
-python -m vibebaton run --repo D:\Projects\VibeBaton --rfc D:\Projects\VibeBaton\.baton\00_RFC.md --detach
+```sh
+baton pricing sync --repo .
+baton pricing show --repo .
 ```
 
----
+</details>
 
-## Running Automated Tests
+<details>
+<summary>Attention Alerts</summary>
 
-```powershell
-$env:PYTHONPATH = "D:\Projects\VibeBaton\src"
-python -m unittest discover -s D:\Projects\VibeBaton\tests -v
+Enable `[notifications]` in `.baton/baton.toml`. Webhook targets include Feishu, WeCom, DingTalk, Slack, Discord, and generic endpoints. You can also enable Windows Toast and a terminal bell. The Studio `AttentionBanner` surfaces approval requests, ready-for-final-gate runs, failures, pauses, long cooldowns, and test alerts.
+
+Set `webhook_url_env` to an environment variable holding your webhook URL and send a test with `baton notify-test --repo .`. [Example configuration](baton.example.toml)
+
+</details>
+
+<details>
+<summary>Antigravity MCP Integration</summary>
+
+Add the VibeBaton server entry from the config snippet to Antigravity’s `mcp_config.json`. Replace `PYTHONPATH` with your checkout’s `<repo>/src` and pass `--repo` with the target repository path. With `baton` on the client’s PATH, you can also use `baton mcp --repo .` from the target repo. Copy the linked skill into Antigravity’s skills folder for the workflow. The stdio server exposes run health, status, logs, approvals, and the Final Gate package. [MCP config snippet](agy_integration/mcp_config.snippet.json) · [Antigravity skill](agy_integration/SKILL.md)
+
+</details>
+
+<details open>
+<summary><strong>Honest Boundaries</strong></summary>
+
+- **Provider billing.** Bring your own CLI subscriptions or API keys. Your providers bill you directly under your subscription or API plan.
+- **Telemetry.** Each result describes a single observed VibeBaton self-hosting run. For reproducible three-arm comparisons, see the [benchmark harness](benchmarks/).
+- **Worktree guard.** The Path Whitelist Guard is a post-hoc Git worktree audit and revert mechanism. Run unattended on the host only with trusted repositories and inspected dependencies. Use an OS-level sandbox for untrusted repos. Generate Docker or DevContainer scaffolding with `baton sandbox init`. [Security model](docs/SECURITY.md)
+- **Human approval.** A human L0 Architect approves RFCs, plan amendments, and Final Gate merges. Keep `require_human_approval_at = ["rfc_signoff", "plan_amendment", "final_merge"]` enabled.
+
+</details>
+
+## Release History & Documentation
+
+`v1.0.0` added native HTTP providers, auto-conflict resolution, the sandbox, and the Windows installer. `v1.0.1` refined Studio and the guided tour. `v1.0.2` added overnight alerts, `v1.0.3` added three-tier pricing and unified DSH branding, and `v1.0.4` shipped sanitized case export and universal replay. [GitHub Releases](https://github.com/KungerChen/VibeBaton/releases) · [Changelog](CHANGELOG.md) · [v1.0 launch notes](docs/RELEASE_NOTES_v1.0.md)
+
+[Beginner tutorial](docs/TUTORIAL.md) · [Roadmap](docs/ROADMAP.md) · [Security model](docs/SECURITY.md)
+
+## Contributing & License
+
+From the project checkout, install the Python package and run the backend unittest suite and frontend Vitest suite.
+
+```sh
+python -m pip install -e .
+python -m unittest discover -s tests -v
+npm --prefix web ci
+npm --prefix web test
 ```
 
----
-
-## Why VibeBaton & Honest Boundaries
-
-- **Core Moat**: Cross-vendor heterogeneous orchestration (`Antigravity` + `Claude` + `Codex` + `OpenCode Go / DSH`) and an open, shareable `.baton.json` workflow recipe ecosystem that no single model vendor will build natively.
-- **When to Use It**: Medium-to-large multi-module engineering, batch refactors/migrations, and unattended overnight runs with objective test/lint gates (`unittest`, `tsc`, `vitest`).
-- **When NOT to Use It**: Quick 30-second single-file tweaks or vague exploratory UI prototyping — a single interactive agent is faster there.
-- **Current Best-Tested Stacks**: Python 3.11+ and TypeScript/Node standalone repositories on Windows; hardened Docker / DevContainer sandbox templates are now included for untrusted repositories (additional ecosystems remain on the roadmap).
-
----
-
-## Security Model
-
-VibeBaton's **Path Whitelist Guard** is a post-hoc Git worktree audit/revert layer — **not** an OS-level kernel sandbox. Running unattended non-interactive CLI agents directly on your host is recommended **only for trusted repositories**. For untrusted repositories, generate the hardened container sandbox with `baton sandbox init --repo .`. See [docs/SECURITY.md](docs/SECURITY.md) for trust boundaries, sandbox hardening controls, polite rate-limiting rules, and secret hygiene.
-
----
-
-## Roadmap
-
-- **Stage 0 (`v0.1-seed`)** & **Stage 1 (`v0.2.0`)**: Shipped — pure stdlib node-graph workflow engine, initial presets, 63 tests, self-hosted via `.bootstrap-runner`.
-- **Stage 2 (`v0.3.0-canvas`)**: Shipped (`main`) — zero-dependency `baton ui` web server (`ThreadingHTTPServer` + SSE), React Flow 3-pane visual canvas (`EN | 中文`, Liquid Theme Reveal, Web Audio), 3-color Baton Flow particles, real Stage 1 run replay, and `#recipe=` URL sharing.
-- **Stage 3 (`v0.9.0-beta`)**: Shipped (`main`) — Recipe Plaza (7 presets including Same-Family & Scenario workflows), Unified Smart Allocation (`eco` / `balanced` / `max_quality`, step-up ladder, single-node Pin), Preflight & 5s Click-to-Doctor + Local Credentials Setup, Brainstorm / RFC Readiness Gate, Live Run Canvas Sync, Stage & Model Runtime Telemetry, Bilingual Battle Reports (`EN | 中文`), Expandable Task Audit Details, Pre-Launch Division/Guard Summary, Beginner Tutorial, and reproducible 3-arm Benchmark harness (`benchmarks/`).
-- **Stage 4 (`v1.0.0`)**: Shipped (2026-11-22) — native OpenAI-compatible HTTP providers with exact Token & Cost billing, Auto-Conflict-Resolver for parallel worktrees, `baton sandbox init` Docker/DevContainer templates, `scripts/install.ps1` Windows installer, Studio cost/conflict panels, and `v1.0.0` release collateral (`CHANGELOG.md`, `docs/RELEASE_NOTES_v1.0.md`).
-
-See [docs/ROADMAP.md](docs/ROADMAP.md), [docs/TUTORIAL.md](docs/TUTORIAL.md), and [docs/RFC_STAGE3_DRAFT.md](docs/RFC_STAGE3_DRAFT.md) for full details.
-
-## License
-
-MIT License — see [`LICENSE`](LICENSE).
+VibeBaton is released under the [MIT License](LICENSE).
