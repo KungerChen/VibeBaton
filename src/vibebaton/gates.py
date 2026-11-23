@@ -13,6 +13,13 @@ from pathlib import Path
 from .cli_runner import kill_process_tree
 
 
+_WINDOWS_INLINE_PYTHON_GATE = re.compile(
+    r'cmd(?:\.exe)? +/c +"(?P<prefix>(?:set +[a-z_][a-z_0-9]*=[^"&|<>^\r\n]*&& *)+'
+    r'python(?:\.exe)? +-c +)\\"(?P<source>[^"\r\n]+)(?<!\\)\\""',
+    re.IGNORECASE,
+)
+
+
 @dataclass
 class GateCommandResult:
     command: str
@@ -55,6 +62,10 @@ async def run_gate_command(command: str, workdir: Path, timeout_sec: int = 600) 
     exec_cmd = command
     if sys.platform == "win32":
         exec_cmd = re.sub(r"([<>]\s*)/dev/null\b", r"\1NUL", exec_cmd)
+        # The subprocess shell supplies cmd.exe. Quote the Python source for that shell.
+        inline_python = _WINDOWS_INLINE_PYTHON_GATE.fullmatch(exec_cmd)
+        if inline_python:
+            exec_cmd = f'{inline_python["prefix"]}"{inline_python["source"]}"'
     proc = await asyncio.create_subprocess_shell(
         exec_cmd,
         cwd=str(workdir),

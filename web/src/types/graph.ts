@@ -358,3 +358,43 @@ const tiersByRole = new Map<string, TierKey>([
 export function tierForNodeType(type: NodeType, role?: string): TierKey {
   return tiersByRole.get(role ?? '') ?? tiersByNodeType[type];
 }
+
+export interface CaseRedactionReport {
+  secrets_redacted: number;
+  paths_anonymized: number;
+  emails_redacted: number;
+  ips_redacted: number;
+  raw_diff_stripped: number;
+  raw_stack_stripped: number;
+  clean: boolean;
+}
+
+export interface CaseReplayMeta {
+  source_run_id: string;
+  status: string;
+  elapsed_sec: number;
+  milestones_passed: number;
+  milestones_total: number;
+  tasks_passed: number;
+  tasks_total: number;
+  gate_catches: number;
+  whitelist_catches: number;
+  escalations: number;
+  /** Model names after normalizing the backend's provider/model entries. */
+  models: string[];
+  stages: unknown[];
+  billing: Record<string, unknown>;
+}
+
+export interface BatonCaseBundle {
+  schema_version: 'baton-case/v1';
+  case_id: string;
+  title: string;
+  summary: string;
+  created_at: string;
+  meta: CaseReplayMeta;
+  redaction_report: CaseRedactionReport;
+  graph: WorkflowGraph;
+  trace: GraphTraceEvent[];
+  isOfficialTutorial?: boolean;
+}

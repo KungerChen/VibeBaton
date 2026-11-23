@@ -63,6 +63,80 @@ export interface Messages {
     liveRunTasks(passed: number, total: number): string;
     liveRunActiveBadge: string;
   };
+  transfer: {
+    sectionTitle: string;
+    sectionSubtitle: string;
+    recipeBadge: string;
+    caseBadge: string;
+    importCard: { title: string; desc: string };
+    exportRecipeCard: { title: string; desc: string };
+    exportCaseCard: { title: string; desc: string };
+    importModal: {
+      title: string;
+      dropHint: string;
+      pasteLabel: string;
+      detectRecipe: string;
+      detectCase: string;
+      invalid: string;
+      nodes: string;
+      edges: string;
+      duration: string;
+      tasks: string;
+      validationOk: string;
+      validationFail: string;
+      redactionClean: string;
+      redactionWarn: string;
+      applyRecipe: string;
+      loadCase: string;
+      overwriteWarning: string;
+    };
+    exportRecipeModal: {
+      title: string;
+      assurance: string;
+      liveAdvisory: string;
+      switchToCase: string;
+      download: string;
+      copyJson: string;
+      copyLink: string;
+      copied: string;
+      previewToggle: string;
+    };
+    exportCaseModal: {
+      title: string;
+      titleLabel: string;
+      includeReviews: string;
+      anonymize: string;
+      checklistTitle: string;
+      secrets: string;
+      paths: string;
+      emails: string;
+      ips: string;
+      diffs: string;
+      stacks: string;
+      verifiedClean: string;
+      notClean: string;
+      download: string;
+      copyJson: string;
+      previewReplay: string;
+      loading: string;
+      error: string;
+    };
+    playback: {
+      tutorialLabel: string;
+      tutorialTooltip: string;
+      startPrefix: string;
+      switcherLabel: string;
+      importAnother: string;
+      resetTutorial: string;
+      summaryPill(
+        elapsed: string,
+        passed: number,
+        total: number,
+        options?: { separator?: string; clean?: boolean },
+      ): string;
+    };
+    liveRun: { shareCase: string };
+  };
   nodeTypes: Record<NodeType, string>;
   nodeStates: Partial<Record<ExecutionState, string>>;
   nodeCard: {
@@ -431,6 +505,85 @@ export const MESSAGES: Record<Locale, Messages> = {
       liveRunHint: 'Click to view real milestones & tasks on canvas',
       liveRunTasks: (passed, total) => `${passed}/${total} tasks`,
       liveRunActiveBadge: 'Live Sync',
+    },
+    transfer: {
+      sectionTitle: 'Save, Import & Share',
+      sectionSubtitle: 'Recipes (.baton.json) save workflows. Run cases (.baton-case.json) replay recorded runs.',
+      recipeBadge: 'Recipe',
+      caseBadge: 'Run case',
+      importCard: {
+        title: 'Import Recipe or Case',
+        desc: 'Load a file or paste JSON or a recipe link.',
+      },
+      exportRecipeCard: {
+        title: 'Export Recipe',
+        desc: 'Save or share the current workflow.',
+      },
+      exportCaseCard: {
+        title: 'Export Run Case',
+        desc: 'Create a replay case with sensitive details removed.',
+      },
+      importModal: {
+        title: 'Import Recipe or Case',
+        dropHint: 'Drop a .baton.json or .baton-case.json file here, or choose a file.',
+        pasteLabel: 'Paste JSON or a recipe link',
+        detectRecipe: 'Recipe detected',
+        detectCase: 'Run case detected',
+        invalid: 'Enter a valid recipe, case, or recipe link.',
+        nodes: 'Nodes',
+        edges: 'Edges',
+        duration: 'Duration',
+        tasks: 'Tasks',
+        validationOk: 'Validation passed',
+        validationFail: 'Validation failed',
+        redactionClean: 'Redaction verified',
+        redactionWarn: 'Review redaction',
+        applyRecipe: 'Apply Recipe to Canvas',
+        loadCase: 'Load & Replay Case',
+        overwriteWarning: 'Continuing will replace the current canvas.',
+      },
+      exportRecipeModal: {
+        title: 'Export Recipe',
+        assurance: 'Recipes save workflow structure and model routing.',
+        liveAdvisory: 'To share a replay of this run, export a run case.',
+        switchToCase: 'Export Run Case',
+        download: 'Download .baton.json',
+        copyJson: 'Copy JSON',
+        copyLink: 'Copy Recipe Link',
+        copied: 'Copied to clipboard',
+        previewToggle: 'JSON preview',
+      },
+      exportCaseModal: {
+        title: 'Export Run Case',
+        titleLabel: 'Case title',
+        includeReviews: 'Include sanitized review summaries',
+        anonymize: 'Anonymize run ID',
+        checklistTitle: 'Redaction Checklist',
+        secrets: 'Secrets redacted',
+        paths: 'Paths anonymized',
+        emails: 'Emails redacted',
+        ips: 'Private IP addresses redacted',
+        diffs: 'Raw diffs removed',
+        stacks: 'Stack traces removed',
+        verifiedClean: 'Redaction verified',
+        notClean: 'Review redaction before sharing',
+        download: 'Download .baton-case.json',
+        copyJson: 'Copy Case JSON',
+        previewReplay: 'Preview in Replay Player',
+        loading: 'Preparing run case...',
+        error: 'Could not prepare the run case.',
+      },
+      playback: {
+        tutorialLabel: 'Tutorial: Stage 1 (60x)',
+        tutorialTooltip: 'Replay Stage 1 or import a .baton-case.json file to replay another run.',
+        startPrefix: 'Start: ',
+        switcherLabel: 'Choose a replay case',
+        importAnother: 'Import Another Case',
+        resetTutorial: 'Return to Stage 1 Tutorial',
+        summaryPill: (elapsed, passed, total, { separator = ' | ', clean = true } = {}) =>
+          [elapsed, `${passed}/${total} tasks`, clean ? 'sanitized replay' : 'review redaction'].join(separator),
+      },
+      liveRun: { shareCase: 'Share Case' },
     },
     nodeTypes: {
       planner_node: 'Planner',
@@ -969,6 +1122,85 @@ export const MESSAGES: Record<Locale, Messages> = {
       liveRunHint: '点击查看真实里程碑与任务 DAG',
       liveRunTasks: (passed, total) => `${passed}/${total} 个任务`,
       liveRunActiveBadge: '实时同步',
+    },
+    transfer: {
+      sectionTitle: '配方与案例分享',
+      sectionSubtitle: '配方（.baton.json）保存工作流，运行案例（.baton-case.json）用于回放运行记录。',
+      recipeBadge: '配方',
+      caseBadge: '运行案例',
+      importCard: {
+        title: '导入配方或案例',
+        desc: '选择文件、粘贴 JSON 或配方链接。',
+      },
+      exportRecipeCard: {
+        title: '导出配方',
+        desc: '保存或分享当前工作流。',
+      },
+      exportCaseCard: {
+        title: '导出运行案例',
+        desc: '生成已脱敏的运行回放。',
+      },
+      importModal: {
+        title: '导入配方或案例',
+        dropHint: '将 .baton.json 或 .baton-case.json 文件拖到此处，或点击选择文件。',
+        pasteLabel: '粘贴 JSON 或配方链接',
+        detectRecipe: '已识别配方',
+        detectCase: '已识别运行案例',
+        invalid: '请输入有效的配方、案例或配方链接。',
+        nodes: '节点',
+        edges: '连线',
+        duration: '耗时',
+        tasks: '任务',
+        validationOk: '校验通过',
+        validationFail: '校验失败',
+        redactionClean: '脱敏检查通过',
+        redactionWarn: '请检查脱敏结果',
+        applyRecipe: '将配方应用到画布',
+        loadCase: '加载并回放案例',
+        overwriteWarning: '继续操作将替换当前画布。',
+      },
+      exportRecipeModal: {
+        title: '导出配方',
+        assurance: '配方保存工作流结构和模型路由。',
+        liveAdvisory: '如需分享本次运行的回放，请导出运行案例。',
+        switchToCase: '导出运行案例',
+        download: '下载 .baton.json',
+        copyJson: '复制 JSON',
+        copyLink: '复制配方链接',
+        copied: '已复制到剪贴板',
+        previewToggle: '预览 JSON',
+      },
+      exportCaseModal: {
+        title: '导出运行案例',
+        titleLabel: '案例标题',
+        includeReviews: '包含已脱敏的审校摘要',
+        anonymize: '匿名化运行 ID',
+        checklistTitle: '脱敏检查清单',
+        secrets: '已遮蔽密钥',
+        paths: '已匿名化路径',
+        emails: '已遮蔽邮箱地址',
+        ips: '已遮蔽内网 IP 地址',
+        diffs: '已移除原始代码差异',
+        stacks: '已移除堆栈追踪',
+        verifiedClean: '脱敏检查通过',
+        notClean: '分享前请检查脱敏结果',
+        download: '下载 .baton-case.json',
+        copyJson: '复制案例 JSON',
+        previewReplay: '在播放器中预览',
+        loading: '正在生成运行案例…',
+        error: '生成运行案例失败。',
+      },
+      playback: {
+        tutorialLabel: '示范教程：一期真跑（60 倍速）',
+        tutorialTooltip: '观看一期运行回放，或导入 .baton-case.json 文件回放其他运行。',
+        startPrefix: '开始回放：',
+        switcherLabel: '选择回放案例',
+        importAnother: '导入其他案例',
+        resetTutorial: '返回一期示范教程',
+        summaryPill: (elapsed, passed, total, { separator = ' · ', clean = true } = {}) =>
+          [elapsed, `${passed}/${total} 项任务`, clean ? '脱敏回放' : '请检查脱敏结果'].join(separator),
+      },
+      liveRun: { shareCase: '分享案例' },
     },
     nodeTypes: {
       planner_node: '规划',

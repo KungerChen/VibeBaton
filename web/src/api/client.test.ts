@@ -1,5 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { presetToItem, starter_2tier } from '../data/presets';
+import goldenCase from '../engine/__fixtures__/goldenCase.json';
+import { buildOfficialStage1Case } from '../engine/caseReplay';
 import type {
   BudgetConfigResponse,
   CredentialStatus,
@@ -547,6 +549,63 @@ test('loads run data and submits run commands to the local server', async () => 
     [`/api/runs/${runId}/control`, jsonRequest('POST', { action: 'resume' })],
     [`/api/runs/${runId}/resolve`, jsonRequest('POST', { decision: 'reject' })],
   ]);
+});
+
+test('exports a local run case with encoded options and normalizes the backend models', async () => {
+  const fetchImpl = healthyFetch().mockResolvedValueOnce(Response.json(goldenCase));
+  const client = new BatonApiClient('', fetchImpl);
+  await expect(client.init()).resolves.toBe('local');
+
+  const bundle = await client.exportRunCase('run-#1', {
+    title: 'Release & review',
+    includeReviews: false,
+    anonymize: true,
+  });
+
+  expect(fetchImpl).toHaveBeenNthCalledWith(
+    2,
+    '/api/runs/run-%231/case-export?title=Release+%26+review&include_reviews=0&anonymize=1',
+    { method: 'GET' },
+  );
+  expect(bundle).toEqual({
+    ...goldenCase,
+    meta: { ...goldenCase.meta, models: ['deepseek-flash', 'plan-default', 'review-default', 'signoff'] },
+  });
+});
+
+test('uses the backend case export defaults and retains HTTP errors', async () => {
+  const fetchImpl = healthyFetch().mockResolvedValueOnce(Response.json({ error: 'Run not found' }, { status: 404 }));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+
+  await expect(client.exportRunCase('missing')).rejects.toMatchObject({
+    name: 'ApiError', status: 404, message: 'Run not found',
+  });
+  expect(fetchImpl).toHaveBeenNthCalledWith(
+    2, '/api/runs/missing/case-export?include_reviews=1&anonymize=0', { method: 'GET' },
+  );
+});
+
+test('exports the English Stage 1 sample in demo mode and accepts a custom title', async () => {
+  const fetchImpl = vi.fn<typeof fetch>();
+  const client = new BatonApiClient('', fetchImpl);
+  const sample = buildOfficialStage1Case('en');
+
+  await expect(client.exportRunCase('demo-run')).resolves.toEqual(sample);
+  await expect(client.exportRunCase('demo-run', { title: 'Shared demo' })).resolves.toEqual({
+    ...sample, title: 'Shared demo',
+  });
+  expect(fetchImpl).not.toHaveBeenCalled();
+});
+
+test('rejects a malformed successful case export response', async () => {
+  const fetchImpl = healthyFetch().mockResolvedValueOnce(Response.json({ ...goldenCase, trace: [] }));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+
+  await expect(client.exportRunCase('run-1')).rejects.toMatchObject({
+    name: 'ApiError', status: 502, message: expect.stringContaining('trace'),
+  });
 });
 
 test('returns empty live data and rejects backend-only run operations in demo mode', async () => {
