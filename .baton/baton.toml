@@ -50,7 +50,7 @@ cooldown_backoff_sec = [30, 120, 300]
 rate_limit_regex = "(rate.?limit|429|quota|temporarily unavailable|overloaded)"
 # DeepSeek Harness (dsh) headless mode calling your configured OpenCode Go API profile.
 # Uses a zero-secret patch overlay under `{package_root}/presets/` to enable credentials + opencode-go.
-command = ["dsh", "--profile", "headless", "--json", "--patch", "{package_root}/presets/dsh-headless-opencode-go.patch.yml", "--permission-mode", "workspace-write", "--approval-policy", "never", "-"]
+command = ["dsh", "--profile", "headless", "--patch", "{package_root}/presets/dsh-headless-opencode-go.patch.yml", "--json", "--permission-mode", "workspace-write", "--approval-policy", "never", "-"]
 prompt_via = "stdin"
 stall_timeout_sec = 240
 hard_timeout_sec = 1200
