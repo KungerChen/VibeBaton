@@ -9,7 +9,7 @@ import goldenCase from '../engine/__fixtures__/goldenCase.json';
 import { detectTransferInput, parseAndValidateCaseBundle } from '../engine/caseReplay';
 import { MESSAGES } from '../i18n/messages';
 import type { WorkflowGraph } from '../types/graph';
-import { ImportTransferModal } from './RecipeTransferModals';
+import { ExportCaseModal, ImportTransferModal } from './RecipeTransferModals';
 import exportCaseSource from './transfer/ExportCaseModal.tsx?raw';
 import exportRecipeSource from './transfer/ExportRecipeModal.tsx?raw';
 import importTransferSource from './transfer/ImportTransferModal.tsx?raw';
@@ -28,6 +28,14 @@ function elements(node: ReactNode): ReactElement<{ children?: ReactNode }>[] {
     : []);
 }
 
+// Capture the real dialog controls in the Node test environment.
+function createModalTestRoot() {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('window', { HTMLIFrameElement: class HTMLIFrameElement {}, setTimeout, clearTimeout });
+  const container = { nodeType: 1, tagName: 'DIV', ownerDocument: null, addEventListener() {} };
+  return createRoot(container as unknown as HTMLElement);
+}
+
 test('previews an exported recipe and applies the same detected graph on confirmation', async () => {
   const json = serializeRecipe(flagship_4tier);
   const buildPreview = vi.spyOn(importPreview, 'buildImportPreview');
@@ -37,11 +45,7 @@ test('previews an exported recipe and applies the same detected graph on confirm
   const copy = MESSAGES.en.transfer.importModal;
   const content = () => vi.mocked(Modal).mock.lastCall?.[0].children;
 
-  // Capture the real dialog controls in the Node test environment.
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  vi.stubGlobal('window', { HTMLIFrameElement: class HTMLIFrameElement {} });
-  const container = { nodeType: 1, tagName: 'DIV', ownerDocument: null, addEventListener() {} };
-  const root = createRoot(container as unknown as HTMLElement);
+  const root = createModalTestRoot();
 
   try {
     await act(async () => root.render(createElement(ImportTransferModal, {
@@ -77,6 +81,70 @@ test('previews an exported recipe and applies the same detected graph on confirm
       act(() => root.unmount());
     } finally {
       buildPreview.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  }
+});
+
+test.each([
+  { audit: 'server audit fails', serverClean: false, summary: goldenCase.summary, verifiedClean: false },
+  { audit: 'client finds a residual email', serverClean: true, summary: 'Contact replay-test@example.invalid', verifiedClean: false },
+  { audit: 'both audits pass', serverClean: true, summary: goldenCase.summary, verifiedClean: true },
+])('gates all case export actions when $audit', async ({ serverClean, summary, verifiedClean }) => {
+  const response = {
+    ...goldenCase,
+    summary,
+    redaction_report: { ...goldenCase.redaction_report, clean: serverClean },
+  };
+  const fetchImpl = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json({ status: 'ok', version: 'test' }))
+    .mockResolvedValueOnce(Response.json(response));
+  const client = new BatonApiClient('', fetchImpl);
+  await expect(client.init()).resolves.toBe('local');
+
+  const writeText = vi.fn<Clipboard['writeText']>().mockResolvedValue(undefined);
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  vi.stubGlobal('navigator', { clipboard: { writeText } });
+  const root = createModalTestRoot();
+  const copy = MESSAGES.en.transfer.exportCaseModal;
+
+  try {
+    await act(async () => root.render(createElement(ExportCaseModal, {
+      open: true,
+      client,
+      runId: goldenCase.meta.source_run_id,
+      defaultTitle: goldenCase.title,
+      onClose: vi.fn(),
+      onPreviewInPlayer: vi.fn(),
+    })));
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+
+    const content = vi.mocked(Modal).mock.lastCall?.[0].children;
+    expect(renderToStaticMarkup(content)).toContain(verifiedClean ? copy.verifiedClean : copy.notClean);
+    const controls = elements(content);
+    const actions = [copy.download, copy.copyJson, copy.previewReplay].map((label) => {
+      const button = controls.find((element) => element.type === Button && element.props.children === label);
+      assert(button, `Expected the ${label} button`);
+      return button.props as ButtonProps;
+    });
+    expect.soft(actions.map(({ disabled }) => disabled)).toEqual([!verifiedClean, !verifiedClean, !verifiedClean]);
+
+    // Exercise the handler directly so the clipboard guard is tested independently of the button.
+    const onCopy = actions[1].onClick;
+    assert(onCopy, 'Expected a copy handler');
+    await act(async () => onCopy({} as MouseEvent<HTMLButtonElement>));
+    if (verifiedClean) {
+      const parsed = parseAndValidateCaseBundle(response);
+      assert(parsed.ok, 'Expected a valid Golden Case');
+      expect(writeText).toHaveBeenCalledExactlyOnceWith(serializeCase(parsed.bundle));
+    } else {
+      expect(writeText.mock.calls.length).toBe(0);
+    }
+  } finally {
+    try {
+      act(() => root.unmount());
+    } finally {
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
   }
@@ -148,4 +216,18 @@ test.each(modalSources)('%s uses transfer keys defined in both locales', (_name,
       expect(value, locale + '.' + key).toBeDefined();
     }
   }
+});
+
+test('accepts the Python golden case bundle in the replay parser', async () => {
+  const { readFileSync } = await vi.importActual<{
+    readFileSync(path: URL, encoding: 'utf8'): string;
+  }>('node:fs');
+  const fixture = new URL('../../../tests/fixtures/golden_case_bundle.json', import.meta.url);
+  const raw: unknown = JSON.parse(readFileSync(fixture, 'utf8'));
+
+  expect(parseAndValidateCaseBundle(raw)).toMatchObject({
+    ok: true,
+    bundle: { redaction_report: { clean: true } },
+    warnings: [],
+  });
 });

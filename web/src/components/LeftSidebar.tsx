@@ -1,9 +1,8 @@
 import './LeftSidebar.css';
 import './ui/ui.css';
-import { useId, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
-import { Activity, ChevronDown, Coins, Download, Link2, Upload } from 'lucide-react';
+import { useId, useState, type CSSProperties } from 'react';
+import { Activity, ChevronDown, Coins, FileArchive, FileJson, Upload } from 'lucide-react';
 import { computeLiveSeconds, formatDurationSec, isRunStatusActive } from '../engine/liveClock';
-import { validateGraph } from '../engine/localSimulator';
 import { useI18n } from '../i18n';
 import { translatePresetText } from '../i18n/presets';
 import { cn } from '../lib/utils';
@@ -11,11 +10,13 @@ import {
   NODE_TYPES,
   tierForNodeType,
   type BudgetProfile,
-  type WorkflowEdge,
-  type WorkflowGraph,
 } from '../types/graph';
 import { NODE_ICONS, TIER_COLORS } from './nodes/BatonNode';
 import { filterPresets, getPresetBadges, RECIPE_FILTERS, type RecipeFilter } from './recipePlaza';
+import {
+  transferCards,
+  type TransferCardKind,
+} from './sidebarTransfer';
 import type { LeftSidebarProps } from './types';
 import { Badge, type BadgeProps } from './ui/badge';
 import { Button } from './ui/button';
@@ -23,37 +24,18 @@ import { Card } from './ui/card';
 
 const BUDGET_PROFILES = ['eco', 'balanced', 'max_quality'] as const satisfies readonly BudgetProfile[];
 
+const TRANSFER_ICONS: Record<TransferCardKind, typeof Upload> = {
+  import: Upload,
+  'export-recipe': FileJson,
+  'export-case': FileArchive,
+};
+
 const difficultyVariants = new Map<string, BadgeProps['variant']>([
   ['beginner', 'success'],
   ['intermediate', 'info'],
   ['pro', 'violet'],
   ['expert', 'warning'],
 ]);
-
-type ImportedEdge = Omit<WorkflowEdge, 'max_loops'> & {
-  source_handle?: string;
-  target_handle?: string;
-  max_loops?: number | boolean | null;
-  maxLoops?: number | boolean | null;
-};
-
-// Convert the legacy edge fields accepted by validateGraph to the canvas format.
-function canonicalizeEdge(input: ImportedEdge): WorkflowEdge {
-  const {
-    source_handle,
-    target_handle,
-    maxLoops,
-    sourceHandle = source_handle,
-    targetHandle = target_handle,
-    max_loops = maxLoops,
-    ...rest
-  } = input;
-  const edge: WorkflowEdge = rest;
-  if (sourceHandle !== undefined) edge.sourceHandle = sourceHandle;
-  if (targetHandle !== undefined) edge.targetHandle = targetHandle;
-  if (max_loops != null) edge.max_loops = Number(max_loops);
-  return edge;
-}
 
 export function LeftSidebar({
   presets,
@@ -63,9 +45,8 @@ export function LeftSidebar({
   currentGraphId,
   onSelectPreset,
   onAddNode,
-  onImportGraph,
-  onExport,
-  onShare,
+  onOpenTransfer,
+  caseExportAvailable,
   validation,
   liveSnapshot,
   liveViewActive = false,
@@ -73,49 +54,13 @@ export function LeftSidebar({
   onSelectLiveRun,
 }: LeftSidebarProps) {
   const { locale, messages } = useI18n();
-  const { budgetProfile: budget, recipePlaza: plaza } = messages;
+  const { budgetProfile: budget, recipePlaza: plaza, transfer } = messages;
   const sidebarId = useId();
   const listId = `${sidebarId}-presets`;
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const latestImport = useRef(0);
   const [filter, setFilter] = useState<RecipeFilter>('all');
-  const [importErrors, setImportErrors] = useState<string[]>([]);
   const [warningsOpen, setWarningsOpen] = useState(false);
   const visiblePresets = filterPresets(presets, filter);
   const providerList = new Intl.ListFormat(locale);
-
-  const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
-    const input = event.currentTarget;
-    const file = input.files?.[0];
-    input.value = '';
-    if (!file) return;
-
-    const importId = ++latestImport.current;
-    setImportErrors([]);
-    try {
-      const fileText = await file.text();
-      if (importId !== latestImport.current) return;
-
-      const graph = JSON.parse(fileText) as WorkflowGraph;
-      const result = validateGraph(graph);
-      if (!result.valid) {
-        setImportErrors(result.errors);
-        return;
-      }
-
-      const invalidRoleIndex = graph.nodes.findIndex(({ role }) => role !== undefined && typeof role !== 'string');
-      if (invalidRoleIndex !== -1) {
-        setImportErrors([messages.sidebar.roleMustBeString(invalidRoleIndex)]);
-        return;
-      }
-
-      onImportGraph({ ...graph, edges: graph.edges.map(canonicalizeEdge) });
-    } catch (error) {
-      if (importId === latestImport.current) {
-        setImportErrors([error instanceof Error ? error.message : String(error)]);
-      }
-    }
-  };
 
   const liveRunId = typeof liveSnapshot?.run?.id === 'string' ? liveSnapshot.run.id : null;
   const liveRunStatus = typeof liveSnapshot?.run?.status === 'string' ? liveSnapshot.run.status : 'UNKNOWN';
@@ -350,57 +295,30 @@ export function LeftSidebar({
       </section>
 
       <section className="left-sidebar__section">
-        <h2 className="left-sidebar__title">{messages.sidebar.importExportTitle}</h2>
-        <div className="flex flex-col gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full justify-start"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload size={14} aria-hidden="true" />
-            <span>{messages.sidebar.importButton}</span>
-          </Button>
-          <input
-            ref={fileInputRef}
-            className="hidden"
-            type="file"
-            accept=".json,application/json"
-            hidden
-            onChange={handleImport}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full justify-start"
-            onClick={onExport}
-          >
-            <Download size={14} aria-hidden="true" />
-            <span>{messages.sidebar.exportButton}</span>
-          </Button>
-          {onShare && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full justify-start"
-              onClick={onShare}
-            >
-              <Link2 size={14} aria-hidden="true" />
-              <span>{messages.sidebar.shareButton}</span>
-            </Button>
-          )}
+        <h2 className="left-sidebar__title">{transfer.sectionTitle}</h2>
+        <p className="sidebar-transfer-subtitle">{transfer.sectionSubtitle}</p>
+        <div className="sidebar-transfer-cards">
+          {transferCards(caseExportAvailable, transfer).map((card) => {
+            const Icon = TRANSFER_ICONS[card.kind];
+            return (
+              <button
+                key={card.kind}
+                type="button"
+                className="sidebar-transfer-card"
+                aria-label={`${card.title}: ${card.desc}`}
+                onClick={() => onOpenTransfer(card.kind)}
+              >
+                <span className="sidebar-transfer-card-icon" aria-hidden="true">
+                  <Icon size={15} />
+                </span>
+                <span className="sidebar-transfer-card-body">
+                  <span className="sidebar-transfer-card-title">{card.title}</span>
+                  <span className="sidebar-transfer-card-desc">{card.desc}</span>
+                </span>
+              </button>
+            );
+          })}
         </div>
-
-        {importErrors.length > 0 && (
-          <ul
-            className="m-0 grid gap-1 rounded-xl border border-rose-500/35 bg-[var(--rose-soft)] p-2.5 text-xs text-[var(--rose)] list-none"
-            role="alert"
-          >
-            {importErrors.map((error, index) => (
-              <li key={`${index}-${error}`}>{error}</li>
-            ))}
-          </ul>
-        )}
       </section>
 
       <section className="left-sidebar__section">

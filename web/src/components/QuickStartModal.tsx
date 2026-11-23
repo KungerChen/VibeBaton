@@ -45,6 +45,7 @@ export function QuickStartModal({
   const { messages } = useI18n();
   const [tab, setTab] = useState<'quickstart' | 'legend' | 'tutorial'>('quickstart');
   const q = messages.quickStart;
+  const caseReplayTutorial = `${messages.transfer.sectionSubtitle} ${messages.transfer.playback.tutorialTooltip}`;
   const startTourButton = onStartTour && (
     <Button
       variant="default"
@@ -74,7 +75,7 @@ export function QuickStartModal({
       id: 'replay',
       num: 2,
       title: q.steps.watchReplayTitle,
-      desc: q.steps.watchReplayDesc,
+      desc: `${q.steps.watchReplayDesc} ${caseReplayTutorial}`,
       onRun: onWatchReplay,
     },
     {

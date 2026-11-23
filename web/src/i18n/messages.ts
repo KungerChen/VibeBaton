@@ -122,7 +122,6 @@ export interface Messages {
       error: string;
     };
     playback: {
-      tutorialLabel: string;
       tutorialTooltip: string;
       startPrefix: string;
       switcherLabel: string;
@@ -574,8 +573,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         error: 'Could not prepare the run case.',
       },
       playback: {
-        tutorialLabel: 'Tutorial: Stage 1 (60x)',
-        tutorialTooltip: 'Replay Stage 1 or import a .baton-case.json file to replay another run.',
+        tutorialTooltip: 'Practice playback with Stage 1. Choose Import Recipe or Case to open a shared .baton-case.json file.',
         startPrefix: 'Start: ',
         switcherLabel: 'Choose a replay case',
         importAnother: 'Import Another Case',
@@ -647,7 +645,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         gate_retry: 'Gate Retry',
         escalate: 'Escalate',
       },
-      replayButton: 'Stage 1 60×',
+      replayButton: 'Tutorial: Stage 1 (60×)',
       replayTitle: 'Replay real Stage 1 self-hosting run (run-20261121-044454-3b1845 · 107m @ 60×)',
       play: 'Play',
       pause: 'Pause',
@@ -1191,8 +1189,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         error: '生成运行案例失败。',
       },
       playback: {
-        tutorialLabel: '示范教程：一期真跑（60 倍速）',
-        tutorialTooltip: '观看一期运行回放，或导入 .baton-case.json 文件回放其他运行。',
+        tutorialTooltip: '用一期示范练习回放操作。选择「导入配方或案例」即可打开共享的 .baton-case.json 文件。',
         startPrefix: '开始回放：',
         switcherLabel: '选择回放案例',
         importAnother: '导入其他案例',
@@ -1264,7 +1261,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         gate_retry: '门禁重试',
         escalate: '熔断升级',
       },
-      replayButton: '一期真跑 60×',
+      replayButton: '示范教程：一期真跑',
       replayTitle: '回放真实一期自举记录（run-20261121-044454-3b1845 · 107 分钟 @ 60×）',
       play: '播放',
       pause: '暂停',

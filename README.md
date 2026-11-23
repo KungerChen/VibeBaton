@@ -1,4 +1,4 @@
-# VibeBaton (`baton`) v1.0.0
+# VibeBaton (`baton`) v1.0.4
 
 > **Node-based multi-agent coding workflow orchestrator** — compose arbitrary AI coding tiers & local CLI models with Git worktree isolation, mechanical gates, subscription-aware quota scheduling, and Build-in-Public telemetry.
 >
@@ -15,6 +15,12 @@
 5. **Safe Dual-Copy Self-Hosting**: Export an immutable snapshot via `baton promote-seed` so VibeBaton can safely develop its own next versions without mutating the running engine.
 
 ---
+
+## What's New in v1.0.4
+
+Export a sanitized run with `baton export-case --repo . --run-id <id>` and open the
+`.baton-case.json` file in the Studio's Case Replay Player. Use **Save, Import & Share**
+to transfer workflow recipes and run cases.
 
 ## What's New in v1.0.1
 

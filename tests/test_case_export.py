@@ -6,10 +6,11 @@ import hashlib
 import io
 import json
 import runpy
+import sqlite3
 import sys
 import tempfile
 import unittest
-from contextlib import chdir, redirect_stderr, redirect_stdout
+from contextlib import chdir, closing, redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,7 @@ _RAW_STACK = "\n".join((
 _REVIEW_SUMMARY = f"Reviewed the sample report with {_GITHUB_KEY}."
 _GOLDEN_FIXTURE = Path(__file__).parent / "fixtures" / "golden_case_bundle.json"
 _GOLDEN_START = 1795334400
+_REAL_RUN_DB = Path(__file__).resolve().parents[1] / ".baton" / "state.sqlite"
 _COUNTERS = (
     "secrets_redacted",
     "paths_anonymized",
@@ -891,6 +893,29 @@ class TestCliAndApi(WebServerTestCase):
 
         self.assertEqual(status, 400)
         self.assertEqual(body, {"error": "Invalid replay graph"})
+
+
+@unittest.skipUnless(_REAL_RUN_DB.is_file(), "No .baton/state.sqlite in this checkout")
+class TestRealRunRoundTrip(unittest.TestCase):
+    def test_newest_run_exports_clean_replay(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            snapshot = Path(directory) / "state.sqlite"
+            # Back up the source read-only so the snapshot includes committed WAL data.
+            with (
+                closing(sqlite3.connect(f"{_REAL_RUN_DB.as_uri()}?mode=ro", uri=True)) as source,
+                closing(sqlite3.connect(snapshot)) as destination,
+            ):
+                source.backup(destination)
+
+            store = StateStore(snapshot)
+            run = store.get_latest_run()
+            if run is None:
+                self.skipTest("No runs in .baton/state.sqlite")
+            bundle = export_sanitized_case(store, run["id"])
+
+        self.assertIs(bundle["redaction_report"]["clean"], True)
+        result = validate_graph(WorkflowGraph.from_dict(bundle["graph"]))
+        self.assertTrue(result.valid, result.errors)
 
 
 if __name__ == "__main__":

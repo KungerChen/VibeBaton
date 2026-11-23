@@ -106,7 +106,11 @@ type LiveRunPanelProps = Pick<
   | 'onSelectRunId'
   | 'onRefreshLiveRun'
   | 'openBattleReportToken'
-> & { visible: boolean; liveNowSec?: number };
+> & {
+  visible: boolean;
+  liveNowSec?: number;
+  onOpenCaseExport?: (runId: string) => void;
+};
 
 type RunAction = 'pause' | 'resume' | 'approve' | 'reject';
 
@@ -142,7 +146,9 @@ export function useRunControls(
   return { busy, changeRun };
 }
 
-export const RunControlsContext = createContext<ReturnType<typeof useRunControls> | null>(null);
+export const RunControlsContext = createContext<
+  (ReturnType<typeof useRunControls> & Pick<LiveRunPanelProps, 'onOpenCaseExport'>) | null
+>(null);
 
 export function LiveRunPanel({
   client,
@@ -156,6 +162,7 @@ export function LiveRunPanel({
   onRefreshLiveRun,
   liveNowSec,
   openBattleReportToken,
+  onOpenCaseExport: openCaseExport,
 }: LiveRunPanelProps) {
   const { locale, messages } = useI18n();
   const panelId = useId();
@@ -177,6 +184,8 @@ export function LiveRunPanel({
   const reconnecting = hasLiftedState ? Boolean(liveReconnecting) : localReconnecting;
   const runsList: RunListItem[] = recentRuns ?? [];
   const runId = typeof snapshot.run?.id === 'string' ? snapshot.run.id : undefined;
+  // The selected run changes immediately; its snapshot arrives later, so share the selected id.
+  const caseRunId = selectedRunId ?? runId;
   const status = display(snapshot.run?.status, 'UNKNOWN');
   const telemetry = snapshot.telemetry ?? null;
   const attention = telemetry?.attention;
@@ -297,7 +306,9 @@ export function LiveRunPanel({
   }
 
   const localControls = useRunControls(client, refreshActiveRun, onToast);
-  const { busy: controlling, changeRun: submitRunAction } = useContext(RunControlsContext) ?? localControls;
+  const workspaceControls = useContext(RunControlsContext);
+  const { busy: controlling, changeRun: submitRunAction } = workspaceControls ?? localControls;
+  const onOpenCaseExport = openCaseExport ?? workspaceControls?.onOpenCaseExport;
 
   async function showReport() {
     if (!runId || loadingReport) return;
@@ -400,6 +411,11 @@ export function LiveRunPanel({
         {runId && (
           <Button variant="outline" size="sm" onClick={() => void showReport()} disabled={loadingReport}>
             {messages.inspector.battleReport}
+          </Button>
+        )}
+        {caseRunId && onOpenCaseExport && (
+          <Button variant="outline" size="sm" onClick={() => onOpenCaseExport(caseRunId)}>
+            {messages.transfer.liveRun.shareCase}
           </Button>
         )}
         {!hasModelRuntime && pricingButton}

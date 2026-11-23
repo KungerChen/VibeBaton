@@ -1,3 +1,3 @@
 """VibeBaton: Node-based multi-agent coding workflow orchestrator."""
 
-__version__ = "1.0.3"
+__version__ = "1.0.4"

@@ -2,11 +2,13 @@ import './PlaybackBar.css';
 import './ui/ui.css';
 import { Film, Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
+import { OFFICIAL_STAGE1_CASE_ID } from '../engine/caseReplay';
 import { SPEEDS } from '../engine/playback';
 import { useI18n } from '../i18n';
 import { translateHandle } from '../i18n/presets';
 import { cn } from '../lib/utils';
 import { SCENARIOS } from '../types/graph';
+import { CASE_OPTION_PREFIX, replayToggleLabel, switcherOptions } from './playbackLabels';
 import type { PlaybackBarProps } from './types';
 import { Badge, type BadgeProps } from './ui/badge';
 import { Button } from './ui/button';
@@ -26,6 +28,15 @@ export function PlaybackBar({
   onScenarioChange,
   replayActive = false,
   onToggleReplay,
+  activeCaseId,
+  activeCaseTitle,
+  isCustomCaseActive,
+  replayCaseLabel,
+  savedCases,
+  summaryPill,
+  onSelectReplayCase,
+  onImportCaseRequest,
+  onResetTutorialCase,
   playing,
   onPlayPause,
   onStep,
@@ -38,6 +49,9 @@ export function PlaybackBar({
   disabled = false,
 }: PlaybackBarProps) {
   const { locale, messages } = useI18n();
+  const copy = messages.transfer.playback;
+  const replayLabel = replayToggleLabel({ isCustomCaseActive, activeCaseTitle }, messages);
+  const caseOptions = switcherOptions(savedCases, OFFICIAL_STAGE1_CASE_ID, messages);
   const progress = stepCount > 0 ? Math.min(100, Math.max(0, (stepIndex / stepCount) * 100)) : 0;
   const speedIndex = SPEEDS.findIndex((value) => value === speed);
   const nextSpeed = SPEEDS[(speedIndex + 1) % SPEEDS.length];
@@ -54,6 +68,27 @@ export function PlaybackBar({
         .join(' · ')
     : messages.playback.ready;
   const eventLabel = replayActive && currentEvent?.message ? currentEvent.message : defaultEventLabel;
+
+  const handleReplayToggle = () => {
+    // A custom case's button starts (or restarts) that case instead of leaving replay.
+    if (isCustomCaseActive) {
+      onSelectReplayCase(activeCaseId);
+      return;
+    }
+    onToggleReplay?.();
+  };
+
+  const handleCaseSelect = (value: string) => {
+    const option = caseOptions.find((entry) => entry.value === value);
+    if (!option) return;
+    if (option.kind === 'case') {
+      onSelectReplayCase(option.caseId);
+    } else if (option.kind === 'import') {
+      onImportCaseRequest();
+    } else {
+      onResetTutorialCase();
+    }
+  };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (disabled || event.target !== event.currentTarget) return;
@@ -105,21 +140,33 @@ export function PlaybackBar({
             <button
               type="button"
               aria-pressed={replayActive}
-              title={messages.playback.replayTitle}
-              onClick={onToggleReplay}
+              title={isCustomCaseActive ? replayCaseLabel : copy.tutorialTooltip}
+              onClick={handleReplayToggle}
               className={cn(
-                'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer',
+                'inline-flex max-w-64 items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer',
                 replayActive
                   ? 'bg-[var(--sky-soft)] text-[var(--sky)] shadow-xs'
                   : 'text-[var(--sky)] hover:bg-[var(--sky-soft)]/60',
               )}
             >
-              <Film size={12} aria-hidden="true" />
-              <span>{messages.playback.replayButton}</span>
+              <Film size={12} aria-hidden="true" className="shrink-0" />
+              <span className="min-w-0 truncate">{replayLabel}</span>
             </button>
           </>
         )}
       </div>
+
+      <select
+        className="playback-bar__case-select"
+        aria-label={copy.switcherLabel}
+        title={copy.switcherLabel}
+        value={CASE_OPTION_PREFIX + activeCaseId}
+        onChange={(event) => handleCaseSelect(event.target.value)}
+      >
+        {caseOptions.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
 
       <div className="flex flex-none items-center gap-1">
         <Button
@@ -173,6 +220,10 @@ export function PlaybackBar({
           />
         </div>
       </div>
+
+      {summaryPill ? (
+        <span className="playback-bar__summary-pill" title={summaryPill}>{summaryPill}</span>
+      ) : null}
 
       <Badge
         variant={badgeVariant}

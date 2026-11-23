@@ -83,9 +83,9 @@ function ExportCaseDialog({
   }
 
   async function copyJson() {
-    if (!bundle) return;
+    if (!cleanBundle) return;
     try {
-      await navigator.clipboard.writeText(serializeCase(bundle));
+      await navigator.clipboard.writeText(serializeCase(cleanBundle));
     } catch {
       onToast?.(`${copy.copyJson} ✕`);
       return;
@@ -162,7 +162,7 @@ function ExportCaseDialog({
           <Button className="transfer-export-case-action" variant="default" disabled={!cleanBundle} onClick={download}>
             {copy.download}
           </Button>
-          <Button className="transfer-export-case-action" disabled={!bundle} onClick={() => void copyJson()}>
+          <Button className="transfer-export-case-action" disabled={!cleanBundle} onClick={() => void copyJson()}>
             {copy.copyJson}
           </Button>
           <Button className="transfer-export-case-action" disabled={!cleanBundle} onClick={preview}>
