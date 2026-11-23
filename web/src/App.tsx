@@ -181,6 +181,7 @@ function AppContent() {
   const runId = typeof run?.run_id === 'string' ? run.run_id : typeof run?.id === 'string' ? run.id : null;
   const fingerprint = buildAlertFingerprint(runId, attentionAlert);
   const [dismissedFingerprint, setDismissedFingerprint] = useState<string | null>(null);
+  const [battleReportToken, setBattleReportToken] = useState(0);
   const announcedFingerprints = useRef(new Set<string>());
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(
     () => typeof window === 'undefined' ? 'unsupported' : (window.Notification?.permission ?? 'unsupported'),
@@ -854,7 +855,10 @@ function AppContent() {
         onApprove={() => onAttentionRunAction('approve')}
         onReject={(note) => onAttentionRunAction('reject', note)}
         onResume={() => onAttentionRunAction('resume')}
-        onOpenBattleReport={() => onRequirePane('inspector', 'live')}
+        onOpenBattleReport={() => {
+          onRequirePane('inspector', 'live');
+          setBattleReportToken((n) => n + 1);
+        }}
         onEnableNotifications={() => void onEnableNotifications()}
         onDismiss={() => setDismissedFingerprint(fingerprint)}
       />
@@ -963,6 +967,7 @@ function AppContent() {
             liveReconnecting={liveReconnecting}
             onSelectRunId={(id) => void onSelectRunId(id)}
             onRefreshLiveRun={onRefreshLiveRun}
+            openBattleReportToken={battleReportToken}
           />
         </RunControlsContext.Provider>
       </div>

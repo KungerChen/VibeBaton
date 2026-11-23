@@ -83,7 +83,7 @@ export function RightInspector({
   mode, client, graph, selectedNodeId, selectedEdgeId, onUpdateNode, onUpdateEdge,
   trace, stepIndex, onJumpToStep, onToast,
   liveSnapshot, recentRuns, selectedRunId, liveReconnecting, onSelectRunId, onRefreshLiveRun,
-  liveNowSec,
+  liveNowSec, openBattleReportToken,
 }: RightInspectorProps) {
   const { locale, messages } = useI18n();
   const tabs: readonly { id: InspectorTab; label: string }[] = [
@@ -351,6 +351,7 @@ export function RightInspector({
               onSelectRunId={onSelectRunId}
               onRefreshLiveRun={onRefreshLiveRun}
               liveNowSec={liveNowSec}
+              openBattleReportToken={openBattleReportToken}
             />
           </LaunchGraphContext.Provider>
         )}

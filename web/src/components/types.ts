@@ -84,6 +84,7 @@ export interface RightInspectorProps {
   liveReconnecting?: boolean;
   onSelectRunId?: (runId: string) => void;
   onRefreshLiveRun?: () => Promise<void> | void;
+  openBattleReportToken?: number;
 }
 
 export type NodeDoctorProps = {

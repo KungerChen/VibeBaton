@@ -104,6 +104,7 @@ type LiveRunPanelProps = Pick<
   | 'liveReconnecting'
   | 'onSelectRunId'
   | 'onRefreshLiveRun'
+  | 'openBattleReportToken'
 > & { visible: boolean; liveNowSec?: number };
 
 type RunAction = 'pause' | 'resume' | 'approve' | 'reject';
@@ -153,6 +154,7 @@ export function LiveRunPanel({
   onSelectRunId,
   onRefreshLiveRun,
   liveNowSec,
+  openBattleReportToken,
 }: LiveRunPanelProps) {
   const { locale, messages } = useI18n();
   const panelId = useId();
@@ -167,6 +169,7 @@ export function LiveRunPanel({
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const eventLog = useRef<HTMLDivElement>(null);
   const snapshotRevision = useRef(0);
+  const lastReportTokenRef = useRef(0);
 
   const snapshot = hasLiftedState ? (liveSnapshot ?? emptySnapshot) : localSnapshot;
   const reconnecting = hasLiftedState ? Boolean(liveReconnecting) : localReconnecting;
@@ -306,6 +309,17 @@ export function LiveRunPanel({
       setLoadingReport(false);
     }
   }
+
+  const openReportEvent = useEffectEvent(() => {
+    void showReport();
+  });
+
+  useEffect(() => {
+    if (openBattleReportToken && openBattleReportToken > lastReportTokenRef.current) {
+      lastReportTokenRef.current = openBattleReportToken;
+      openReportEvent();
+    }
+  }, [openBattleReportToken]);
 
   async function copyReportMarkdown() {
     if (!report) return;
