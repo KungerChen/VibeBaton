@@ -17,6 +17,20 @@ max_self_heal_attempts = 2
 max_review_rejects = 2
 require_human_approval_at = ["rfc_signoff", "plan_amendment", "final_merge"]
 
+# [notifications]
+# enabled = true
+# desktop_toast = true  # Windows desktop sessions
+# terminal_bell = true  # Interactive terminals
+# webhook_url = ""  # Optional direct override, e.g. https://alerts.example.invalid/webhook/placeholder
+# webhook_url_env = ""  # Set to "BATON_WEBHOOK_URL" for environment or local credential lookup.
+# webhook_format = "auto"  # auto, generic, slack, discord, feishu, wecom, dingtalk
+# webhook_timeout_sec = 5.0
+# on_waiting_human = true
+# on_ready_for_final_gate = true
+# on_failed = true
+# on_paused = true
+# on_long_cooldown_sec = 300  # Set to 0 to disable cooldown alerts.
+
 # ---------------------------------------------------------------------------
 # Providers (CLI command templates + subscription quota cooldown policies)
 # Placeholders available in `command`: {model}, {workdir}, {prompt_file}, {output_file}
