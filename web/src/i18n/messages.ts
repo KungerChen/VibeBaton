@@ -1,9 +1,19 @@
 import type { TourStepId } from '../components/tour/tourSteps';
-import type { BudgetProfile, CostTier, ExecutionState, NodeType, PresetCategory, Scenario, TraceKind } from '../types/graph';
+import type { AttentionCategory, BudgetProfile, CostTier, ExecutionState, NodeType, PresetCategory, Scenario, TraceKind } from '../types/graph';
 
 export type Locale = 'en' | 'zh';
 
 type CredentialKey = 'DEEPSEEK_API_KEY' | 'OPENAI_API_KEY' | 'OPENCODE_API_KEY' | 'ANTHROPIC_API_KEY';
+
+export const ATTENTION_TITLE_KEYS = {
+  waiting_human: 'waitingHuman',
+  ready_for_final_gate: 'readyForFinalGate',
+  failed: 'failed',
+  paused: 'paused',
+  long_cooldown: 'longCooldown',
+} as const satisfies Record<AttentionCategory, string>;
+
+type AttentionTitleKey = (typeof ATTENTION_TITLE_KEYS)[AttentionCategory];
 
 export interface Messages {
   docTitle: string;
@@ -61,6 +71,21 @@ export interface Messages {
   liveClock: {
     live: string;
     liveBadgeLabel: string;
+  };
+  attention: Record<AttentionTitleKey, string> & {
+    humanAttentionRequired: string;
+    approve: string;
+    reject: string;
+    resume: string;
+    viewBattleReport: string;
+    enableDesktopAlerts: string;
+    notificationsEnabled: string;
+    notificationsBlocked: string;
+    dismiss: string;
+    rejectNotePlaceholder: string;
+    fallbackDetails: Record<AttentionCategory, string>;
+    docTitlePrefix: string;
+    badges: Record<AttentionCategory, string>;
   };
   playback: {
     scenarioAria: string;
@@ -406,6 +431,38 @@ export const MESSAGES: Record<Locale, Messages> = {
     liveClock: {
       live: 'LIVE',
       liveBadgeLabel: 'Live timer running',
+    },
+    attention: {
+      humanAttentionRequired: 'Human Attention Required',
+      waitingHuman: 'Human decision required',
+      readyForFinalGate: 'Ready for final gate',
+      failed: 'Run failed',
+      paused: 'Run paused',
+      longCooldown: 'Provider quota cooldown',
+      approve: 'Approve',
+      reject: 'Reject',
+      resume: 'Resume',
+      viewBattleReport: 'View Battle Report',
+      enableDesktopAlerts: 'Enable Desktop Alerts',
+      notificationsEnabled: 'Desktop alerts enabled',
+      notificationsBlocked: 'Desktop alerts blocked',
+      dismiss: 'Dismiss',
+      rejectNotePlaceholder: 'Reason for rejection',
+      fallbackDetails: {
+        waiting_human: 'The run is waiting for a human decision.',
+        ready_for_final_gate: 'All milestones passed and the run is ready for final review.',
+        failed: 'The run stopped because of an error.',
+        paused: 'The run is paused.',
+        long_cooldown: 'A task is waiting for its provider quota to recover.',
+      },
+      docTitlePrefix: '[⚠ ',
+      badges: {
+        waiting_human: 'Human decision',
+        ready_for_final_gate: 'Final gate',
+        failed: 'Failed',
+        paused: 'Paused',
+        long_cooldown: 'Quota cooldown',
+      },
     },
     playback: {
       scenarioAria: 'Scenario',
@@ -882,6 +939,38 @@ export const MESSAGES: Record<Locale, Messages> = {
     liveClock: {
       live: '实时计时',
       liveBadgeLabel: '计时进行中',
+    },
+    attention: {
+      humanAttentionRequired: '需要人工处理',
+      waitingHuman: '等待人工裁决',
+      readyForFinalGate: '待终审合入',
+      failed: '运行失败',
+      paused: '运行已暂停',
+      longCooldown: '供应方配额冷却中',
+      approve: '批准',
+      reject: '拒绝',
+      resume: '恢复运行',
+      viewBattleReport: '查看战报',
+      enableDesktopAlerts: '启用桌面提醒',
+      notificationsEnabled: '桌面提醒已启用',
+      notificationsBlocked: '桌面提醒已被阻止',
+      dismiss: '关闭提醒',
+      rejectNotePlaceholder: '填写拒绝理由',
+      fallbackDetails: {
+        waiting_human: '运行正在等待人工裁决。',
+        ready_for_final_gate: '全部里程碑已通过，等待终审。',
+        failed: '运行因错误而停止。',
+        paused: '运行当前处于暂停状态。',
+        long_cooldown: '任务正在等待供应方配额恢复。',
+      },
+      docTitlePrefix: '[⚠ 提醒 ',
+      badges: {
+        waiting_human: '人工裁决',
+        ready_for_final_gate: '终审',
+        failed: '失败',
+        paused: '暂停',
+        long_cooldown: '配额冷却',
+      },
     },
     playback: {
       scenarioAria: '仿真场景',

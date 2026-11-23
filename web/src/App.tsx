@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { addEdge, useEdgesState, useNodesState, type OnConnect } from '@xyflow/react';
 import { BatonApiClient, type ApiMode } from './api/client';
+import { AttentionBanner } from './components/AttentionBanner';
 import { CanvasWorkspace, updateWorkspaceReadiness } from './components/CanvasWorkspace';
 import { HeaderBar } from './components/HeaderBar';
-import { isLiveSnapshot } from './components/inspector/LiveRunPanel';
+import { isLiveSnapshot, RunControlsContext, useRunControls } from './components/inspector/LiveRunPanel';
 import { LeftSidebar } from './components/LeftSidebar';
 import { PlaybackBar } from './components/PlaybackBar';
 import { QuickStartModal, type QuickStartStepId } from './components/QuickStartModal';
@@ -25,6 +26,13 @@ import type { EdgePatch, NodePatch } from './components/types';
 import { ToastHost, useToasts } from './components/ui/Toast';
 import { findPreset, flagship_4tier, starter_2tier } from './data/presets';
 import { getStage1ReplayTrace } from './data/stage1Replay';
+import {
+  buildAlertFingerprint,
+  deriveAttentionAlert,
+  dispatchBrowserNotification,
+  formatAttentionDocumentTitle,
+  playAttentionChime,
+} from './engine/attentionAlerts';
 import { flowToGraph, graphToFlow } from './engine/flowAdapter';
 import { isRunStatusActive, useLiveClock } from './engine/liveClock';
 import { buildLiveRunGraph, deriveLiveRoleStates, projectLiveRunCanvas } from './engine/liveRunGraph';
@@ -32,7 +40,7 @@ import { deriveStates, stepIntervalMs } from './engine/playback';
 import { buildShareUrl, decodeRecipeHash, encodeRecipeHash } from './engine/shareUrl';
 import { I18nProvider, useI18n } from './i18n';
 import { translatePresetText } from './i18n/presets';
-import { ThemeProvider } from './theme';
+import { ThemeProvider, useTheme } from './theme';
 import type {
   BudgetProfile,
   GraphTraceEvent,
@@ -81,6 +89,21 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function wasPausedByRejection(snapshot: LiveRunSnapshot | null): boolean {
+  const run = snapshot?.run;
+  if (run?.status !== 'PAUSED' || typeof run.human_decision !== 'string') return false;
+  try {
+    const decision = JSON.parse(run.human_decision) as { decision?: unknown; at?: unknown } | null;
+    if (decision?.decision !== 'reject' || typeof decision.at !== 'number') return false;
+    // The decision and the event recording it both update the run timestamp.
+    const lastEvent = snapshot?.events.at(-1);
+    return decision.at === run.updated_at
+      || (lastEvent?.kind === 'human_decision' && lastEvent.created_at === run.updated_at);
+  } catch {
+    return false;
+  }
+}
+
 function newWorkflowNode(type: NodeType, nodes: WorkflowNode[], defaultLabel?: string): WorkflowNode {
   const idPrefix = type.replace('_node', '');
   const label = defaultLabel ?? idPrefix;
@@ -103,6 +126,7 @@ function newWorkflowNode(type: NodeType, nodes: WorkflowNode[], defaultLabel?: s
 
 function AppContent() {
   const { locale, messages } = useI18n();
+  const { soundEnabled, soundVolume } = useTheme();
   const panes: readonly { id: WorkspacePane; label: string }[] = [
     { id: 'canvas', label: messages.tabs.canvas },
     { id: 'sidebar', label: messages.tabs.sidebar },
@@ -152,6 +176,19 @@ function AppContent() {
     trace: GraphTraceEvent[];
   } | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<LiveRunSnapshot | null>(null);
+  const attentionAlert = useMemo(() => deriveAttentionAlert(liveSnapshot), [liveSnapshot]);
+  const run = liveSnapshot?.run;
+  const runId = typeof run?.run_id === 'string' ? run.run_id : typeof run?.id === 'string' ? run.id : null;
+  const fingerprint = buildAlertFingerprint(runId, attentionAlert);
+  const [dismissedFingerprint, setDismissedFingerprint] = useState<string | null>(null);
+  const announcedFingerprints = useRef(new Set<string>());
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(
+    () => typeof window === 'undefined' ? 'unsupported' : (window.Notification?.permission ?? 'unsupported'),
+  );
+  // Rejecting a decision pauses the run and resolves the attention episode in the same update.
+  const visibleFingerprint = dismissedFingerprint !== fingerprint && !wasPausedByRejection(liveSnapshot) ? fingerprint : null;
+  const visibleAttentionAlert = visibleFingerprint ? attentionAlert : null;
+  const baseTitle = messages.docTitle;
   const isSelectedRunActive = isRunStatusActive(liveSnapshot?.run?.status);
   const liveNowSec = useLiveClock(isSelectedRunActive, liveSnapshot?.telemetry?.server_now);
   const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
@@ -165,6 +202,7 @@ function AppContent() {
   const [liveViewActive, setLiveViewActive] = useState(false);
   const lastLiveCanvasRef = useRef<{ runId: string | null; signature: string } | null>(null);
   const { toasts, push } = useToasts();
+  const runControls = useRunControls(client, onRefreshLiveRun, push);
 
   const graph = useMemo(() => flowToGraph(baseGraph, nodes, edges), [baseGraph, nodes, edges]);
   // Only workflow changes invalidate playback. Layout edits still go into exports.
@@ -184,6 +222,37 @@ function AppContent() {
   const stepIndex = Math.min(playback.stepIndex, trace.length);
   const playing = playback.playing && trace.length > 0;
   const resetPlayback = useCallback(() => setPlayback(initialPlayback), []);
+
+  useEffect(() => {
+    setDismissedFingerprint(null);
+  }, [fingerprint]);
+
+  const announceAttention = useEffectEvent((episode: string) => {
+    if (!visibleAttentionAlert || announcedFingerprints.current.has(episode)) return;
+    announcedFingerprints.current.add(episode);
+    dispatchBrowserNotification(visibleAttentionAlert, locale, notificationPermission, window.Notification);
+    playAttentionChime(visibleAttentionAlert.category, soundEnabled, soundVolume);
+  });
+
+  const updateAttentionTitle = useEffectEvent((tickOdd: boolean) => {
+    document.title = formatAttentionDocumentTitle(baseTitle, visibleAttentionAlert, locale, tickOdd);
+  });
+
+  useEffect(() => {
+    if (!visibleFingerprint) return;
+    announceAttention(visibleFingerprint);
+    let tickOdd = true;
+    const tick = () => {
+      updateAttentionTitle(tickOdd);
+      tickOdd = !tickOdd;
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => {
+      window.clearInterval(timer);
+      document.title = baseTitle;
+    };
+  }, [baseTitle, visibleFingerprint]);
 
   useEffect(() => {
     writePaneWidths(paneWidths);
@@ -529,6 +598,19 @@ function AppContent() {
     }
   }
 
+  function onAttentionRunAction(action: 'approve' | 'reject' | 'resume', note?: string) {
+    if (runId) void runControls.changeRun(runId, action, note);
+  }
+
+  async function onEnableNotifications() {
+    if (typeof window.Notification === 'undefined') return;
+    try {
+      setNotificationPermission(await window.Notification.requestPermission());
+    } catch (error) {
+      push(errorMessage(error), 'err');
+    }
+  }
+
   async function onSelectPreset(id: string) {
     const request = ++latestPresetRequest.current;
     try {
@@ -762,6 +844,20 @@ function AppContent() {
         graphName={graph.name}
         onOpenGuide={() => setGuideOpen(true)}
       />
+      <AttentionBanner
+        key={visibleFingerprint}
+        alert={visibleAttentionAlert}
+        runId={runId}
+        locale={locale}
+        notificationPermission={notificationPermission}
+        busy={runControls.busy}
+        onApprove={() => onAttentionRunAction('approve')}
+        onReject={(note) => onAttentionRunAction('reject', note)}
+        onResume={() => onAttentionRunAction('resume')}
+        onOpenBattleReport={() => onRequirePane('inspector', 'live')}
+        onEnableNotifications={() => void onEnableNotifications()}
+        onDismiss={() => setDismissedFingerprint(fingerprint)}
+      />
       <nav className="app-tabs tabs" aria-label={messages.tabs.ariaLabel}>
         {panes.map(({ id, label }) => (
           <button
@@ -847,26 +943,28 @@ function AppContent() {
         onChange={(inspector) => setPaneWidths((current) => ({ ...current, inspector }))}
       />
       <div className="app-pane app-pane--inspector" id="workspace-inspector" data-active={pane === 'inspector'}>
-        <RightInspector
-          mode={mode ?? 'demo'}
-          client={client}
-          graph={graph}
-          selectedNodeId={selection.nodeId}
-          selectedEdgeId={selection.edgeId}
-          onUpdateNode={onUpdateNode}
-          onUpdateEdge={onUpdateEdge}
-          trace={trace}
-          stepIndex={stepIndex}
-          onJumpToStep={onJumpToStep}
-          onToast={push}
-          liveSnapshot={liveSnapshot}
-          liveNowSec={liveNowSec}
-          recentRuns={recentRuns}
-          selectedRunId={selectedRunId}
-          liveReconnecting={liveReconnecting}
-          onSelectRunId={(id) => void onSelectRunId(id)}
-          onRefreshLiveRun={onRefreshLiveRun}
-        />
+        <RunControlsContext.Provider value={runControls}>
+          <RightInspector
+            mode={mode ?? 'demo'}
+            client={client}
+            graph={graph}
+            selectedNodeId={selection.nodeId}
+            selectedEdgeId={selection.edgeId}
+            onUpdateNode={onUpdateNode}
+            onUpdateEdge={onUpdateEdge}
+            trace={trace}
+            stepIndex={stepIndex}
+            onJumpToStep={onJumpToStep}
+            onToast={push}
+            liveSnapshot={liveSnapshot}
+            liveNowSec={liveNowSec}
+            recentRuns={recentRuns}
+            selectedRunId={selectedRunId}
+            liveReconnecting={liveReconnecting}
+            onSelectRunId={(id) => void onSelectRunId(id)}
+            onRefreshLiveRun={onRefreshLiveRun}
+          />
+        </RunControlsContext.Provider>
       </div>
       <QuickStartModal
         open={guideOpen}

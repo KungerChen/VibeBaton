@@ -136,3 +136,44 @@ describe('liveEvents i18n', () => {
     });
   });
 });
+
+describe('human_attention_required', () => {
+  const kind = 'human_attention_required';
+
+  test('localizes the event kind and uses the category badge and supplied title', () => {
+    const payload = { category: 'waiting_human', title: 'Resolve the merge blocker' };
+    const detail = 'Task M1-T1 exhausted its merge attempts.';
+
+    expect(translateEventKind(kind, 'en')).toBe('Human Attention Required');
+    expect(translateEventKind(kind, 'zh')).toBe('需要人工处理');
+    expect(formatLiveEventMessage(kind, detail, 'en', payload)).toEqual({
+      summary: 'Human decision · Resolve the merge blocker',
+      rawDetail: detail,
+    });
+    expect(formatLiveEventMessage(kind, detail, 'zh', JSON.stringify(payload))).toEqual({
+      summary: '人工裁决 · Resolve the merge blocker',
+      rawDetail: detail,
+    });
+  });
+
+  test.each([
+    ['waiting_human', 'Human decision · Human decision required', '人工裁决 · 等待人工裁决'],
+    ['ready_for_final_gate', 'Final gate · Ready for final gate', '终审 · 待终审合入'],
+    ['failed', 'Failed · Run failed', '失败 · 运行失败'],
+    ['paused', 'Paused · Run paused', '暂停 · 运行已暂停'],
+    ['long_cooldown', 'Quota cooldown · Provider quota cooldown', '配额冷却 · 供应方配额冷却中'],
+  ])('uses localized fallback copy for %s', (category, en, zh) => {
+    const payload = { category, title: ' ' };
+    expect(formatLiveEventMessage(kind, '', 'en', payload)).toEqual({ summary: en });
+    expect(formatLiveEventMessage(kind, '', 'zh', payload)).toEqual({ summary: zh });
+  });
+
+  test.each([undefined, '{', { category: 'constructor' }])('uses a generic label for unusable payload %j', (payload) => {
+    const detail = 'Review the latest run events.';
+    expect(formatLiveEventMessage(kind, '', 'en', payload)).toEqual({ summary: 'Human Attention Required' });
+    expect(formatLiveEventMessage(kind, detail, 'zh', payload)).toEqual({
+      summary: '需要人工处理',
+      rawDetail: detail,
+    });
+  });
+});

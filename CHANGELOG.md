@@ -157,3 +157,22 @@ isolation, and turnkey Windows installation.
 - The live-run inspector uses expandable task cards to show gate, review, and whitelist details.
 - Active clocks on the canvas, live-run card, and inspector update once a second. Historical runs
   display their recorded durations.
+
+## [v1.0.2] - 2026-11-22
+
+### Added
+
+- **Human attention notifications**: a new optional `[notifications]` config table plus a
+  pure-stdlib `AttentionNotifier`. It delivers alerts to Feishu (`feishu`), WeCom (`wecom`),
+  DingTalk (`dingtalk`), Slack (`slack`), Discord (`discord`), or any generic (`generic`) webhook,
+  raises a Windows toast, and rings the terminal bell.
+- Structured `human_attention_required` events and `telemetry.attention` coverage across six
+  attention states: `waiting_human`, `ready_for_final_gate`, `failed`, `paused`, `long_cooldown`,
+  and `test`.
+- `baton notify-test` sends a test attention event and prints one row per notification channel,
+  with webhook URLs masked in the output.
+
+### Changed
+
+- The Web Studio now shows an `AttentionBanner` for live attention events, with browser
+  notification, tab flash, and an audio chime, localized with full `EN | 中文` parity.
