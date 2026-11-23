@@ -3,6 +3,8 @@ import { BatonApiClient } from '../api/client';
 import { claude_only_3tier, findPreset } from '../data/presets';
 import { flagship_4tier } from '../data/presets/flagship_4tier';
 import type {
+  AttentionCategory,
+  AttentionSeverity,
   BillingTelemetry,
   BudgetProfile,
   CostTier,
@@ -16,6 +18,7 @@ import type {
   PresetItem,
   ProviderHealthSummary,
   RfcReadinessResult,
+  RunAttentionState,
   RunTelemetry,
   StageTelemetry,
   TaskTiming,
@@ -214,6 +217,42 @@ test('run snapshots preserve the optional live timing fields across JSON parsing
     server_now?: number;
     task_timings?: Record<string, TaskTiming>;
   }>();
+});
+
+test('run telemetry may omit attention or explicitly clear it', () => {
+  expectTypeOf<Pick<RunTelemetry, 'attention'>>().toEqualTypeOf<{
+    attention?: RunAttentionState | null;
+  }>();
+  const telemetry = { elapsed_sec: 20, stages: [], models: [], attention: null } satisfies RunTelemetry;
+  expect(telemetry.attention).toBeNull();
+});
+
+test('run telemetry accepts a complete attention state from a live snapshot', async () => {
+  expectTypeOf<AttentionSeverity>().toEqualTypeOf<'warning' | 'error' | 'info'>();
+  expectTypeOf<AttentionCategory>()
+    .toEqualTypeOf<'waiting_human' | 'ready_for_final_gate' | 'failed' | 'paused' | 'long_cooldown'>();
+  expectTypeOf<RunAttentionState['created_at']>().toEqualTypeOf<string | number | null>();
+  const attention = {
+    category: 'waiting_human',
+    severity: 'warning',
+    title: 'Human decision required',
+    message: 'Review the unresolved task.',
+    action_hint: 'Review and resolve the blocker in Studio.',
+    milestone_id: 'M1',
+    task_id: 'M1-T1',
+    created_at: 120.125,
+  } satisfies RunAttentionState;
+  const fixture = {
+    run: { id: 'run-1', status: 'WAITING_HUMAN' },
+    milestones: [], tasks: [], events: [], quotas: [],
+    telemetry: { elapsed_sec: 20, stages: [], models: [], attention },
+  } satisfies LiveRunSnapshot;
+  const client = new BatonApiClient('', async () => Response.json(fixture));
+  client.mode = 'local';
+
+  const snapshot = await client.getRun('run-1');
+
+  expect(snapshot.telemetry?.attention).toEqual(attention);
 });
 
 test('the Claude Golden preset resolves by id', () => {

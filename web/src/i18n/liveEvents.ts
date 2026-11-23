@@ -1,4 +1,5 @@
-import { MESSAGES, type Locale } from './messages';
+import type { AttentionCategory } from '../types/graph';
+import { ATTENTION_TITLE_KEYS, MESSAGES, type Locale } from './messages';
 import { translateRole } from './presets';
 
 const CJK_REGEX = /[\u4e00-\u9fff]/;
@@ -83,6 +84,7 @@ function isMergeConflictEventKind(kind: string): kind is MergeConflictEventKind 
 
 export function translateEventKind(kind: string, locale: Locale): string {
   if (isMergeConflictEventKind(kind)) return MESSAGES[locale].inspector.mergeConflictEventKinds[kind];
+  if (kind === 'human_attention_required') return MESSAGES[locale].attention.humanAttentionRequired;
   const entry = EVENT_KIND_LABELS[kind];
   if (entry) return entry[locale];
   return locale === 'en' ? kind.replace(/_/g, ' ') : kind;
@@ -93,7 +95,7 @@ export function translateTier(tier: string, locale: Locale): string {
   return entry ? entry[locale] : tier;
 }
 
-function readConflictPayload(payload: unknown): Record<string, unknown> {
+function readEventPayload(payload: unknown): Record<string, unknown> {
   let data = payload;
   if (typeof data === 'string') {
     try {
@@ -113,7 +115,7 @@ function formatMergeConflictMessage(
   locale: Locale,
   payload: unknown,
 ): FormattedLiveEvent {
-  const { conflicted_files, source_branch, target_branch, reason } = readConflictPayload(payload);
+  const { conflicted_files, source_branch, target_branch, reason } = readEventPayload(payload);
   const parts = [MESSAGES[locale].inspector.mergeConflictEventKinds[kind]];
 
   if (Array.isArray(conflicted_files)) {
@@ -136,7 +138,22 @@ function formatMergeConflictMessage(
   return { summary: parts.join(' · '), ...(message ? { rawDetail: message } : {}) };
 }
 
-/** Conflict events accept a decoded payload or the snapshot's payload_json string. */
+function formatAttentionMessage(message: string, locale: Locale, payload: unknown): FormattedLiveEvent {
+  const { category, title } = readEventPayload(payload);
+  const attention = MESSAGES[locale].attention;
+  const knownCategory = typeof category === 'string' && Object.hasOwn(ATTENTION_TITLE_KEYS, category)
+    ? category as AttentionCategory
+    : null;
+  const badge = knownCategory ? attention.badges[knownCategory] : attention.humanAttentionRequired;
+  const fallbackTitle = knownCategory ? attention[ATTENTION_TITLE_KEYS[knownCategory]] : '';
+  const payloadTitle = typeof title === 'string' ? title.trim() : '';
+  return {
+    summary: [badge, payloadTitle || fallbackTitle].filter(Boolean).join(' · '),
+    ...(message ? { rawDetail: message } : {}),
+  };
+}
+
+/** Structured events accept a decoded payload or the snapshot's payload_json string. */
 export function formatLiveEventMessage(
   kind: string,
   rawMessage: string,
@@ -146,6 +163,9 @@ export function formatLiveEventMessage(
   const trimmed = rawMessage.trim();
   if (isMergeConflictEventKind(kind)) {
     return formatMergeConflictMessage(kind, trimmed, locale, payload);
+  }
+  if (kind === 'human_attention_required') {
+    return formatAttentionMessage(trimmed, locale, payload);
   }
   if (!trimmed) {
     const fallback = FALLBACK_SUMMARY_BY_KIND[kind]?.[locale];

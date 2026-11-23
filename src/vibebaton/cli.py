@@ -5,18 +5,22 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import shutil
 import subprocess
 import sys
 import webbrowser
+from dataclasses import replace
 from pathlib import Path
 
 from . import __version__
 from .cli_runner import check_provider_binary, run_provider_cli
-from .config import HotReloadConfig, find_config_path
+from .config import HotReloadConfig, find_config_path, parse_config_dict
+from .credentials import default_credentials_path
 from .db import StateStore
 from .engine import OrchestrationEngine
 from .mcp_server import VibeBatonMCPServer, _spawn_detached_daemon
+from .notifier import AttentionEvent, AttentionNotifier, mask_webhook_url
 from .report import generate_battle_report
 
 
@@ -416,6 +420,80 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
     return 0
 
 
+_NOTIFY_TEST_DEFAULT_MESSAGE = "This is a test notification from VibeBaton."
+_NOTIFY_CHANNEL_LABELS = {
+    "webhook": "webhook",
+    "desktop_toast": "toast",
+    "terminal_bell": "bell",
+}
+# Only explicitly enabled channels can fail the command. Default toast/bell
+# failures stay visible in their FAIL rows but do not change the exit code.
+_FATAL_NOTIFY_CHANNELS = frozenset({"webhook"})
+_WEBHOOK_URL_RE = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+
+
+def _masked_detail(detail: str) -> str:
+    """Keep channel details free of webhook URL paths and query strings."""
+    return _WEBHOOK_URL_RE.sub(lambda match: mask_webhook_url(match.group(0)), detail)
+
+
+def run_notify_test(args: argparse.Namespace, notifier: AttentionNotifier | None = None) -> int:
+    """Send a test attention event and print one row per notification channel."""
+    if args.webhook_url is not None and mask_webhook_url(args.webhook_url) == "***":
+        print("Error: --webhook-url must be a valid HTTP(S) URL.", file=sys.stderr)
+        return 1
+
+    repo = Path(args.repo).resolve()
+    try:
+        cfg_path = find_config_path(repo, explicit=Path(args.config) if args.config else None)
+        settings = HotReloadConfig(cfg_path).current.notifications
+    except FileNotFoundError:
+        settings = parse_config_dict({}).notifications
+
+    if args.webhook_url is not None:
+        settings = replace(settings, webhook_url=args.webhook_url)
+
+    event = AttentionEvent(
+        run_id="notify-test",
+        category="test",
+        severity="info",
+        title="VibeBaton notification test",
+        message=args.message or _NOTIFY_TEST_DEFAULT_MESSAGE,
+        action_hint="No action required",
+    )
+
+    notifier = (
+        notifier
+        if notifier is not None
+        else AttentionNotifier(credentials_path=default_credentials_path())
+    )
+    result = notifier.notify(event, settings)
+
+    channels = list(result.channels)
+    if args.webhook_url is not None and not any(
+        channel["channel"] == "webhook" for channel in channels
+    ):
+        reason = result.skipped_reason or "not attempted"
+        if not reason.startswith("skipped:"):
+            reason = f"skipped: {reason}"
+        channels.append({"channel": "webhook", "ok": True, "detail": reason})
+
+    failed = False
+    for channel in channels:
+        label = _NOTIFY_CHANNEL_LABELS.get(channel["channel"], channel["channel"])
+        detail = _masked_detail(channel["detail"])
+        if not channel["ok"]:
+            status = "FAIL"
+            failed = failed or channel["channel"] in _FATAL_NOTIFY_CHANNELS
+        elif detail.startswith("skipped:"):
+            status = "SKIP"
+        else:
+            status = "OK"
+        print(f"{status:<4} {label}  {detail}")
+
+    return 1 if failed else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="baton",
@@ -522,6 +600,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--force", action="store_true", help="Overwrite existing sandbox files"
     )
     p_sandbox_init.set_defaults(func=cmd_sandbox)
+
+    # No help= summary: the top-level command listing is a tested CLI contract.
+    p_notify = sub.add_parser("notify-test")
+    p_notify.add_argument("--repo", default=".", help="Target repository path")
+    p_notify.add_argument("--config", default=None, help="Explicit configuration file path")
+    p_notify.add_argument(
+        "--webhook-url", default=None, help="Test this webhook URL instead of the configured one"
+    )
+    p_notify.add_argument("--message", default=None, help="Message body for the test notification")
+    p_notify.set_defaults(func=run_notify_test)
 
     return parser
 

@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 
 ALLOWED_BUDGET_PROFILES = ("eco", "balanced", "max_quality")
+_WEBHOOK_FORMATS = ("auto", "generic", "slack", "discord", "feishu", "wecom", "dingtalk")
 _DYNAMIC_EFFORTS = ("low", "high", "max")
 CostTier = Literal["eco", "standard", "flagship"]
 
@@ -46,6 +47,27 @@ class PolicySettings:
     budget_profile: str = "balanced"
     auto_resolve_merge_conflicts: bool = True
     max_conflict_resolve_attempts: int = 1
+
+
+@dataclass
+class NotificationSettings:
+    enabled: bool = True
+    desktop_toast: bool = True
+    terminal_bell: bool = True
+    webhook_url: str = field(default="", repr=False)
+    webhook_url_env: str = ""
+    webhook_format: str = "auto"
+    webhook_timeout_sec: float = 5.0
+    on_waiting_human: bool = True
+    on_ready_for_final_gate: bool = True
+    on_failed: bool = True
+    on_paused: bool = True
+    on_long_cooldown_sec: int = 300
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.webhook_format, str) or self.webhook_format not in _WEBHOOK_FORMATS:
+            allowed = ", ".join(_WEBHOOK_FORMATS)
+            raise ValueError(f"Invalid notifications.webhook_format. Expected one of {allowed}.")
 
 
 @dataclass
@@ -103,6 +125,7 @@ class BatonConfig:
     providers: dict[str, ProviderConfig]
     roles: dict[str, RoleConfig]
     source_path: Path | None = None
+    notifications: NotificationSettings = field(default_factory=NotificationSettings)
 
     def resolve_role_name(self, preferred: str, *fallbacks: str) -> str:
         """Return the first configured role in preference order."""
@@ -261,6 +284,30 @@ def parse_config_dict(raw: dict[str, Any], source_path: Path | None = None) -> B
         ),
     )
 
+    n_raw = raw.get("notifications", {})
+    if not isinstance(n_raw, Mapping):
+        raise ValueError("Invalid notifications. Expected a table.")
+    notifications = NotificationSettings(
+        enabled=bool(n_raw.get("enabled", NotificationSettings.enabled)),
+        desktop_toast=bool(n_raw.get("desktop_toast", NotificationSettings.desktop_toast)),
+        terminal_bell=bool(n_raw.get("terminal_bell", NotificationSettings.terminal_bell)),
+        webhook_url=str(n_raw.get("webhook_url", NotificationSettings.webhook_url)),
+        webhook_url_env=str(n_raw.get("webhook_url_env", NotificationSettings.webhook_url_env)),
+        webhook_format=n_raw.get("webhook_format", NotificationSettings.webhook_format),
+        webhook_timeout_sec=float(
+            n_raw.get("webhook_timeout_sec", NotificationSettings.webhook_timeout_sec)
+        ),
+        on_waiting_human=bool(n_raw.get("on_waiting_human", NotificationSettings.on_waiting_human)),
+        on_ready_for_final_gate=bool(
+            n_raw.get("on_ready_for_final_gate", NotificationSettings.on_ready_for_final_gate)
+        ),
+        on_failed=bool(n_raw.get("on_failed", NotificationSettings.on_failed)),
+        on_paused=bool(n_raw.get("on_paused", NotificationSettings.on_paused)),
+        on_long_cooldown_sec=int(
+            n_raw.get("on_long_cooldown_sec", NotificationSettings.on_long_cooldown_sec)
+        ),
+    )
+
     providers: dict[str, ProviderConfig] = {}
     for name, item in raw.get("providers", {}).items():
         providers[name] = ProviderConfig(
@@ -310,6 +357,7 @@ def parse_config_dict(raw: dict[str, Any], source_path: Path | None = None) -> B
         providers=providers,
         roles=roles,
         source_path=source_path,
+        notifications=notifications,
     )
 
 

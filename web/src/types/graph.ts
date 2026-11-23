@@ -254,6 +254,20 @@ export interface TaskTiming {
   is_active: boolean;
 }
 
+export type AttentionSeverity = 'warning' | 'error' | 'info';
+export type AttentionCategory = 'waiting_human' | 'ready_for_final_gate' | 'failed' | 'paused' | 'long_cooldown';
+
+export interface RunAttentionState {
+  category: AttentionCategory;
+  severity: AttentionSeverity;
+  title: string;
+  message: string;
+  action_hint: string;
+  milestone_id: string | null;
+  task_id: string | null;
+  created_at: string | number | null;
+}
+
 export interface RunTelemetry {
   elapsed_sec: number;
   stages: StageTelemetry[];
@@ -267,6 +281,7 @@ export interface RunTelemetry {
   /** Unix timestamp in seconds when the server computed this snapshot. */
   server_now?: number;
   task_timings?: Record<string, TaskTiming>;
+  attention?: RunAttentionState | null;
 }
 
 export interface LiveRunSnapshot {

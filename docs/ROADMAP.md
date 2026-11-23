@@ -65,3 +65,11 @@
 1. 左侧栏和右检查器支持鼠标与键盘调整宽度，并记住用户设置。可展开的任务卡集中显示门禁、审校和路径白名单详情。
 2. 实时遥测提供服务端时间与阶段、模型和任务的计时锚点。画布、实时运行卡与检查器的活动计时每秒刷新，历史运行显示记录值。
 3. 双语聚光导览从快速开始或详细教程启动。带运行记录的本地模式走七步，离线演示走六步。内置教程提供三幅随主题切换的 SVG 图，独立教程提供接力流程和工作树守卫的 Mermaid 图。[教程](TUTORIAL.md)
+
+---
+
+## ✅ Stage 4.6 · `v1.0.2` — Explicit Overnight Notifications & Attention Alerts（已正式发布：2026-11-22）
+
+1. 新增 `[notifications]` 配置表与纯标准库 `AttentionNotifier`：支持飞书、企业微信、钉钉、Slack、Discord 与通用 Webhook，并提供 Windows 桌面通知和终端响铃。
+2. 结构化 `human_attention_required` 事件与 `telemetry.attention`，覆盖 `waiting_human` / `ready_for_final_gate` / `failed` / `paused` / `long_cooldown` / `test` 六种注意力状态；`baton notify-test` 可逐通道自检。
+3. Web Studio 新增 `AttentionBanner`，支持浏览器通知、标签页闪烁与提示音，并保持 `EN | 中文` 双语一致。

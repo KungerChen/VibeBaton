@@ -1,5 +1,5 @@
 import { ChevronRight } from 'lucide-react';
-import { useEffect, useEffectEvent, useId, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useEffectEvent, useId, useRef, useState } from 'react';
 import { computeLiveSeconds, formatDurationSec, isRunStatusActive } from '../../engine/liveClock';
 import { useI18n } from '../../i18n';
 import { formatLiveEventMessage, translateEventKind, translateTier } from '../../i18n/liveEvents';
@@ -108,6 +108,40 @@ type LiveRunPanelProps = Pick<
 
 type RunAction = 'pause' | 'resume' | 'approve' | 'reject';
 
+export function useRunControls(
+  client: LiveRunPanelProps['client'],
+  refresh: () => Promise<void>,
+  onToast: LiveRunPanelProps['onToast'],
+) {
+  const inFlight = useRef(false);
+  const [busy, setBusy] = useState(false);
+
+  async function changeRun(runId: string, action: RunAction, note = ''): Promise<boolean> {
+    if (inFlight.current) return false;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      if (action === 'pause' || action === 'resume') {
+        await client.controlRun(runId, action);
+      } else {
+        await client.resolveRun(runId, action, note);
+      }
+      await refresh();
+      return true;
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error), 'err');
+      return false;
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+
+  return { busy, changeRun };
+}
+
+export const RunControlsContext = createContext<ReturnType<typeof useRunControls> | null>(null);
+
 export function LiveRunPanel({
   client,
   onToast,
@@ -129,7 +163,6 @@ export function LiveRunPanel({
   const [report, setReport] = useState<{ runId: string; lang: Locale; markdown: string } | null>(null);
   const [reportRawMode, setReportRawMode] = useState(false);
   const [loadingReport, setLoadingReport] = useState(false);
-  const [controlling, setControlling] = useState(false);
   const [note, setNote] = useState<{ runId: string; text: string } | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const eventLog = useRef<HTMLDivElement>(null);
@@ -141,6 +174,10 @@ export function LiveRunPanel({
   const runId = typeof snapshot.run?.id === 'string' ? snapshot.run.id : undefined;
   const status = display(snapshot.run?.status, 'UNKNOWN');
   const telemetry = snapshot.telemetry ?? null;
+  const attention = telemetry?.attention;
+  const attentionDetail = attention
+    ? attention.message.trim() || messages.attention.fallbackDetails[attention.category]
+    : undefined;
   const serverNow = telemetry?.server_now;
   const isActive = isRunStatusActive(snapshot.run?.status) && liveNowSec !== undefined && Number.isFinite(serverNow);
   const now = liveNowSec ?? 0;
@@ -253,6 +290,9 @@ export function LiveRunPanel({
     }
   }
 
+  const localControls = useRunControls(client, refreshActiveRun, onToast);
+  const { busy: controlling, changeRun: submitRunAction } = useContext(RunControlsContext) ?? localControls;
+
   async function showReport() {
     if (!runId || loadingReport) return;
     setLoadingReport(true);
@@ -278,20 +318,10 @@ export function LiveRunPanel({
   }
 
   async function changeRun(action: RunAction) {
-    if (!runId || controlling) return;
-    setControlling(true);
-    try {
-      if (action === 'pause' || action === 'resume') {
-        await client.controlRun(runId, action);
-      } else {
-        await client.resolveRun(runId, action, note?.runId === runId ? note.text : '');
-        setNote(null);
-      }
-      await refreshActiveRun();
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : String(error), 'err');
-    } finally {
-      setControlling(false);
+    if (!runId) return;
+    const changed = await submitRunAction(runId, action, note?.runId === runId ? note.text : '');
+    if (changed && (action === 'approve' || action === 'reject')) {
+      setNote((current) => current?.runId === runId ? null : current);
     }
   }
 
@@ -361,6 +391,12 @@ export function LiveRunPanel({
               {runId}
             </code>
           </div>
+          {attention && (
+            <p className="m-0 min-w-0 truncate text-xs text-muted-foreground" title={attentionDetail}>
+              <strong className="font-semibold text-text-strong">{messages.attention.badges[attention.category]}</strong>
+              {' · '}{attentionDetail}
+            </p>
+          )}
 
           {(status === 'RUNNING' || status === 'PAUSED') && (
             <div className="flex flex-wrap items-center gap-2">
