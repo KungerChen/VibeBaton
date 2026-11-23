@@ -477,7 +477,7 @@ export function SandboxGuardDiagram() {
         />
         <SvgLabel
           x={252}
-          y={134}
+          y={128}
           lines={splitLabel(copy.whitelistRevert, 14)}
           fill="var(--foreground)"
         />
@@ -540,7 +540,7 @@ export function SandboxGuardDiagram() {
         <DiagramArrow x1={428} y1={84} x2={466} y2={84} markerId="sandbox-arrowhead" />
 
         <path
-          d="M 198 124 C 286 176, 368 170, 436 148"
+          d="M 198 134 C 248 184, 368 184, 436 154"
           fill="none"
           stroke="var(--amber)"
           strokeWidth="1.8"
@@ -550,14 +550,14 @@ export function SandboxGuardDiagram() {
         />
         <circle
           cx={444}
-          cy={148}
+          cy={154}
           r={8}
           fill="var(--card)"
           stroke="var(--amber)"
           strokeWidth="1.5"
         />
         <path
-          d="M 440 144 L 448 152 M 448 144 L 440 152"
+          d="M 440 150 L 448 158 M 448 150 L 440 158"
           stroke="var(--amber)"
           strokeWidth="1.5"
           strokeLinecap="round"
