@@ -1,0 +1,302 @@
+.transfer-import-body,
+.transfer-export-recipe-content,
+.transfer-export-case-body {
+  display: grid;
+  gap: 1rem;
+}
+
+.transfer-import-drop {
+  height: auto;
+  min-height: 4.5rem;
+  padding: 0.875rem 1rem;
+  border-style: dashed;
+  border-color: var(--border-strong);
+  border-radius: 0.75rem;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.45;
+}
+
+.transfer-import-paste {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.transfer-import-textarea {
+  font-family: var(--font-mono, monospace);
+  resize: vertical;
+}
+
+.transfer-import-preview {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.transfer-import-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.transfer-import-name {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 0.9375rem;
+  font-weight: 650;
+}
+
+.transfer-import-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+.transfer-import-metrics dt {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.transfer-import-metrics dd {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.transfer-import-error,
+.transfer-import-errors,
+.transfer-import-warnings {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.transfer-import-error,
+.transfer-import-errors {
+  color: var(--rose);
+}
+
+.transfer-import-errors,
+.transfer-import-warnings {
+  padding-inline-start: 1.125rem;
+  list-style: disc;
+}
+
+.transfer-import-warnings,
+.transfer-import-overwrite {
+  color: var(--amber);
+}
+
+.transfer-import-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--border);
+}
+
+.transfer-import-overwrite {
+  display: flex;
+  flex: 1 1 14rem;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.transfer-import-overwrite svg {
+  flex: none;
+}
+
+.transfer-export-recipe-content {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.transfer-export-recipe-summary {
+  display: grid;
+  justify-items: start;
+  gap: 0.375rem;
+}
+
+.transfer-export-recipe-name {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1.125rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.transfer-export-recipe-counts {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+.transfer-export-recipe-assurance {
+  max-width: 100%;
+  margin-top: 0.25rem;
+  white-space: normal;
+}
+
+.transfer-export-recipe-advisory {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  background: var(--sky-soft);
+}
+
+.transfer-export-recipe-advisory-text {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.transfer-export-recipe-details {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  background: var(--muted);
+}
+
+.transfer-export-recipe-toggle {
+  padding: 0.625rem 0.75rem;
+  border-radius: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.transfer-export-recipe-preview {
+  max-height: min(16rem, 40vh);
+  margin: 0;
+  overflow: auto;
+  padding: 0.75rem;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+}
+
+.transfer-export-recipe-actions,
+.transfer-export-case-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.transfer-export-recipe-action,
+.transfer-export-case-action {
+  height: auto;
+  min-height: 2rem;
+  white-space: normal;
+}
+
+.transfer-export-recipe-action {
+  max-width: 100%;
+}
+
+.transfer-export-recipe-status:not(:empty) {
+  margin-top: 0.5rem;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.transfer-export-recipe-clipboard {
+  position: fixed;
+  inset: 0 auto auto 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.transfer-export-recipe-manual-copy {
+  width: 100%;
+  min-height: 4rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--card);
+  color: var(--foreground);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+  resize: vertical;
+}
+
+.transfer-export-case-field,
+.transfer-export-case-options {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.transfer-export-case-option,
+.transfer-export-case-count {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.transfer-export-case-checklist {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--muted);
+}
+
+.transfer-export-case-checklist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.transfer-export-case-checklist-title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.transfer-export-case-counts {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.transfer-export-case-status,
+.transfer-export-case-error {
+  margin: 0.5rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+.transfer-export-case-error {
+  color: var(--rose);
+}
+
+.transfer-export-case-action {
+  flex: 1 1 auto;
+}

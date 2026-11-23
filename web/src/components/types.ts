@@ -13,6 +13,7 @@ import type {
   WorkflowGraph,
 } from '../types/graph';
 import type { DoctorTargets, ModelPinFields } from './nodes/readiness';
+import type { TransferModalKind } from './RecipeTransferModals';
 
 export interface LeftSidebarProps {
   presets: PresetItem[];
@@ -22,9 +23,8 @@ export interface LeftSidebarProps {
   currentGraphId: string;
   onSelectPreset(id: string): void;
   onAddNode(type: NodeType): void;
-  onImportGraph(graph: WorkflowGraph): void;
-  onExport(): void;
-  onShare?: () => void;
+  onOpenTransfer(kind: TransferModalKind): void;
+  caseExportAvailable: boolean;
   validation: GraphValidationResult | null;
   liveSnapshot?: LiveRunSnapshot | null;
   /** Workspace clock in epoch seconds. */
@@ -38,6 +38,15 @@ export interface PlaybackBarProps {
   onScenarioChange(s: Scenario): void;
   replayActive?: boolean;
   onToggleReplay?: () => void;
+  activeCaseId: string;
+  activeCaseTitle: string;
+  isCustomCaseActive: boolean;
+  replayCaseLabel: string;
+  savedCases: Array<{ case_id: string; title: string }>;
+  summaryPill?: string | null;
+  onSelectReplayCase(caseId: string): void;
+  onImportCaseRequest(): void;
+  onResetTutorialCase(): void;
   playing: boolean;
   onPlayPause(): void;
   onStep(): void;

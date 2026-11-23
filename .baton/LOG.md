@@ -15,6 +15,45 @@
 | [20261122-100548-m2-live-canvas](#20261122-100548-m2-live-canvas) | 2026-11-22 | M2 实时快照保留画布位置和选中状态 | 已自测，待用户验收 |
 | [20261122-101917-m2-task-clock-anchor](#20261122-101917-m2-task-clock-anchor) | 2026-11-22 | M2 任务计时按在途调用推进 | 已自测，待用户验收 |
 | [20261122-215213-m2-dsh-report-gate](#20261122-215213-m2-dsh-report-gate) | 2026-11-22 | M2 全量门禁的 DSH 战报断言修复 | 已自测，待用户验收 |
+| [20261123-005315-m1-case-export-redaction](#20261123-005315-m1-case-export-redaction) | 2026-11-23 | M1 案例导出的 Slack 令牌与 Windows 路径脱敏 | 已自测，待用户验收 |
+| [20261123-021321-m2-windows-gate-quoting](#20261123-021321-m2-windows-gate-quoting) | 2026-11-23 | M2 Golden Case 门禁的 Windows 引号修复 | 已自测，待用户验收 |
+| [20261123-022625-m2-gate-plan-amendment](#20261123-022625-m2-gate-plan-amendment) | 2026-11-23 | M2 宿主计划的 Golden Case 门禁修订 | 已自测，待宿主复审和用户验收 |
+
+## 20261123-022625-m2-gate-plan-amendment
+
+2026-11-23 02:26:25 PST。M2 第二轮复审修复第三条机械门禁。起始工作树干净，分支为 `baton/fc2591/ms-m2-r2`，基准提交为 `b4236e7`。
+
+- 宿主的 `src/vibebaton/gates.py` 从工作树外加载。用该执行器重放已保存的第三条门禁，仍在 `python -c` 的 `import` 处触发同一处 `SyntaxError`，退出 1。宿主在每次执行开始时加载运行计划，工作树内上一轮的命令兼容修复已通过原命令回归。
+- `.baton/00_RFC.md` 给出 M2 第三条门禁的具名 unittest 命令。它使用原 Golden Case fixture 运行 Python 图校验，并核对实际导出数据。`tests/test_gates.py` 新增真实 Windows shell 回归，验证该命令能运行指定测试并返回 0，无需执行器重写。门禁和案例导出专项共 41 项通过。
+- 将运行计划复制到 `%TEMP%\vibebaton-m2-r2-fc2591-l_jsvp7b\01_PLAN.dag.json`，只替换 M2 的 `gate_commands[2]`，并用 `PlanDAG.from_dict` 核对其余字段。原计划加工作树执行器、修订计划加宿主执行器，两套各三条门禁全部通过。前端专项 92 项，全量 510 项，`tsc --noEmit` 退出 0，Python Golden Case 校验通过。证据位于同目录的 `worktree-original-workspace.log` 和 `host-corrected-workspace.log`。
+- 共享依赖的 Vite 缓存写入受沙箱限制，`%TEMP%` 下的源码副本又遇到 esbuild 目录读取错误。最终在工作树内的隔离源码与依赖副本运行两套原始 shell 命令，验证后已清理副本。
+- 宿主复审需将修订加载到 `run-20261122-232618-fc2591/01_PLAN.dag.json` 对应的 M2 计划后重跑。该运行计划位于工作树写权限之外。已自测，待宿主复审和用户验收。回退参考为 `b4236e7` 与本工作树差异。
+
+## 20261123-021321-m2-windows-gate-quoting
+
+2026-11-23 02:13:21 PST。M2 复审授权修复 Golden Case 图校验门禁。分支为 `baton/fc2591/ms-m2-r1`，起始工作树干净，基准提交为 `dac106e`。
+
+- Windows 运行计划用 `\"` 包住 `python -c` 的程序文本，解释器收到的参数以字面引号开头，在 `import` 处触发 `SyntaxError`。直接执行同一段 Python 后，Golden Case 图通过 `validate_graph`。
+- `src/vibebaton/gates.py` 将 Windows 上形如 `cmd /c "set …&& python -c \"…\""` 的命令交给一层 shell 执行，同时修正 Python 参数定界符。门禁报告保留计划原命令，Python 的退出码与输出继续决定结果。
+- `tests/test_gates.py` 通过真实 `cmd.exe` 运行原 Golden Case 门禁，另用含 `&&` 的 Python 断言验证程序文本、退出码 1 和 `AssertionError` 均完整传递。两项在基线复现失败，修复后通过。
+- 工作树的 `run_gate_suite` 从运行计划读取三条原命令，全部退出 0。前端专项通过 92 项，全量通过 510 项，`tsc --noEmit` 成功，Python 图校验成功。Vite 使用工作树内的依赖副本完成验证，随后恢复原 `node_modules` junction 并清理本轮的依赖副本和构建产物。
+- `python -m unittest discover -s tests -v` 运行 530 项，527 项通过。两项因缺少 Docker CLI 跳过，一项因缺少 Windows 目录符号链接权限跳过。输出位于 `%TEMP%\vibebaton-m2-gate-final-io1axfsv.log`。
+- 宿主的 `run-20261122-232618-fc2591/01_PLAN.dag.json` 位于工作树外。外层编排可加载本轮执行器修复，或在重新加载计划前将 M2 第三条门禁替换为下列已验证命令。回退参考为 `dac106e` 与当前工作树差异。
+
+```cmd
+cmd /c "set PYTHONPATH=src&& set PYTHONUTF8=1&& set VIBEBATON_DISABLE_PRICING_SYNC=1&& python -m unittest tests.test_case_export.CaseExportTests.test_golden_fixture -v"
+```
+
+## 20261123-005315-m1-case-export-redaction
+
+2026-11-23 00:53:15 PST 开始处理 M1 复审列出的两项阻塞。分支为 `baton/fc2591/ms-m1-r1`，起始工作树干净，基准提交为 `b85c151`。
+
+- 基准实现上运行四项回归，出现六处断言失败。合成的 Slack `xapp-` 令牌、正斜杠盘符路径和 UNC 路径均绕过了脱敏与序列化审计。
+- `src/vibebaton/case_export.py` 扩展脱敏与审计共用的规则。Slack 应用令牌替换为 `[REDACTED]`，两种 Windows 路径替换为 `<path>/` 加文件名。带协议的 URL 仍优先按 URL 处理。
+- `tests/test_case_export.py` 的 Golden Example 使用 SQLite 样例运行，核对标题、事件消息、两项替换计数和 `redaction_report.clean`。单元回归验证审计拒绝三种原始样本，路径回归核对 URL 保留原样。
+- 四条指定门禁均退出 0。案例导出专项通过 38 项，Web 与 Graph CLI/MCP 集成通过 75 项，CLI 帮助正常。全量运行 528 项，通过 525 项。两项因缺少 Docker CLI 跳过，一项因缺少 Windows 目录符号链接权限跳过。
+- Web 全栈测试通过回环 HTTP 加载本工作树的 Studio 资源。使用 `npm.cmd run build -- --configLoader runner` 构建以避开共享依赖目录的写入限制。构建报告分块体积告警，验证后已清理生成资源。
+- 集成与全量门禁的输出分别位于 `%TEMP%\vibebaton-m1-case-integration-6da272cd-5344-47f4-a0d9-a54a967f8a55.log` 和 `%TEMP%\vibebaton-m1-case-discovery-af31815c-646c-46b2-9c63-86cd32071583.log`。已自测，待用户验收。回退参考为 `b85c151` 与当前工作树差异。
 
 ## 20261122-215213-m2-dsh-report-gate
 

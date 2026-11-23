@@ -109,3 +109,11 @@ cmd /c "set PYTHONPATH=src&& set PYTHONUTF8=1&& set VIBEBATON_DISABLE_PRICING_SY
 4. `python -m vibebaton --version` outputs `vibebaton 1.0.4` and `python -m vibebaton export-case --help` exits `0`.
 5. Full backend test suite (`python -m unittest discover -s tests -v`) passes with `test_version_consistency.py` and `test_release_collateral.py` green.
 6. Exporting a real run (such as Stage 4.7) via `baton export-case` produces a valid `.baton-case.json` with `redaction_report.clean == true` that imports cleanly into the universal replay player.
+
+### M2 Golden Case Gate
+
+Use this command for the Python graph check in M2's `gate_commands`. The test validates the fixture with `validate_graph` and checks it against the exporter output.
+
+```cmd
+cmd /c "set PYTHONPATH=src&& set PYTHONUTF8=1&& set VIBEBATON_DISABLE_PRICING_SYNC=1&& python -m unittest tests.test_case_export.CaseExportTests.test_golden_fixture -v"
+```

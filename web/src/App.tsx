@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
 import { addEdge, useEdgesState, useNodesState, type OnConnect } from '@xyflow/react';
 import { BatonApiClient, type ApiMode } from './api/client';
 import { AttentionBanner } from './components/AttentionBanner';
@@ -8,6 +8,12 @@ import { isLiveSnapshot, RunControlsContext, useRunControls } from './components
 import { LeftSidebar } from './components/LeftSidebar';
 import { PlaybackBar } from './components/PlaybackBar';
 import { QuickStartModal, type QuickStartStepId } from './components/QuickStartModal';
+import {
+  ExportCaseModal,
+  ExportRecipeModal,
+  ImportTransferModal,
+  type TransferModalKind,
+} from './components/RecipeTransferModals';
 import { RightInspector } from './components/RightInspector';
 import { SplitHandle } from './components/SplitHandle';
 import {
@@ -24,8 +30,7 @@ import { GuidedTourOverlay } from './components/tour/GuidedTourOverlay';
 import { resolveAvailableTourSteps, tourSelector, type TourStep } from './components/tour/tourSteps';
 import type { EdgePatch, NodePatch } from './components/types';
 import { ToastHost, useToasts } from './components/ui/Toast';
-import { findPreset, flagship_4tier, starter_2tier } from './data/presets';
-import { getStage1ReplayTrace } from './data/stage1Replay';
+import { findPreset, starter_2tier } from './data/presets';
 import {
   buildAlertFingerprint,
   deriveAttentionAlert,
@@ -33,15 +38,24 @@ import {
   formatAttentionDocumentTitle,
   playAttentionChime,
 } from './engine/attentionAlerts';
+import {
+  buildOfficialStage1Case,
+  caseSummaryPill,
+  OFFICIAL_STAGE1_CASE_ID,
+  readSavedCases,
+  writeSavedCases,
+} from './engine/caseReplay';
+import { caseReplayReducer, createCaseReplayState } from './engine/caseReplayState';
 import { flowToGraph, graphToFlow } from './engine/flowAdapter';
 import { isRunStatusActive, useLiveClock } from './engine/liveClock';
 import { buildLiveRunGraph, deriveLiveRoleStates, projectLiveRunCanvas } from './engine/liveRunGraph';
 import { deriveStates, stepIntervalMs } from './engine/playback';
-import { buildShareUrl, decodeRecipeHash, encodeRecipeHash } from './engine/shareUrl';
+import { buildShareUrl, decodeRecipeHash } from './engine/shareUrl';
 import { I18nProvider, useI18n } from './i18n';
 import { translatePresetText } from './i18n/presets';
 import { ThemeProvider, useTheme } from './theme';
 import type {
+  BatonCaseBundle,
   BudgetProfile,
   GraphTraceEvent,
   GraphValidationResult,
@@ -56,9 +70,9 @@ import type {
 } from './types/graph';
 
 const starter = graphToFlow(starter_2tier);
+const initialCanvasJson = JSON.stringify(flowToGraph(starter_2tier, starter.nodes, starter.edges));
 const emptySelection: { nodeId: string | null; edgeId: string | null } = { nodeId: null, edgeId: null };
 const emptyTrace: GraphTraceEvent[] = [];
-const initialPlayback = { stepIndex: 0, playing: false };
 const LIVE_EVENT_LIMIT = 200;
 const GUIDE_DISMISSED_KEY = 'vibebaton.quickstartDismissed';
 type WorkspacePane = 'canvas' | 'sidebar' | 'inspector';
@@ -150,9 +164,17 @@ function AppContent() {
   const [paneWidths, setPaneWidths] = useState(readPaneWidths);
   const [canvasKey, setCanvasKey] = useState(0);
   const [scenario, setScenario] = useState<Scenario>('happy_path');
-  const [replayActive, setReplayActive] = useState(false);
-  const replayActiveRef = useRef(false);
-  replayActiveRef.current = replayActive;
+  const [transferModal, setTransferModal] = useState<TransferModalKind>(null);
+  const closeTransfer = useCallback(() => setTransferModal(null), []);
+  const [caseExportRunId, setCaseExportRunId] = useState<string | null>(null);
+  const [caseReplay, dispatchCaseReplay] = useReducer(
+    caseReplayReducer, undefined, () => createCaseReplayState(readSavedCases()),
+  );
+  const { activeCaseId, savedCases, replayActive } = caseReplay;
+  const savedCase = savedCases.find(({ case_id }) => case_id === activeCaseId);
+  const activeCase = useMemo(() => savedCase ?? buildOfficialStage1Case(locale), [savedCase, locale]);
+  const lastSavedCases = useRef(savedCases);
+  const canvasBeforeReplay = useRef<WorkflowGraph | null>(null);
   const pendingAutoPlayRef = useRef(false);
   const [dontShowGuide, setDontShowGuide] = useState<boolean>(() => readGuideDismissed());
   const [guideOpen, setGuideOpen] = useState<boolean>(
@@ -164,7 +186,7 @@ function AppContent() {
     steps: [],
   });
   const [completedGuideSteps, setCompletedGuideSteps] = useState<Set<QuickStartStepId>>(() => new Set());
-  const [playback, setPlayback] = useState(initialPlayback);
+  const [playbackRunning, setPlaybackRunning] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [checkedGraph, setCheckedGraph] = useState<{
     structure: string;
@@ -202,10 +224,18 @@ function AppContent() {
   const [liveReconnecting, setLiveReconnecting] = useState(false);
   const [liveViewActive, setLiveViewActive] = useState(false);
   const lastLiveCanvasRef = useRef<{ runId: string | null; signature: string } | null>(null);
+  const availableCaseRunId = mode === 'local' ? selectedRunId ?? runId ?? recentRuns[0]?.id ?? null : null;
   const { toasts, push } = useToasts();
   const runControls = useRunControls(client, onRefreshLiveRun, push);
 
   const graph = useMemo(() => flowToGraph(baseGraph, nodes, edges), [baseGraph, nodes, edges]);
+  const canvasDirty = transferModal === 'import'
+    && JSON.stringify(canvasBeforeReplay.current ?? graph) !== initialCanvasJson;
+  const isCustomCaseActive = activeCaseId !== OFFICIAL_STAGE1_CASE_ID;
+  const replayCaseLabel = isCustomCaseActive
+    ? `${messages.transfer.playback.startPrefix}${activeCase.title}`
+    : messages.playback.replayButton;
+  const summaryPill = caseSummaryPill(activeCase, locale);
   // Only workflow changes invalidate playback. Layout edits still go into exports.
   const structure = useMemo(() => JSON.stringify({
     ...graph,
@@ -216,13 +246,27 @@ function AppContent() {
   const trace = liveViewActive
     ? emptyTrace
     : replayActive
-      ? getStage1ReplayTrace(locale)
+      ? activeCase.trace
       : simulation?.validation === validation && simulation.scenario === scenario
         ? simulation.trace
         : emptyTrace;
-  const stepIndex = Math.min(playback.stepIndex, trace.length);
-  const playing = playback.playing && trace.length > 0;
-  const resetPlayback = useCallback(() => setPlayback(initialPlayback), []);
+  const stepCount = trace.length;
+  const stepIndex = Math.min(caseReplay.stepIndex, stepCount);
+  const playing = playbackRunning && stepIndex < stepCount;
+  const resetPlayback = useCallback(() => {
+    dispatchCaseReplay({ type: 'set_step', stepIndex: 0 });
+    setPlaybackRunning(false);
+  }, []);
+
+  useEffect(() => {
+    dispatchCaseReplay({ type: 'locale_changed', locale });
+  }, [locale]);
+
+  useEffect(() => {
+    if (lastSavedCases.current === savedCases) return;
+    writeSavedCases(savedCases);
+    lastSavedCases.current = savedCases;
+  }, [savedCases]);
 
   useEffect(() => {
     setDismissedFingerprint(null);
@@ -431,8 +475,7 @@ function AppContent() {
     }
     latestPresetRequest.current += 1;
     setLiveViewActive(false);
-    setReplayActive(false);
-    replaceGraph(decoded.graph);
+    leaveReplay(decoded.graph);
     push(messages.toasts.loadedShared(translatePresetText(decoded.graph.name, locale)));
   });
 
@@ -442,7 +485,8 @@ function AppContent() {
 
   useEffect(() => {
     setSimulation(null);
-    if (!replayActiveRef.current) resetPlayback();
+    if (replayActive) return;
+    resetPlayback();
     if (liveViewActive || !validation?.valid) return;
     let active = true;
     const validGraph = validation;
@@ -454,7 +498,8 @@ function AppContent() {
         setSimulation({ validation: validGraph, scenario, trace: result.trace });
         if (pendingAutoPlayRef.current) {
           pendingAutoPlayRef.current = false;
-          setPlayback({ stepIndex: result.trace.length > 0 ? 1 : 0, playing: result.trace.length > 0 });
+          dispatchCaseReplay({ type: 'set_step', stepIndex: result.trace.length > 0 ? 1 : 0 });
+          setPlaybackRunning(result.trace.length > 0);
         }
       } catch (error) {
         if (active) push(errorMessage(error), 'err');
@@ -463,20 +508,20 @@ function AppContent() {
 
     void simulate();
     return () => { active = false; };
-  }, [client, liveViewActive, push, resetPlayback, scenario, validation]);
+  }, [client, liveViewActive, push, replayActive, resetPlayback, scenario, validation]);
 
-  const stepCount = trace.length;
+  const advancePlayback = useEffectEvent(() => {
+    if (!playing) return;
+    const next = stepIndex + 1;
+    dispatchCaseReplay({ type: 'set_step', stepIndex: next });
+    if (next === stepCount) setPlaybackRunning(false);
+  });
+
   useEffect(() => {
     if (!playing) return;
-    const timer = setInterval(() => {
-      setPlayback((current) => {
-        if (!current.playing) return current;
-        const next = Math.min(current.stepIndex + 1, stepCount);
-        return { stepIndex: next, playing: next < stepCount };
-      });
-    }, stepIntervalMs(speed));
+    const timer = setInterval(() => advancePlayback(), stepIntervalMs(speed));
     return () => clearInterval(timer);
-  }, [playing, speed, stepCount]);
+  }, [canvasKey, playing, speed, stepCount]);
 
   const liveGraphView = useMemo(() => {
     if (!liveViewActive || !liveSnapshot?.run) return null;
@@ -548,14 +593,66 @@ function AppContent() {
     setEdges(flow.edges);
     setSelection(emptySelection);
     setCanvasKey((key) => key + 1);
-    resetPlayback();
+  }
+
+  function leaveReplay(nextGraph = canvasBeforeReplay.current) {
+    canvasBeforeReplay.current = null;
+    pendingAutoPlayRef.current = false;
+    dispatchCaseReplay({ type: 'stop_replay' });
+    setPlaybackRunning(false);
+    if (nextGraph) replaceGraph(nextGraph);
+  }
+
+  function showReplayCase(bundle: BatonCaseBundle) {
+    latestPresetRequest.current += 1;
+    pendingAutoPlayRef.current = false;
+    canvasBeforeReplay.current ??= graph;
+    setLiveViewActive(false);
+    replaceGraph(bundle.graph);
+    setPlaybackRunning(true);
+    setPane('canvas');
+  }
+
+  function handleLoadCase(bundle: BatonCaseBundle) {
+    if (bundle.case_id === OFFICIAL_STAGE1_CASE_ID) {
+      handleSelectReplayCase(OFFICIAL_STAGE1_CASE_ID);
+      return;
+    }
+    showReplayCase(bundle);
+    dispatchCaseReplay({ type: 'load_case', bundle });
+  }
+
+  function handleSelectReplayCase(caseId: string) {
+    const bundle = caseId === OFFICIAL_STAGE1_CASE_ID
+      ? (isCustomCaseActive ? buildOfficialStage1Case(locale) : activeCase)
+      : savedCases.find(({ case_id }) => case_id === caseId);
+    if (!bundle) return;
+    showReplayCase(bundle);
+    dispatchCaseReplay({ type: 'select_case', caseId });
+  }
+
+  function handleResetTutorialCase() {
+    leaveReplay();
+    dispatchCaseReplay({ type: 'reset_tutorial' });
+  }
+
+  function handleOpenCaseExport(targetRunId: string) {
+    setCaseExportRunId(targetRunId);
+    setTransferModal('export-case');
+  }
+
+  function handleOpenTransfer(kind: TransferModalKind) {
+    if (kind === 'export-case') {
+      if (availableCaseRunId) handleOpenCaseExport(availableCaseRunId);
+      return;
+    }
+    setTransferModal(kind);
   }
 
   function onSelectLiveRun() {
     if (!liveSnapshot?.run) return;
     latestPresetRequest.current += 1;
-    setReplayActive(false);
-    resetPlayback();
+    leaveReplay();
     lastLiveCanvasRef.current = null;
     setLiveViewActive(true);
   }
@@ -619,8 +716,7 @@ function AppContent() {
       if (!preset) throw new Error(messages.toasts.unknownPreset(id));
       if (request === latestPresetRequest.current) {
         setLiveViewActive(false);
-        setReplayActive(false);
-        replaceGraph(preset);
+        leaveReplay(preset);
       }
     } catch (error) {
       if (request === latestPresetRequest.current) push(errorMessage(error), 'err');
@@ -643,69 +739,40 @@ function AppContent() {
   }
 
   function onAddNode(type: NodeType) {
-    const node = newWorkflowNode(type, graph.nodes, messages.nodeTypes[type]);
-    const flow = graphToFlow({ ...graph, nodes: [node], edges: [] });
+    const editableGraph = canvasBeforeReplay.current ?? graph;
+    const node = newWorkflowNode(type, editableGraph.nodes, messages.nodeTypes[type]);
+    const nextGraph = { ...editableGraph, nodes: [...editableGraph.nodes, node] };
     setLiveViewActive(false);
-    setReplayActive(false);
-    setBaseGraph({ ...graph, nodes: [...graph.nodes, node] });
+    if (replayActive) {
+      leaveReplay(nextGraph);
+      return;
+    }
+    const flow = graphToFlow({ ...graph, nodes: [node], edges: [] });
+    setBaseGraph(nextGraph);
     setNodes((current) => [...current, ...flow.nodes]);
   }
 
-  function onImportGraph(imported: WorkflowGraph) {
+  function handleApplyRecipe(imported: WorkflowGraph) {
     latestPresetRequest.current += 1;
     setLiveViewActive(false);
-    setReplayActive(false);
-    replaceGraph(imported);
+    leaveReplay(imported);
     push(messages.toasts.imported(translatePresetText(imported.name, locale)));
-  }
-
-  function onExport() {
-    const blob = new Blob([JSON.stringify(graph, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${graph.id}.baton.json`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-
-  async function onShare() {
-    try {
-      const hash = encodeRecipeHash(graph);
-      const url = buildShareUrl(graph, window.location.href);
-      window.history.replaceState(null, '', hash);
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
-        push(messages.toasts.shareCopied);
-      } else {
-        push(messages.toasts.shareUpdatedBar);
-      }
-    } catch (error) {
-      push(errorMessage(error), 'err');
-    }
   }
 
   function onScenarioSelect(nextScenario: Scenario) {
     setLiveViewActive(false);
-    setReplayActive(false);
+    leaveReplay();
     setScenario(nextScenario);
-    resetPlayback();
   }
 
   function onToggleReplay() {
-    setLiveViewActive(false);
     if (replayActive) {
-      setReplayActive(false);
-      resetPlayback();
+      leaveReplay();
       return;
     }
-    latestPresetRequest.current += 1;
-    if (graph.id !== flagship_4tier.id) replaceGraph(flagship_4tier);
-    setReplayActive(true);
-    setPlayback({ stepIndex: 1, playing: true });
-    push(messages.toasts.replayLoaded);
+    showReplayCase(activeCase);
+    dispatchCaseReplay({ type: 'start_replay' });
+    if (!isCustomCaseActive) push(messages.toasts.replayLoaded);
   }
 
   function onUpdateNode(id: string, patch: NodePatch) {
@@ -735,13 +802,13 @@ function AppContent() {
   }, [setEdges]);
 
   function onPlayPause() {
-    setPlayback((current) => current.playing
-      ? { ...current, playing: false }
-      : { stepIndex: current.stepIndex >= stepCount ? 0 : current.stepIndex, playing: true });
+    if (!playing && stepIndex >= stepCount) dispatchCaseReplay({ type: 'set_step', stepIndex: 0 });
+    setPlaybackRunning(!playing && stepCount > 0);
   }
 
   function onJumpToStep(index: number) {
-    setPlayback({ stepIndex: Math.min(Math.max(index, 0), stepCount), playing: false });
+    dispatchCaseReplay({ type: 'set_step', stepIndex: Math.min(Math.max(index, 0), stepCount) });
+    setPlaybackRunning(false);
   }
 
   function onDontShowGuideChange(next: boolean) {
@@ -795,16 +862,17 @@ function AppContent() {
     markGuideStep('starter');
     latestPresetRequest.current += 1;
     setLiveViewActive(false);
-    setReplayActive(false);
     setScenario('happy_path');
     setGuideOpen(false);
-    if (graph.id !== starter_2tier.id) {
+    const editableGraph = canvasBeforeReplay.current ?? graph;
+    if (replayActive || editableGraph.id !== starter_2tier.id) {
+      leaveReplay(editableGraph.id === starter_2tier.id ? editableGraph : starter_2tier);
       pendingAutoPlayRef.current = true;
-      replaceGraph(starter_2tier);
       return;
     }
     if (simulation?.scenario === 'happy_path' && simulation.trace.length > 0) {
-      setPlayback({ stepIndex: 1, playing: true });
+      dispatchCaseReplay({ type: 'set_step', stepIndex: 1 });
+      setPlaybackRunning(true);
     } else {
       pendingAutoPlayRef.current = true;
     }
@@ -813,11 +881,12 @@ function AppContent() {
   function onGuideWatchReplay() {
     markGuideStep('replay');
     setGuideOpen(false);
-    if (!replayActive) {
-      onToggleReplay();
-    } else {
-      setPlayback({ stepIndex: 1, playing: true });
+    if (!replayActive || isCustomCaseActive) {
+      handleSelectReplayCase(OFFICIAL_STAGE1_CASE_ID);
+      push(messages.toasts.replayLoaded);
     }
+    dispatchCaseReplay({ type: 'start_replay' });
+    setPlaybackRunning(true);
   }
 
   function onGuideInspectWorker() {
@@ -885,9 +954,8 @@ function AppContent() {
           currentGraphId={graph.id}
           onSelectPreset={onSelectPreset}
           onAddNode={onAddNode}
-          onImportGraph={onImportGraph}
-          onExport={onExport}
-          onShare={onShare}
+          onOpenTransfer={handleOpenTransfer}
+          caseExportAvailable={availableCaseRunId !== null}
           validation={validation}
           liveSnapshot={liveSnapshot}
           liveNowSec={liveNowSec}
@@ -923,6 +991,15 @@ function AppContent() {
             onScenarioChange={onScenarioSelect}
             replayActive={replayActive}
             onToggleReplay={onToggleReplay}
+            activeCaseId={activeCaseId}
+            activeCaseTitle={activeCase.title}
+            isCustomCaseActive={isCustomCaseActive}
+            replayCaseLabel={replayCaseLabel}
+            savedCases={savedCases.map(({ case_id, title }) => ({ case_id, title }))}
+            summaryPill={summaryPill}
+            onSelectReplayCase={handleSelectReplayCase}
+            onImportCaseRequest={() => handleOpenTransfer('import')}
+            onResetTutorialCase={handleResetTutorialCase}
             playing={playing}
             onPlayPause={onPlayPause}
             onStep={() => onJumpToStep(stepIndex + 1)}
@@ -947,7 +1024,7 @@ function AppContent() {
         onChange={(inspector) => setPaneWidths((current) => ({ ...current, inspector }))}
       />
       <div className="app-pane app-pane--inspector" id="workspace-inspector" data-active={pane === 'inspector'}>
-        <RunControlsContext.Provider value={runControls}>
+        <RunControlsContext.Provider value={{ ...runControls, onOpenCaseExport: handleOpenCaseExport }}>
           <RightInspector
             mode={mode ?? 'demo'}
             client={client}
@@ -981,6 +1058,31 @@ function AppContent() {
         onWatchReplay={onGuideWatchReplay}
         onInspectWorker={onGuideInspectWorker}
         onStartTour={onStartTour}
+      />
+      <ImportTransferModal
+        open={transferModal === 'import'}
+        onClose={closeTransfer}
+        onApplyRecipe={handleApplyRecipe}
+        onLoadCase={handleLoadCase}
+        canvasDirty={canvasDirty}
+      />
+      <ExportRecipeModal
+        open={transferModal === 'export-recipe'}
+        onClose={closeTransfer}
+        graph={graph}
+        liveViewActive={liveViewActive}
+        onSwitchToCaseExport={() => handleOpenTransfer('export-case')}
+        buildShareUrl={(recipe) => buildShareUrl(recipe, window.location.href)}
+        onToast={push}
+      />
+      <ExportCaseModal
+        open={transferModal === 'export-case'}
+        onClose={closeTransfer}
+        client={client}
+        runId={caseExportRunId}
+        defaultTitle={locale === 'zh' ? '运行回放' : 'Run replay'}
+        onPreviewInPlayer={handleLoadCase}
+        onToast={push}
       />
       {tourState.open && (
         <GuidedTourOverlay

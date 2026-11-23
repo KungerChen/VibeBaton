@@ -64,6 +64,8 @@ adding a Python dependency.
 
 ## [v0.9.0-beta] - 2026-11-22
 
+Pre-1.0 feature-complete public beta integrating Recipe Plaza, Smart Allocation, Launch Gate, Live Sync, Bilingual Reports, and Benchmarks after v0.3.0.
+
 The ecosystem beta: approachable recipes, smart allocation, and reproducible benchmarks.
 
 ### Added
@@ -195,3 +197,20 @@ isolation, and turnkey Windows installation.
 ### Changed
 
 - DSH branding is unified across CLI output, Studio labels, battle reports, and documentation.
+
+## [v1.0.4] - 2026-11-22
+
+### Added
+
+- Export sanitized `.baton-case.json` bundles from recorded runs with `baton export-case` or
+  `GET /api/runs/{id}/case-export`. Each bundle includes the replay graph, trace, run metrics,
+  and redaction report.
+- The Studio transfer dialogs preview recipe and case imports, save or share recipes, and show
+  the redaction checklist before a case is shared.
+
+### Changed
+
+- The universal Case Replay Player plays imported and exported run cases alongside the built-in
+  Stage 1 tutorial.
+- Quick Start and the beginner tutorial explain what Recipes and Run Cases contain and how to
+  replay a shared case. [Beginner tutorial](docs/TUTORIAL.md)

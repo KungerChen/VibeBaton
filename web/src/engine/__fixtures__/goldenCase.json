@@ -1,0 +1,234 @@
+{
+  "schema_version": "baton-case/v1",
+  "case_id": "case-d34fcd56467b",
+  "title": "Sanitized Run Case",
+  "summary": "Packaged the sample run from <repo>.",
+  "created_at": "2026-11-22T08:00:00Z",
+  "meta": {
+    "source_run_id": "run-golden",
+    "status": "COMPLETED",
+    "elapsed_sec": 9.0,
+    "milestones_passed": 1,
+    "milestones_total": 1,
+    "tasks_passed": 1,
+    "tasks_total": 1,
+    "gate_catches": 0,
+    "whitelist_catches": 0,
+    "escalations": 0,
+    "models": [
+      {
+        "provider": "DSH",
+        "model": "deepseek-flash"
+      },
+      {
+        "provider": "claude_sub",
+        "model": "plan-default"
+      },
+      {
+        "provider": "claude_sub",
+        "model": "review-default"
+      },
+      {
+        "provider": "host_native",
+        "model": "signoff"
+      }
+    ],
+    "stages": [
+      {
+        "id": "M1",
+        "kind": "milestone",
+        "title": "Prepare the case export",
+        "status": "PASSED",
+        "wall_sec": 4.0,
+        "task_sum_sec": 4.0,
+        "passed_tasks": 1,
+        "total_tasks": 1
+      }
+    ],
+    "billing": {
+      "total_prompt_tokens": 0,
+      "total_completion_tokens": 0,
+      "total_cached_tokens": 0,
+      "total_tokens": 0,
+      "total_cost_usd": null,
+      "has_exact_billing": false
+    }
+  },
+  "redaction_report": {
+    "secrets_redacted": 4,
+    "paths_anonymized": 4,
+    "emails_redacted": 1,
+    "ips_redacted": 1,
+    "raw_diff_stripped": 1,
+    "raw_stack_stripped": 1,
+    "clean": true
+  },
+  "graph": {
+    "schema_version": "1.0",
+    "id": "case-d34fcd56467b",
+    "name": "Run replay",
+    "nodes": [
+      {
+        "id": "l0_planner",
+        "type": "planner_node",
+        "label": "Planner",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "config": {
+          "provider": "claude_sub",
+          "model": "plan-default"
+        }
+      },
+      {
+        "id": "t_M1-T1",
+        "type": "worker_node",
+        "label": "Package the sample report from <home>\\notes.txt",
+        "position": {
+          "x": 260,
+          "y": 0
+        },
+        "config": {
+          "provider": "DSH",
+          "model": "deepseek-flash"
+        }
+      },
+      {
+        "id": "m0_review",
+        "type": "reviewer_node",
+        "label": "Prepare the case export",
+        "position": {
+          "x": 520,
+          "y": 0
+        },
+        "config": {
+          "provider": "claude_sub",
+          "model": "review-default"
+        }
+      },
+      {
+        "id": "l0_final_gate",
+        "type": "human_gate_node",
+        "label": "Final sign-off",
+        "position": {
+          "x": 780,
+          "y": 0
+        },
+        "config": {
+          "provider": "host_native",
+          "model": "signoff"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source": "l0_planner",
+        "target": "t_M1-T1",
+        "sourceHandle": "dag",
+        "targetHandle": "in"
+      },
+      {
+        "id": "e2",
+        "source": "t_M1-T1",
+        "target": "m0_review",
+        "sourceHandle": "out",
+        "targetHandle": "in"
+      },
+      {
+        "id": "e3",
+        "source": "m0_review",
+        "target": "l0_final_gate",
+        "sourceHandle": "pass",
+        "targetHandle": "in"
+      }
+    ],
+    "difficulty": "pro",
+    "description": "",
+    "recommended_for": []
+  },
+  "trace": [
+    {
+      "seq": 1,
+      "timestamp": 1795334401.0,
+      "kind": "node_started",
+      "node_id": "l0_planner",
+      "edge_id": null,
+      "outcome": "info",
+      "message": "Run created in overnight mode"
+    },
+    {
+      "seq": 2,
+      "timestamp": 1795334403.0,
+      "kind": "node_completed",
+      "node_id": "l0_planner",
+      "edge_id": null,
+      "outcome": "passed",
+      "message": "Registered 1 milestone(s) and 1 task(s)"
+    },
+    {
+      "seq": 3,
+      "timestamp": 1795334404.0,
+      "kind": "edge_traversed",
+      "node_id": "l0_planner",
+      "edge_id": "e1",
+      "outcome": "passed",
+      "message": "Planner → Package the sample report from <home>\\notes.txt"
+    },
+    {
+      "seq": 4,
+      "timestamp": 1795334404.0,
+      "kind": "node_started",
+      "node_id": "t_M1-T1",
+      "edge_id": null,
+      "outcome": "info",
+      "message": "Started packaging from <repo> with [REDACTED]."
+    },
+    {
+      "seq": 5,
+      "timestamp": 1795334406.0,
+      "kind": "node_completed",
+      "node_id": "t_M1-T1",
+      "edge_id": null,
+      "outcome": "passed",
+      "message": "Packaged a report for [REDACTED_EMAIL] at [REDACTED_IP] with [REDACTED].\nNotification destination: [REDACTED]\n\n[RAW_DIFF_STRIPPED]\n\n[RAW_STACK_STRIPPED]"
+    },
+    {
+      "seq": 6,
+      "timestamp": 1795334408.0,
+      "kind": "edge_traversed",
+      "node_id": "t_M1-T1",
+      "edge_id": "e2",
+      "outcome": "passed",
+      "message": "Package the sample report from <home>\\notes.txt → Prepare the case export"
+    },
+    {
+      "seq": 7,
+      "timestamp": 1795334408.0,
+      "kind": "node_completed",
+      "node_id": "m0_review",
+      "edge_id": null,
+      "outcome": "passed",
+      "message": "Reviewed the sample report with [REDACTED]."
+    },
+    {
+      "seq": 8,
+      "timestamp": 1795334409.0,
+      "kind": "edge_traversed",
+      "node_id": "m0_review",
+      "edge_id": "e3",
+      "outcome": "passed",
+      "message": "Prepare the case export → Final sign-off"
+    },
+    {
+      "seq": 9,
+      "timestamp": 1795334409.0,
+      "kind": "graph_completed",
+      "node_id": "l0_final_gate",
+      "edge_id": null,
+      "outcome": "passed",
+      "message": "Run status COMPLETED"
+    }
+  ]
+}

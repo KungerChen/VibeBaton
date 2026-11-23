@@ -1,7 +1,9 @@
 import { DEMO_ROLES_CONFIG, demoProviderHealth } from '../data/demoConfig';
 import { PRESET_REGISTRY, findPreset, presetToItem } from '../data/presets';
+import { buildOfficialStage1Case, parseAndValidateCaseBundle } from '../engine/caseReplay';
 import { simulateGraph, validateGraph } from '../engine/localSimulator';
 import type {
+  BatonCaseBundle,
   BudgetConfigResponse,
   BudgetProfile,
   CredentialStatus,
@@ -337,6 +339,27 @@ export class BatonApiClient {
       `/api/runs/${encodeURIComponent(id)}/report${query}`,
     );
     return battle_report_markdown;
+  }
+
+  async exportRunCase(
+    runId: string,
+    options: { title?: string; includeReviews?: boolean; anonymize?: boolean } = {},
+  ): Promise<BatonCaseBundle> {
+    let raw: unknown;
+    if (this.mode === 'demo') {
+      const bundle = buildOfficialStage1Case('en');
+      raw = { ...bundle, title: options.title ?? bundle.title };
+    } else {
+      const query = new URLSearchParams();
+      if (options.title !== undefined) query.set('title', options.title);
+      query.set('include_reviews', options.includeReviews === false ? '0' : '1');
+      query.set('anonymize', options.anonymize ? '1' : '0');
+      raw = await this.requestJson<unknown>(`/api/runs/${encodeURIComponent(runId)}/case-export?${query}`);
+    }
+
+    const result = parseAndValidateCaseBundle(raw);
+    if (!result.ok) throw new ApiError(502, result.errors.join(' '));
+    return result.bundle;
   }
 
   startRun(payload: {

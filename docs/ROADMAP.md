@@ -82,3 +82,13 @@
 2. **全 CLI JSON / JSONL 用量与成本采集**：Claude、Codex、DSH / OpenCode 等外部 CLI 的 token 用量与 `cost_usd` 统一进入遥测与双语战报。
 3. **Studio API Pricing 弹窗**：查看解析后的费率与来源、触发官方价格同步、编辑或重置自定义费率，保持 `EN | 中文` 双语一致。
 4. **DSH 品牌统一**：CLI、Studio、战报与文档中的展示名统一为 `DSH`。
+
+---
+
+## ✅ Stage 4.8 · v1.0.4 — Intuitive Recipe Backup/Share, Sanitized Case Export & Universal Case Replay（已正式发布：2026-11-22）
+
+1. **左侧「配方与案例分享（Save, Import & Share）」专区**：用一句话区分配方（`.baton.json`，保存工作流图与模型路由，不含运行记录）与运行案例（`.baton-case.json`，脱敏后的图 + 轨迹 + 元数据 + 脱敏报告），并提供导入、导出配方、导出案例三张动作卡。配方会把当前工作流图原样序列化，节点标题、配置等自定义内容会一并带出，分享前可用「预览 JSON」检查是否含本机路径或密钥。
+2. **四层脱敏案例导出**：密钥、主机路径与用户名、邮箱与内网 IP、原始 diff 与堆栈四层清洗，附可核验的 `redaction_report`（含 `clean` 标志）；新增 `baton export-case --repo . --run-id <id>` 命令与 `GET /api/runs/{id}/case-export` 接口。
+3. **通用案例回放播放器**：顶部中央播放条默认显示「示范教程：一期真跑」，载入社区分享的案例后切换为「▶ 开始回放：<案例名>」，支持案例切换、导入其他案例与返回示范教程；画布、粒子流、节点状态与右侧轨迹联动。
+4. **导入自动识别与预览确认**：文件选择、拖拽或粘贴 `.baton.json` / `.baton-case.json` / `#recipe=` 链接后自动识别类型，先展示节点数、连线数与结构校验徽章；运行案例还会显示耗时、任务数与脱敏状态徽章，再确认应用或回放，避免误覆盖画布。
+5. **文档与双语一致性**：`docs/TUTORIAL.md` 新增「配方分享与案例回放」章节；`QuickStartModal` 的一期真跑步骤明确指引用案例回放；`EN | 中文` 文案与 `v1.0.4` 版本元数据同步更新。

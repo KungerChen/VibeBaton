@@ -250,3 +250,101 @@ test('renders a telemetry attention line above the task accordion when present',
   expect(panel).toContain('aria-expanded="false"');
   expect(renderPanel(null)).not.toContain(attention.message);
 });
+
+const shareCaseSnapshot: LiveRunSnapshot = {
+  run: { id: 'run-shared', status: 'COMPLETED' },
+  milestones: [],
+  tasks: [],
+  events: [],
+  quotas: [],
+};
+
+test('renders Share Case beside Battle Report only when a case export handler is provided', () => {
+  const client = new BatonApiClient();
+  const renderPanel = (onOpenCaseExport?: (runId: string) => void) => renderToStaticMarkup(createElement(LiveRunPanel, {
+    client,
+    visible: true,
+    liveSnapshot: shareCaseSnapshot,
+    onSelectRunId: () => {},
+    onToast: () => {},
+    onOpenCaseExport,
+  }));
+
+  expect(renderPanel(() => {})).toMatch(/Battle Report<\/button>\s*<button\b[^>]*>Share Case<\/button>/);
+  expect(renderPanel()).not.toContain('Share Case');
+});
+
+test('forwards the selected run id when Share Case is clicked', async () => {
+  const onOpenCaseExport = vi.fn<(runId: string) => void>();
+  const { container, click } = createPanelContainer();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('window', {
+    HTMLIFrameElement: class HTMLIFrameElement {},
+    localStorage: { getItem: () => 'en' },
+  });
+  const root = createRoot(container as unknown as HTMLElement);
+
+  try {
+    await act(async () => root.render(createElement(I18nProvider, {
+      children: createElement(LiveRunPanel, {
+        client: new BatonApiClient(),
+        visible: true,
+        liveSnapshot: shareCaseSnapshot,
+        onSelectRunId: () => {},
+        onToast: () => {},
+        onOpenCaseExport,
+      }),
+    })));
+
+    const shareCase = container.find('button', 'Share Case');
+    assert(shareCase, 'Missing Share Case button');
+    await act(async () => click(shareCase));
+
+    expect(onOpenCaseExport).toHaveBeenCalledOnce();
+    expect(onOpenCaseExport).toHaveBeenCalledWith('run-shared');
+  } finally {
+    try {
+      act(() => root.unmount());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+});
+
+test('forwards the newly selected run id while the previous snapshot is still displayed', async () => {
+  const onOpenCaseExport = vi.fn<(runId: string) => void>();
+  const { container, click } = createPanelContainer();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('window', {
+    HTMLIFrameElement: class HTMLIFrameElement {},
+    localStorage: { getItem: () => 'en' },
+  });
+  const root = createRoot(container as unknown as HTMLElement);
+
+  try {
+    await act(async () => root.render(createElement(I18nProvider, {
+      children: createElement(LiveRunPanel, {
+        client: new BatonApiClient(),
+        visible: true,
+        liveSnapshot: shareCaseSnapshot,
+        selectedRunId: 'run-selected',
+        onSelectRunId: () => {},
+        onToast: () => {},
+        onOpenCaseExport,
+      }),
+    })));
+
+    const shareCase = container.find('button', 'Share Case');
+    assert(shareCase, 'Missing Share Case button');
+    await act(async () => click(shareCase));
+
+    expect(onOpenCaseExport).toHaveBeenCalledOnce();
+    expect(onOpenCaseExport).toHaveBeenCalledWith('run-selected');
+  } finally {
+    try {
+      act(() => root.unmount());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+});
