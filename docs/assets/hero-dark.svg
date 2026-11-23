@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-labelledby="hero-title hero-description">
   <title id="hero-title">VibeBaton (baton)</title>
-  <desc id="hero-description">Pass the baton. Ship the milestone. The orchestrator that built itself. A glowing baton travels from L0 Architect to L1 Planner, L2/L3 Workers, Mechanical Gate, and Merge &amp; Case.</desc>
+  <desc id="hero-description">Pass the baton. Ship the milestone. Multi-model coding relay: RFC to plan to agents to tests to sign-off. A glowing baton travels from You · RFC to Planner, Coding Agents, Test &amp; Lint Gate, and Sign-Off · Merge.</desc>
   <defs>
     <clipPath id="hero-frame">
       <rect x="1" y="1" width="1278" height="398" rx="25"/>
@@ -77,11 +77,11 @@
   </g>
   <rect x=".5" y=".5" width="1279" height="399" rx="25" fill="none" stroke="#30363d"/>
 
-  <text x="70" y="113" fill="url(#hero-wordmark)" font-size="94" font-weight="800" letter-spacing="-4">VibeBaton</text>
-  <rect x="548" y="78" width="91" height="34" rx="9" fill="#152638" stroke="#355a77"/>
-  <text x="593.5" y="101" fill="#a5defc" font-size="17" font-weight="600" text-anchor="middle" class="cli">baton</text>
-  <text x="75" y="173" fill="#f0f6fc" font-size="31" font-weight="700">Pass the baton. Ship the milestone.</text>
-  <text x="76" y="207" fill="#aebed1" font-size="21" font-weight="500">The orchestrator that built itself.</text>
+  <text x="70" y="113" fill="url(#hero-wordmark)" font-size="94" font-weight="800" letter-spacing="-4" textLength="470" lengthAdjust="spacingAndGlyphs">VibeBaton</text>
+  <rect x="560" y="78" width="91" height="34" rx="9" fill="#152638" stroke="#355a77"/>
+  <text x="605.5" y="101" fill="#a5defc" font-size="17" font-weight="600" text-anchor="middle" class="cli">baton</text>
+  <text x="72" y="173" fill="#f0f6fc" font-size="31" font-weight="700">Pass the baton. Ship the milestone.</text>
+  <text x="72" y="207" fill="#aebed1" font-size="22" font-weight="500">Multi-model coding relay: RFC → plan → agents → tests → sign-off</text>
 
   <rect x="56.5" y="228.5" width="1167" height="144" rx="18" fill="#101925" stroke="#25354a"/>
   <g fill="none" stroke-linecap="round">
@@ -140,17 +140,17 @@
       <path d="M2-11v6h6M-4 2l3 3 5-5"/>
     </g>
   </g>
-  <g fill="#f0f6fc" font-size="21" font-weight="650" text-anchor="middle">
-    <text x="160" y="352">L0 Architect</text>
-    <text x="400" y="352">L1 Planner</text>
-    <text x="640" y="352">L2/L3 Workers</text>
-    <text x="880" y="352">Mechanical Gate</text>
-    <text x="1120" y="352" fill="#75efbb">Merge &amp; Case</text>
+  <g fill="#f0f6fc" font-size="22.5" font-weight="650" text-anchor="middle">
+    <text x="160" y="352">You · RFC</text>
+    <text x="400" y="352">Planner</text>
+    <text x="640" y="352">Coding Agents</text>
+    <text x="880" y="352">Test &amp; Lint Gate</text>
+    <text x="1120" y="352" fill="#75efbb" font-weight="700">Sign-Off · Merge</text>
   </g>
 
   <g class="baton-motion" opacity="0">
-    <animateMotion path="M160 276H204C276 276 286 296 366 296H434C514 296 526 270 604 270H676C754 270 766 296 846 296H914C994 296 1004 276 1076 276H1120" rotate="auto" dur="5s" repeatCount="indefinite"/>
-    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.06;.94;1" dur="5s" repeatCount="indefinite"/>
+    <animateMotion path="M160 276H204C276 276 286 296 366 296H434C514 296 526 270 604 270H676C754 270 766 296 846 296H914C994 296 1004 276 1076 276H1120" rotate="auto" dur="7.5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.06;.94;1" dur="7.5s" repeatCount="indefinite"/>
     <rect x="-18" y="-6" width="36" height="12" rx="6" fill="#5fcfff" filter="url(#hero-baton-halo)"/>
     <rect x="-14" y="-3.5" width="28" height="7" rx="3.5" fill="url(#hero-baton)" stroke="#dcfffb" stroke-width="1"/>
   </g>

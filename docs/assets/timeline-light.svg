@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="260" viewBox="0 0 1280 260" role="img" aria-labelledby="timeline-title timeline-description">
   <title id="timeline-title">VibeBaton self-hosting timeline</title>
-  <desc id="timeline-description">Nine tagged releases, from the v0.1-seed standard-library core to v1.0.4 sanitized case replay with 15 of 15 tasks, $22.50 in run costs, and 1,068 passing tests.</desc>
+  <desc id="timeline-description">Nine tagged releases from Nov 21 to Nov 22, 2026, from the v0.1-seed standard-library core to v1.0.4 sanitized case replay, built with VibeBaton.</desc>
   <defs>
     <linearGradient id="timeline-rail" gradientUnits="userSpaceOnUse" x1="102" y1="130" x2="1032" y2="130">
       <stop stop-color="#245eb6"/>
@@ -36,60 +36,63 @@
     <circle cx="102" cy="130" r="13" fill="#ffffff" stroke="#245eb6" stroke-width="2.3"/>
     <circle cx="102" cy="130" r="4.5" fill="#245eb6"/>
     <text x="102" y="83" fill="#245eb6" font-size="20" class="tag">v0.1-seed</text>
-    <text x="102" y="183" fill="#152638" font-size="19" font-weight="650">stdlib seed</text>
+    <text x="102" y="178" fill="#152638" font-size="18" font-weight="650">stdlib core</text>
+    <text x="102" y="203" fill="#435a70" font-size="15.5" font-weight="560">Day 0 · 6 tests</text>
   </g>
   <g transform="translate(233 0)" text-anchor="middle">
     <path d="M0 113V122" stroke="#c3d3e4" stroke-width="1.25"/>
     <circle cy="130" r="8" fill="#ffffff" stroke="#245eb6" stroke-width="2"/>
     <circle cy="130" r="2.6" fill="#245eb6"/>
     <text y="52" fill="#152638" font-size="22" class="tag">v0.2.0</text>
-    <text y="79" fill="#435a70" font-size="18" font-weight="560">Node graph</text>
-    <text y="105" fill="#435a70" font-size="18" font-weight="560">107m</text>
+    <text y="79" fill="#435a70" font-size="18" font-weight="560">Node engine</text>
+    <text y="105" fill="#435a70" font-size="18" font-weight="560">107m · 9/9</text>
   </g>
   <g transform="translate(350 0)" text-anchor="middle">
-    <path d="M0 138V157" stroke="#c3d3e4" stroke-width="1.25"/>
+    <path d="M0 138V152" stroke="#c3d3e4" stroke-width="1.25"/>
     <circle cy="130" r="8" fill="#ffffff" stroke="#5748b6" stroke-width="2"/>
     <circle cy="130" r="2.6" fill="#5748b6"/>
-    <text y="182" fill="#152638" font-size="22" class="tag">v0.3.0</text>
-    <text y="209" fill="#435a70" font-size="18" font-weight="560">Web Studio</text>
-    <text y="235" fill="#435a70" font-size="18" font-weight="560">247 tests</text>
+    <text y="174" fill="#152638" font-size="22" class="tag">v0.3.0</text>
+    <text y="200" fill="#435a70" font-size="18" font-weight="560">Web Studio</text>
+    <text y="224" fill="#435a70" font-size="18" font-weight="560">247 tests</text>
   </g>
   <g transform="translate(467 0)" text-anchor="middle">
     <path d="M0 113V122" stroke="#c3d3e4" stroke-width="1.25"/>
     <circle cy="130" r="8" fill="#ffffff" stroke="#5748b6" stroke-width="2"/>
     <circle cy="130" r="2.6" fill="#5748b6"/>
     <text y="52" fill="#152638" font-size="22" class="tag">v0.9.0-beta</text>
-    <text y="79" fill="#435a70" font-size="18" font-weight="560">Smart Allocation</text>
-    <text y="105" fill="#435a70" font-size="18" font-weight="560">&amp; Plaza</text>
+    <text y="79" fill="#435a70" font-size="18" font-weight="560">Recipe Plaza</text>
+    <text y="105" fill="#435a70" font-size="18" font-weight="560">&amp; allocation</text>
   </g>
   <g transform="translate(584 0)" text-anchor="middle">
-    <path d="M0 138V157" stroke="#c3d3e4" stroke-width="1.25"/>
+    <path d="M0 138V152" stroke="#c3d3e4" stroke-width="1.25"/>
     <circle cy="130" r="8" fill="#ffffff" stroke="#087c9f" stroke-width="2"/>
     <circle cy="130" r="2.6" fill="#087c9f"/>
-    <text y="182" fill="#152638" font-size="22" class="tag">v1.0.0</text>
-    <text y="209" fill="#435a70" font-size="18" font-weight="560">HTTP · Auto-Conflict</text>
-    <text y="235" fill="#435a70" font-size="18" font-weight="560">&amp; Sandbox</text>
+    <text y="174" fill="#152638" font-size="22" class="tag">v1.0.0</text>
+    <text y="200" fill="#435a70" font-size="18" font-weight="560">HTTP · Sandbox</text>
+    <text y="224" fill="#435a70" font-size="18" font-weight="560">&amp; auto-merge</text>
   </g>
   <g transform="translate(701 0)" text-anchor="middle">
     <path d="M0 113V122" stroke="#c3d3e4" stroke-width="1.25"/>
     <circle cy="130" r="8" fill="#ffffff" stroke="#087c9f" stroke-width="2"/>
     <circle cy="130" r="2.6" fill="#087c9f"/>
     <text y="52" fill="#152638" font-size="22" class="tag">v1.0.1</text>
-    <text y="79" fill="#435a70" font-size="18" font-weight="560">UX &amp; Guided Tour</text>
+    <text y="79" fill="#435a70" font-size="18" font-weight="560">Split panes</text>
+    <text y="105" fill="#435a70" font-size="18" font-weight="560">&amp; tour</text>
   </g>
   <g transform="translate(818 0)" text-anchor="middle">
-    <path d="M0 138V157" stroke="#c3d3e4" stroke-width="1.25"/>
+    <path d="M0 138V152" stroke="#c3d3e4" stroke-width="1.25"/>
     <circle cy="130" r="8" fill="#ffffff" stroke="#0f7280" stroke-width="2"/>
     <circle cy="130" r="2.6" fill="#0f7280"/>
-    <text y="182" fill="#152638" font-size="22" class="tag">v1.0.2</text>
-    <text y="209" fill="#435a70" font-size="18" font-weight="560">Overnight Alerts</text>
+    <text y="174" fill="#152638" font-size="22" class="tag">v1.0.2</text>
+    <text y="200" fill="#435a70" font-size="18" font-weight="560">Overnight</text>
+    <text y="224" fill="#435a70" font-size="18" font-weight="560">alerts</text>
   </g>
   <g transform="translate(935 0)" text-anchor="middle">
     <path d="M0 113V122" stroke="#c3d3e4" stroke-width="1.25"/>
     <circle cy="130" r="8" fill="#ffffff" stroke="#0f7280" stroke-width="2"/>
     <circle cy="130" r="2.6" fill="#0f7280"/>
     <text y="52" fill="#152638" font-size="22" class="tag">v1.0.3</text>
-    <text y="79" fill="#435a70" font-size="18" font-weight="560">3-Tier Pricing</text>
+    <text y="79" fill="#435a70" font-size="18" font-weight="560">3-tier pricing</text>
     <text y="105" fill="#435a70" font-size="18" font-weight="560">&amp; DSH</text>
   </g>
   <circle cx="1032" cy="130" r="37" fill="url(#timeline-halo)"/>
@@ -101,8 +104,9 @@
   <text x="1062" y="103" fill="#152638" font-size="22" font-weight="700">Sanitized Case</text>
   <text x="1062" y="134" fill="#152638" font-size="22" font-weight="700">&amp; Replay</text>
   <path d="M1062 148H1221" stroke="#82c6b1" stroke-opacity=".68"/>
-  <g fill="#086850" font-size="18" font-weight="650">
-    <text x="1062" y="177">15/15 tasks · $22.50</text>
-    <text x="1062" y="204">1,068 tests</text>
+  <g fill="#086850" font-size="17" font-weight="650">
+    <text x="1062" y="177">9 tagged releases</text>
+    <text x="1062" y="204">built with VibeBaton</text>
   </g>
+  <text x="640" y="246" fill="#576c82" font-size="12.5" font-weight="500" text-anchor="middle">Nov 21 – 22, 2026 · 9 tagged releases on main</text>
 </svg>
