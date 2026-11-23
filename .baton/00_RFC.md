@@ -1,139 +1,111 @@
-# Master RFC: Stage 4.7 (v1.0.3) — DSH Naming Unification, All-CLI Token Usage Extraction & Daily Official API Pricing Engine
+# Master RFC: Stage 4.8 (v1.0.4) — Intuitive Recipe Backup/Share, Sanitized Run Case Export (.baton-case.json) & Universal Case Replay Player
 
 ## Goals
 
-Align VibeBaton telemetry, presets, Studio UI labels, CLI execution runners, and billing math with real-world usage:
+Make workflow sharing intuitive and transform VibeBaton into a shareable, privacy-safe replay player for real multi-agent development runs:
 
-1. **Unify User-Facing Runner Branding (`DeepSeek API` → `DSH`)**:
-   - Replace user-facing references to `"DeepSeek API"` that represent the `dsh_opencode` / DeepSeek Harness (`dsh`) CLI runner with **`"DSH"`** across backend display mapping, battle reports, live event formatters, presets, Stage 1 replay trace, Studio UI copy, documentation, and tests (while keeping internal provider config ID `dsh_opencode` and direct OpenAI-compatible HTTP provider examples backward compatible).
+1. **Intuitive Recipe Backup & Share UX (`LeftSidebar`, `RecipeTransferModals`)**:
+   - Replace bare technical `Import .baton.json / Export JSON / Share Link` buttons with clear plain-language **Save, Import & Share** action cards that explain what `.baton.json` contains (workflow graph & model routing only — zero source code or API keys) and show rich preview confirmation dialogs before overwriting the canvas or downloading files.
 
-2. **Three-Tier Official + Custom API Pricing Engine with 24-Hour Refresh (`pricing.py`)**:
-   - Compute token cost (`USD`) using real official API list rates by default, refreshed automatically once every **24 hours** (`refresh_interval_hours = 24`) in a non-blocking background fetch, with full user custom override support.
-   - Strict lookup precedence:
-     1. **User Custom Pricing**: per-provider `provider.model_pricing` in `baton.toml` → `[pricing.custom]` in `baton.toml` → `~/.vibebaton/custom_pricing.json` (`source = "custom"`).
-     2. **Daily Cached Official Pricing**: `~/.vibebaton/pricing_cache.json` populated by official pricing sync (`source = "official_cache"`).
-     3. **Built-in Official Fallback Table**: bundled Anthropic Claude, OpenAI Codex, and DeepSeek official list rates (`source = "builtin"`), ensuring accurate offline pricing.
-   - Expose `baton pricing sync [--force] [--json]`, `baton pricing show [--json]`, REST endpoints (`GET /api/pricing`, `POST /api/pricing/sync`, `PUT /api/pricing/custom`), and a clean **API Pricing / 模型单价** Studio modal.
+2. **Sanitized Run Case Export (`case_export.py`, `baton export-case`, `GET /api/runs/{id}/case-export`)**:
+   - Allow users to export any completed or historical VibeBaton run into a portable `.baton-case.json` bundle (`schema_version = "baton-case/v1"`) combining the sanitized DAG `graph`, chronological `GraphTraceEvent[]` `trace`, summary metrics `meta`, and a transparent `redaction_report`.
+   - Enforce a deterministic **4-layer redaction firewall** (API keys/credentials, host paths/usernames, private emails/RFC1918 IPs, raw code diffs/stack traces/RFC source text) and verify cleanliness before returning or saving.
 
-3. **All-CLI Structured Token Usage & Cost Collection (`cli_runner.py`, `engine.py`, `baton.example.toml`)**:
-   - Extract exact token usage (`prompt_tokens`, `completion_tokens`, `cached_tokens`) and assistant text cleanly from structured JSON / JSONL outputs across all three CLI harnesses:
-     - **Claude CLI** (`--output-format json` or `stream-json`);
-     - **Codex CLI** (`codex exec --json -o {output_file}`);
-     - **DSH CLI** (`dsh --profile headless --json`).
-   - Preserve transparent fallback when any CLI returns plain text. Whenever token counts are extracted, compute `cost_usd` via the 3-tier pricing engine and record exact tokens + cost inside `role_completed` events so Web Studio Billing and Bilingual Battle Reports immediately display live consumption across every CLI tier.
+3. **Universal Case Replay Bar (`PlaybackBar`, `caseReplay.ts`) Using Stage 1 as Built-in Tutorial**:
+   - Upgrade the top-center `Stage 1 60×` toggle into a universal **Case Replay Player**:
+     - Default built-in tutorial case is **Tutorial: Stage 1 (60×)** wrapping the existing Stage 1 self-hosting trace so first-time users can watch an example and learn how case import/export works.
+     - Once a user imports any `.baton-case.json` case (or previews an exported run case), the top replay slot dynamically updates to **`Start Replay: <Case Title>`** so anyone can play back another user's real iteration flow (with speed control, step-forward, reset, live telemetry commentary, and a switcher back to Stage 1).
+
+4. **Publish `v1.0.4` Release & Pre-1.0 Version Bridge Documentation**:
+   - Update release manifests cleanly to `1.0.4`, document the `.baton-json` vs `.baton-case.json` tutorial flow in `docs/TUTORIAL.md`, add the concise clarifying note under `## [v0.9.0-beta]` in `CHANGELOG.md` explaining the `0.3` to `0.9` pre-1.0 feature-complete beta jump, and keep all tests passing with complete `EN | 中文` parity.
 
 ## Constraints
 
-- **Zero new Python runtime dependencies**: `pricing.py`, `cli_runner.py`, `cli.py`, and `web_server.py` must use Python 3.11+ standard library modules only (`urllib.request`, `json`, `os`, `time`, `threading`, `decimal`, `pathlib`, `dataclasses`).
-- **Zero new npm dependencies**: Do NOT run `npm install` or edit `package-lock.json`; only bump `"version": "1.0.3"` in `web/package.json`. On Windows, invoke `npx.cmd` and `npm.cmd`.
-- **Network Safety & Offline Resilience**:
-  - Background 24-hour official pricing sync must NEVER block startup or fail a run if offline/timed out; on failure it retains the previous valid cache or falls back seamlessly to `DEFAULT_MODEL_PRICING`.
-  - Unit and integration tests must NEVER make real external HTTP requests (`VIBEBATON_DISABLE_PRICING_SYNC=1` or injected mock fetchers in tests).
-- **Backward Compatibility & Test Invariants**:
-  - Preserve `dsh_opencode` as internal provider ID in `baton.toml`, `baton.example.toml`, and `.baton.json` node `config.provider`.
-  - Keep existing `tests/test_http_provider.py` and `tests/test_report_billing.py` APIs (`compute_token_cost_usd` signature & return values) passing cleanly.
-  - Keep `tests/test_release_collateral.py` checks (`"1.0.0"`, `"sandbox init"`, `"scripts/install.ps1"` in `README.md` and `v1.0.0` in `docs/ROADMAP.md`) green.
-  - Maintain pure English default locale (zero CJK in `MESSAGES.en`), Han characters in `MESSAGES.zh`, and zero `/opencode/i` in UI copy (`web/src/i18n/i18n.test.ts`).
-  - `CHANGELOG.md` lists versions strictly oldest-first (`v1.0.3` appended after `v1.0.2`, zero HTML worker comments).
+- **Zero new Python runtime dependencies**: `case_export.py`, `cli.py`, and `web_server.py` must use Python 3.11+ standard library modules only (`json`, `re`, `os`, `time`, `uuid`, `pathlib`, `dataclasses`, `ipaddress`).
+- **Zero new npm dependencies**: Do NOT run `npm install` or edit `package-lock.json`; only bump `"version": "1.0.4"` in `web/package.json`. On Windows, invoke `npx.cmd` and `npm.cmd`.
+- **Privacy & Security Guarantees**:
+  - Case export MUST scrub credential strings (`sk-*`, `ghp_*`, `github_pat_*`, `AIza*`, `Bearer <token>`, secret webhook URLs, and configured values from `credentials.py` when present), host user/repo directories (`C:\Users\<user>`, `/Users/<user>`, `/home/<user>`, `repo_path`), email addresses, private IPs (`10.*`, `172.16-31.*`, `192.168.*`), raw diffs, and raw stack traces.
+  - Exported `graph` MUST satisfy both Python `graph_schema.validate_graph` and TypeScript `localSimulator.validateGraph` (`schema_version: "1.0"`, valid node/edge IDs and handles).
+- **Backward Compatibility & UI Invariants**:
+  - Keep existing `STAGE1_REPLAY_TRACE` / `stage1Replay.test.ts` contracts, `#recipe=` share links (`shareUrl.ts`), `SplitHandle`, `liveClock`, `GuidedTourOverlay`, `AttentionBanner`, and `PricingModal` intact and unbroken.
+  - Maintain pure English default locale (zero CJK in `MESSAGES.en`), Han characters in `MESSAGES.zh`, `"DSH"` display name consistently, and zero `/opencode/i` in UI copy (`web/src/i18n/i18n.test.ts`).
+  - Keep `tests/test_release_collateral.py` invariants intact and list `CHANGELOG.md` versions oldest-first (`v1.0.4` appended after `v1.0.3`, zero HTML comments).
 
 ## Non-Goals
 
-- Do NOT introduce browser scraping, Playwright runtime dependencies, or third-party HTTP/pricing SDKs (`httpx`, `requests`, `litellm`).
-- Do NOT break plain-text CLI execution when users run older CLI binaries or custom shell commands without JSON flags.
-- Do NOT retroactively modify historical `state.sqlite` event records already saved before Stage 4.7.
+- Do NOT host a remote cloud gallery server or upload user runs automatically to any third-party service.
+- Do NOT auto-execute imported `.baton-case.json` files or run real agents during replay (replay is strictly local, visual, and read-only).
+- Do NOT alter historical records in `state.sqlite` when exporting a case.
 
 ## Architecture & Deliverables (Milestones M1–M3)
 
-### M1: Global `DeepSeek API` → `DSH` Naming Unification
+### M1: Backend Sanitized Case Export (`case_export.py`), CLI & REST API
 
-- **Backend Display Mapping & Tests**:
-  - `src/vibebaton/report.py`: update `PROVIDER_DISPLAY_NAMES` (`"dsh_opencode": "DSH"`, `"dsh_deepseek": "DSH"`) and `display_provider_name`, plus normalize bare `dsh_opencode/` or `dsh_opencode:` prefixes in rendered battle report event summaries when displaying provider names.
-  - `tests/test_presets.py`: update `test_deepseek_bulk_factory_uses_api_branding_and_model` to assert `"DSH"` while preserving `dsh_opencode` node `config.provider` assertions.
-  - `tests/test_report_telemetry.py`: update `"DeepSeek API"` assertions to `"DSH"`.
-- **Frontend i18n, Events, Presets & Stage 1 Replay**:
-  - `web/src/i18n/presets.ts`: update `formatProviderDisplay('dsh_opencode')` and `dsh_deepseek` -> `'DSH'`; update `EN_TO_ZH_PRESET_TEXT` keys & values to use `DSH` (for example `'DSH Bulk Factory': 'DSH 批量工厂'`).
-  - `web/src/i18n/liveEvents.ts`: update `dsh_opencode/` and bare `dsh_opencode` formatting to display `DSH/` / `DSH` across both English and Chinese event logs.
-  - `web/src/i18n/messages.ts`: update quick-start / tutorial / wizard copy from `DeepSeek API` to `DSH` (preserving credential key IDs like `DEEPSEEK_API_KEY` and `OPENCODE_API_KEY`).
-  - Update preset files (`presets/deepseek_bulk_factory.baton.json`, `presets/flagship_4tier.baton.json`, `presets/solo_coder_3tier.baton.json`, `presets/starter_2tier.baton.json`, and matching `web/src/data/presets/*.ts`) and Stage 1 replay trace (`web/src/data/stage1Replay.ts`) from `DeepSeek API` to `DSH`.
-  - Update `web/src/i18n/i18n.test.ts` and `web/src/i18n/liveEvents.test.ts` to assert `'DSH'` cleanly with zero CJK in EN, Han in ZH, and zero `/opencode/i` matches.
-- **Documentation Alignment**:
-  - Update DSH harness references in `docs/TUTORIAL.md`, `docs/ROADMAP.md`, `docs/SECURITY.md`, `docs/RELEASE_NOTES_v1.0.md`, `benchmarks/README.md`, and `README.md` to `DSH` (keeping `README.md`'s native HTTP provider example clearly framed as direct OpenAI-compatible HTTP API usage and preserving all `test_release_collateral.py` checks).
+- **`src/vibebaton/case_export.py`**:
+  - Define `@dataclass class RedactionReport` (`secrets_redacted: int`, `paths_anonymized: int`, `emails_redacted: int`, `ips_redacted: int`, `raw_diff_stripped: int`, `raw_stack_stripped: int`, `clean: bool`) and `export_sanitized_case(store, run_id, *, title=None, include_review_summaries=True, anonymize_run_id=False, extra_secrets=None) -> dict[str, Any]`.
+  - **4-Layer Sanitization Firewall**:
+    1. **Layer 1 (Secrets)**: redact `sk-[A-Za-z0-9_-]{12,}`, `ghp_[A-Za-z0-9]{16,}`, `github_pat_[A-Za-z0-9_]{20,}`, `AIza[A-Za-z0-9_-]{20,}`, `Bearer <token>`, `xoxb-` / `xapp-` tokens, webhook URL secret tokens/queries (`open.feishu.cn/open-apis/bot/v2/hook/...`, `hooks.slack.com/services/...`, `discord.com/api/webhooks/...`, `qyapi.weixin.qq.com/...key=...`, `oapi.dingtalk.com/...access_token=...`), query tokens, and any literal secret strings from `extra_secrets` or local credential store -> `[REDACTED]`.
+    2. **Layer 2 (Host Paths & Usernames)**: replace `repo_path` with `<repo>`, `C:\Users\<name>` / `/Users/<name>` / `/home/<name>` with `<home>`, and any remaining absolute Windows/POSIX paths (`D:\...`, `/var/...`, `/opt/...`) with `<path>/...` (counting `paths_anonymized`).
+    3. **Layer 3 (Network & Identity)**: replace email addresses with `[REDACTED_EMAIL]` and private IPv4 literals with `[REDACTED_IP]` (counting `emails_redacted` and `ips_redacted`, without corrupting semantic version strings like `1.0.4` or timestamps).
+    4. **Layer 4 (Code & Stack Stripping)**: omit RFC正文, raw git diffs (`diff --git`, `@@ ... @@`, `+++`/`---`), and multi-line stack trace blocks (`Traceback (most recent call last): ...` / `  at ... (file:line)`); when `include_review_summaries=False`, replace review summaries with canonical status labels (`Passed review` / `Review revision requested`). When `anonymize_run_id=True`, replace source `run_id` with a stable hashed alias (`case-<short-hash>`).
+  - **Graph & Trace Synthesis**:
+    - Construct a valid, laid-out `WorkflowGraph` (`schema_version = "1.0"`, `id`, `name`, `nodes`, `edges`) matching the live run structure (`l0_planner` `planner_node`, milestone `reviewer_node` + task `worker_node` nodes with sanitized `config.provider` formatted via `DSH` where `dsh_opencode` is displayed, plus `l0_final_gate` `human_gate_node`), validated internally via `validate_graph` with zero cycle errors.
+    - Convert chronological SQLite `events` (and task/milestone transitions) into sanitized `GraphTraceEvent[]` steps (`seq`, `kind`, `node_id`, `edge_id`, `outcome`, `timestamp`, `message`, normalized without leaking secrets/paths).
+    - Build `meta`: `source_run_id`, `status`, `elapsed_sec`, `milestones_passed`, `milestones_total`, `tasks_passed`, `tasks_total`, `gate_catches`, `whitelist_catches`, `escalations`, `models`, `stages`, `billing`.
+    - Run a post-serialization regex audit on the output JSON string so `redaction_report["clean"] = True` verifies zero secret patterns survived.
+- **REST API & CLI**:
+  - `src/vibebaton/web_server.py`: add route `GET /api/runs/([^/]+)/case-export` returning JSON bundle (HTTP `200`) with query parameters `title`, `include_reviews` (`"1"`/`"0"`), `anonymize` (`"1"`/`"0"`), returning `404` when `run_id` does not exist.
+  - `src/vibebaton/cli.py`: add `baton export-case --repo . --run-id <id> [--config ...] [--out <path>] [--title "..."] [--no-reviews] [--anonymize]` printing redaction summary and writing `.baton-case.json` cleanly.
+  - `tests/test_case_export.py`: unit & integration tests covering all 4 redaction layers, post-serialization secret audit (`clean=True`), `validate_graph(bundle["graph"])`, valid non-empty `trace`, `no-reviews` and `anonymize` modes, `baton export-case` CLI, and `GET /api/runs/{id}/case-export` HTTP endpoint (404 + 200).
 
-### M2: Pure-Stdlib 3-Tier Pricing Engine (`pricing.py`), Daily 24h Sync, Custom Pricing, CLI & REST API
+### M2: Frontend Case Model, Stage 1 Tutorial Wrapper & Intuitive Recipe/Case Transfer Modals
 
-- **`src/vibebaton/config.py`**:
-  - Add `@dataclass class PricingSettings`:
-    - `auto_sync: bool = True`
-    - `refresh_interval_hours: int = 24`
-    - `source_url: str = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"`
-    - `timeout_sec: float = 5.0`
-    - `cache_path: str = ""` (defaults to `~/.vibebaton/pricing_cache.json`)
-    - `custom_path: str = ""` (defaults to `~/.vibebaton/custom_pricing.json`)
-    - `custom: dict[str, dict[str, float]] = field(default_factory=dict)` (from `[pricing.custom."<model>"]`)
-  - Add `pricing: PricingSettings = field(default_factory=PricingSettings)` to `BatonConfig` and parse optional `[pricing]` table cleanly in `parse_config_dict` so existing TOML files load unchanged.
-- **`src/vibebaton/pricing.py`**:
-  - Define `DEFAULT_MODEL_PRICING: dict[str, dict[str, float]]` with official USD per 1M token rates (`input_per_1m`, `output_per_1m`, `cached_input_per_1m`) covering:
-    - Anthropic Claude (`claude-opus-4-6`, `claude-opus-4-5`, `claude-sonnet-4-6`, `claude-haiku-4-5`, plus VibeBaton aliases `opus`, `sonnet`, `haiku`, `fable`);
-    - OpenAI / Codex (`gpt-4o`, `gpt-4o-mini`, `gpt-4.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-codex`, `o3`, `o4-mini`, plus VibeBaton aliases `gpt-6.2-sol`, `gpt-6.2-astra`);
-    - DeepSeek (`deepseek-chat`, `deepseek-reasoner`, `deepseek-flash`, `deepseek-v4-pro`, `deepseek-v4.1-flash`).
-  - Implement `normalize_model_name(model: str) -> str`: strips `@effort` (`@low`, `@high`, `@max`, `@xhigh`) and provider prefixes (`anthropic/`, `openai/`, `deepseek/`, `opencode-go/`).
-  - Implement 3-tier resolution `resolve_model_pricing(...) -> ResolvedModelPricing | None`:
-    1. Custom (`provider.model_pricing` -> `[pricing.custom]` -> `~/.vibebaton/custom_pricing.json`);
-    2. Official cached table (`~/.vibebaton/pricing_cache.json`);
-    3. Built-in `DEFAULT_MODEL_PRICING`.
-  - Implement `compute_token_cost_usd(model, prompt_tokens, completion_tokens, cached_tokens=0, pricing_table=None, custom_pricing=None, cache_path=None, custom_path=None) -> float | None` using exact `Decimal` math; delegate `http_provider.compute_token_cost_usd` to this shared helper cleanly.
-  - Implement `sync_official_pricing(settings, *, force=False, fetcher=None) -> PricingSyncResult`:
-    - Checks whether cache is missing or older than `settings.refresh_interval_hours * 3600` (`86400s` default);
-    - Parses LiteLLM schema (`input_cost_per_token * 1_000_000`, `output_cost_per_token * 1_000_000`, `cache_read_input_token_cost * 1_000_000`, storing canonical keys and mapped aliases safely) as well as direct `per_1m` maps;
-    - Writes `~/.vibebaton/pricing_cache.json` atomically (`fetched_at`, `source_url`, `models`);
-    - On network/parse error returns `PricingSyncResult(ok=False, ..., preserved_cache=True)` without throwing.
-  - Implement `trigger_background_pricing_sync(settings, *, cache_path=None, fetcher=None) -> threading.Thread | None`: respects `settings.auto_sync` and `os.environ.get("VIBEBATON_DISABLE_PRICING_SYNC") == "1"`.
-  - Implement `load_custom_pricing(path)` / `save_custom_pricing(path, updates)` / `build_pricing_catalog(...)` helpers.
-- **CLI & Web API**:
-  - `src/vibebaton/cli.py`: add `baton pricing sync [--repo .] [--config ...] [--force] [--json]` and `baton pricing show [--repo .] [--config ...] [--json]`.
-  - `src/vibebaton/web_server.py`: add `GET /api/pricing`, `POST /api/pricing/sync`, and `PUT /api/pricing/custom` (supporting updating or clearing per-model custom overrides in `~/.vibebaton/custom_pricing.json`, validated strictly for finite non-negative numbers).
-  - `baton.example.toml`: document optional `[pricing]` (`refresh_interval_hours = 24`, `auto_sync = true`, commented `[pricing.custom."..."]` override snippet).
-  - `tests/test_pricing.py`: comprehensive unit tests covering TOML config, 3-tier override precedence, `@effort` normalization, 24h staleness detection, LiteLLM JSON parsing, failure cache preservation, custom file persistence, CLI `baton pricing sync/show`, and REST endpoints using injected mock fetchers (zero live HTTP calls).
+- **`web/src/types/graph.ts` & `web/src/engine/caseReplay.ts` (+ `web/src/engine/caseReplay.test.ts`)**:
+  - Define TypeScript interfaces: `CaseRedactionReport`, `CaseReplayMeta`, `BatonCaseBundle` (`schema_version: 'baton-case/v1'`, `case_id`, `title`, `summary`, `created_at`, `meta`, `redaction_report`, `graph`, `trace`, optional `isOfficialTutorial?: boolean`).
+  - `parseAndValidateCaseBundle(raw: unknown)`: validates `baton-case/v1`, calls `validateGraph(bundle.graph)`, checks non-empty `trace`, and flags client-side residual secret warnings if a user edits raw JSON manually.
+  - `isCaseBundleInput(parsed: unknown)`: distinguishes a `.baton-case.json` Case Bundle from a `.baton.json` Recipe Blueprint (`WorkflowGraph`) cleanly during import auto-detection.
+  - `buildOfficialStage1Case(locale: Locale): BatonCaseBundle`: builds the official Stage 1 tutorial case (`case_id: 'official-stage1'`) using existing `flagship_4tier`, `STAGE1_REPLAY_META`, and `STAGE1_REPLAY_TRACE` / `STAGE1_REPLAY_TRACE_ZH` (keeping `stage1Replay.test.ts` untouched and passing).
+  - `readSavedCases()` / `writeSavedCases()` localStorage persistence helpers (`vibebaton.importedCases.v1`, safe try/catch, bounded history cap up to 10 cases).
+- **`web/src/api/client.ts` & `web/src/api/client.test.ts`**:
+  - Add `exportRunCase(runId, options?: { title?: string; includeReviews?: boolean; anonymize?: boolean }): Promise<BatonCaseBundle>` calling `GET /api/runs/{id}/case-export` in `local` mode and returning a valid demo bundle in `demo` mode.
+- **`web/src/components/RecipeTransferModals.tsx` + `RecipeTransferModals.css` + `RecipeTransferModals.test.ts`**:
+  - Build three clear, responsive, accessible modals with full `EN | 中文` copy (`messages.transfer`):
+    1. **`ImportTransferModal`**: opens via file picker / drag-drop OR text paste (`.baton.json` recipe JSON, `#recipe=` share URL, or `.baton-case.json` case JSON); automatically detects Recipe vs Case, shows a structured **Preview Card** (name/title, type badge, node & edge counts, validation/redaction health badge, duration & task summary for cases), and executes confirm action (`Apply Recipe to Canvas` or `Load & Replay Case`).
+    2. **`ExportRecipeModal`**: shows active blueprint (`graph.name`, node & edge counts), security assurance badge (`Workflow structure only — zero code or API keys`), smart advisory banner if currently viewing a Live Run (`liveViewActive`) offering 1-click switch to `ExportCaseModal`, plus buttons: **Download `.baton.json`**, **Copy JSON** (with collapsible preview), and **Copy `#recipe=` Share Link**.
+    3. **`ExportCaseModal`**: fetches sanitized case via `client.exportRunCase`, lets user customize `title` and toggle `Include sanitized review summaries` / `Anonymize run ID`, renders the **Redaction Safety Checklist** (`secrets_redacted`, `paths_anonymized`, `raw_diff_stripped`, verified clean pill), and provides **Download `.baton-case.json`**, **Copy Case JSON**, and **Preview in Replay Player**.
 
-### M3: All-CLI Native JSON/JSONL Token Collection (`cli_runner.py`, `engine.py`), Studio Pricing Modal & `v1.0.3` Release
+### M3: LeftSidebar Redesign, Universal Case Replay PlaybackBar, Tutorial Update & `v1.0.4` Release
 
-- **All-CLI Structured Token Extraction (`src/vibebaton/cli_runner.py`, `src/vibebaton/engine.py`, `baton.example.toml`)**:
-  - Add pure helper `parse_cli_output_and_usage(stdout: str, stderr: str, output_file_text: str | None, *, provider_type: str, command: list[str], provider_name: str)` handling:
-    1. **Claude JSON (`--output-format json` / `stream-json`)**: extracts `result` text (preferring `output_file_text` if already written cleanly by tool use, or falling back to extracted JSON `result` text) and sums `usage`:
-       - `cached = cache_read_input_tokens`
-       - `prompt = input_tokens + cache_read_input_tokens + cache_creation_input_tokens`
-       - `completion = output_tokens`
-    2. **Codex JSONL (`codex exec --json`)**: parses newline-delimited JSON objects from stdout, sums all `usage` blocks (`input_tokens`, `cached_input_tokens`, `output_tokens`), and falls back to last `agent_message` text only when `output_file_text` is empty.
-    3. **DSH JSONL (`dsh --profile headless --json`)**: parses newline-delimited JSON events from stdout, sums token usage across `usage` / `token_usage` / `metrics` dicts (`prompt_tokens`/`input_tokens`, `completion_tokens`/`output_tokens`, `cached_tokens`/`cached_input_tokens`/`cache_read_input_tokens`), and extracts final assistant text if structured (`message`/`result`/`text`/`content`) when present.
-    4. **Plain-text fallback**: non-JSON stdout leaves text unchanged with zero tokens and `cost_usd = None`.
-  - Compute `cost_usd` in `run_provider_cli` / `invoke_provider` via `pricing.compute_token_cost_usd(...)` using active provider `model_pricing` + `[pricing.custom]` + custom JSON + daily official cache + built-in official table, and populate `CLIResult.{prompt_tokens, completion_tokens, cached_tokens, cost_usd}`.
-  - Update `engine.py` `OrchestrationEngine.execute_run` to invoke `trigger_background_pricing_sync(cfg.pricing)` at run start (daemon thread, non-blocking) and pass `[pricing]` overrides cleanly when pricing CLI invocations (`_invoke_role`).
-  - Update default command templates in `baton.example.toml` (`claude_sub` with `--output-format json`, `codex_sub` with `--json`, `dsh_opencode` with `--json`).
-  - Add unit + engine billing integration tests in `tests/test_cli_usage_billing.py` verifying Claude JSON, Codex JSONL, DSH JSONL, plain-text fallback, and end-to-end `role_completed` -> `compute_run_telemetry` USD billing.
-- **Studio API Pricing UI (`web/`)**:
-  - `web/src/types/graph.ts` & `web/src/api/client.ts`: add `PricingModelEntry`, `PricingStatusResponse`, `CustomPricingUpdate`, and client methods `getPricing()`, `syncPricing()`, `saveCustomPricing(...)` (with full demo-mode support).
-  - `web/src/components/inspector/PricingModal.tsx` (+ tests): modal launched from `LiveRunPanel` (header action button next to Model Runtime / billing summary) showing:
-    - Sync status badge (last fetched time, `24h` auto-sync interval, `Sync Official Prices / 立即同步官方价` button);
-    - Model rate table displaying source badge (`Custom / 自定义`, `Official Cache / 官方缓存`, `Built-in / 内置官方价`), Input / Cached / Output USD per 1M tokens, inline edit inputs to set custom per-1M rates, Save, and Reset to Official buttons.
-  - Complete `EN | 中文` parity in `web/src/i18n/messages.ts` (`messages.pricing`, pure EN zero CJK, Han in ZH, zero `OpenCode`).
-- **Release Metadata & Collateral (`1.0.3`)**:
-  - Update version to `1.0.3` in `pyproject.toml`, `src/vibebaton/__init__.py`, `web/package.json`.
-  - Append `## [v1.0.3] - 2026-11-22` at the end of `CHANGELOG.md` after `v1.0.2`.
-  - Add Stage 4.7 (`v1.0.3`) entry at the end of `docs/ROADMAP.md`.
-  - Update `RELEASE_VERSION = "1.0.3"` in `tests/test_version_consistency.py`.
+- **`web/src/components/LeftSidebar.tsx` & `LeftSidebar.css`**:
+  - Replace the bare `Import / Export` section with **Save, Import & Share (`配方与案例分享`)**: concise explanatory subtitle explaining **Recipes (`.baton.json`)** vs **Run Cases (`.baton-case.json`)** + clear two-line action cards (icon + action title + plain one-line description) opening `ImportTransferModal`, `ExportRecipeModal`, and (when a local or selected run exists) `ExportCaseModal`.
+- **`web/src/components/inspector/LiveRunPanel.tsx`**:
+  - Add **Share Case (`分享案例`)** button beside `Battle Report` triggering `onOpenCaseExport` for the currently selected run.
+- **`web/src/components/PlaybackBar.tsx`, `web/src/components/types.ts`, `web/src/App.tsx`**:
+  - Upgrade `PlaybackBar`:
+    - Accept `activeCaseTitle`, `savedCases`, `activeCaseId`, `replayCaseLabel`, `onSelectReplayCase`, `onImportCaseRequest`, `isCustomCaseActive`:
+    - When using the default tutorial, show **`Tutorial: Stage 1 (60×)` / `示范教程：一期真跑`** with a short tooltip pointing to case import;
+    - When a community/exported `.baton-case.json` case is loaded (`activeCaseId !== 'official-stage1'`), the replay trigger button turns into a clear **`▶ Start: <Case Title>` / `▶ 开始回放：<案例名>`** (plus a compact switcher/dropdown to jump between imported cases, import another `.baton-case.json`, or reset back to `Official Tutorial: Stage 1`).
+    - When `PlaybackBar` plays any case, `App.tsx` loads that case's `graph` onto `CanvasWorkspace` and drives `trace` with smooth animation, particle flow, node states, and right-pane trace commentary, plus a subtle summary pill (`elapsed · passed/total tasks · sanitized replay`).
+- **Tutorial & i18n Updates (`web/src/components/QuickStartModal.tsx`, `web/src/i18n/messages.ts`, `docs/TUTORIAL.md`)**:
+  - Update `QuickStartModal` & `docs/TUTORIAL.md` so the Stage 1 example explicitly serves as the interactive tutorial for importing and replaying shared `.baton-case.json` cases, and document the Recipe vs Case distinction cleanly.
+  - Full `EN | 中文` parity in `web/src/i18n/messages.ts` (`i18n.test.ts` clean: zero CJK in EN, Han required in ZH, zero `/opencode/i` in UI copy).
+- **Release Metadata & Bridge Note (`1.0.4`)**:
+  - Bump version to `1.0.4` in `pyproject.toml`, `src/vibebaton/__init__.py`, `web/package.json`, `tests/test_version_consistency.py`.
+  - In `CHANGELOG.md`: add a concise 1-sentence clarifying note under `## [v0.9.0-beta] - 2026-11-22` (`Pre-1.0 feature-complete public beta integrating Recipe Plaza, Smart Allocation, Launch Gate, Live Sync, Bilingual Reports, and Benchmarks after v0.3.0.`) AND append `## [v1.0.4] - 2026-11-22` at the bottom after `## [v1.0.3] - 2026-11-22`.
+  - Add Stage 4.8 (`v1.0.4`) summary entry at the end of `docs/ROADMAP.md`.
 
 ## Verification & Acceptance Criteria
 
-Run all verification suites cleanly inside the target branch/worktree:
+Run all automated verification suites cleanly:
 
 ```bash
 cmd /c "cd /d web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build"
-cmd /c "set PYTHONPATH=src&& set PYTHONUTF8=1&& python -m unittest discover -s tests -v"
+cmd /c "set PYTHONPATH=src&& set PYTHONUTF8=1&& set VIBEBATON_DISABLE_PRICING_SYNC=1&& python -m unittest discover -s tests -v"
 ```
 
-1. Zero remaining unintended `"DeepSeek API"` strings remain across presets, UI labels, telemetry display mapping, and test suites (`"DSH"` used consistently with internal `dsh_opencode` IDs preserved).
-2. `tests/test_pricing.py` passes with 100% mocked fetchers, verifying 3-tier priority (`custom > official_cache > builtin`), 24-hour refresh threshold, atomic cache updates, and offline error isolation.
-3. `tests/test_cli_usage_billing.py` verifies JSON/JSONL usage extraction and USD calculation across Claude CLI, Codex CLI, DSH CLI, plain-text fallback, and end-to-end engine telemetry.
-4. `python -m vibebaton --version` prints `vibebaton 1.0.3`, and `python -m vibebaton pricing show --help` / `baton pricing sync --help` exit `0`.
-5. Frontend `npx.cmd vitest run`, `npx.cmd tsc --noEmit`, and `npm.cmd run build` exit `0` with full `EN | 中文` parity and zero `/opencode/i` leaks in `i18n.test.ts`.
-6. All Python unit and full-stack integration tests (`python -m unittest discover -s tests -v`) exit `0` (`test_version_consistency.py` and `test_release_collateral.py` green).
+1. `tests/test_case_export.py` verifies all 4 redaction layers (secrets, paths, emails/private IPs, raw diffs/stack traces), `clean=True` post-serialization audit, valid `validate_graph` output, `baton export-case --help` / execution, and `GET /api/runs/{id}/case-export` HTTP responses.
+2. `web/src/engine/caseReplay.test.ts` and `web/src/components/RecipeTransferModals.test.ts` verify Recipe vs Case auto-detection, preview confirmation before overwrite, official Stage 1 tutorial case fallback, localStorage persistence, and case replay playback.
+3. Frontend `npx.cmd vitest run`, `npx.cmd tsc --noEmit`, and `npm.cmd run build` exit `0` with `i18n.test.ts` passing (zero CJK in EN, Han in ZH, zero `/opencode/i`, `DSH` consistent).
+4. `python -m vibebaton --version` outputs `vibebaton 1.0.4` and `python -m vibebaton export-case --help` exits `0`.
+5. Full backend test suite (`python -m unittest discover -s tests -v`) passes with `test_version_consistency.py` and `test_release_collateral.py` green.
+6. Exporting a real run (such as Stage 4.7) via `baton export-case` produces a valid `.baton-case.json` with `redaction_report.clean == true` that imports cleanly into the universal replay player.
