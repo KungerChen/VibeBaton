@@ -7,7 +7,7 @@ agents. It splits work across a planner, reviewers, executors, and high-throughp
 runs every task in an isolated Git worktree, and lets cheap mechanical gates (lint, typecheck,
 tests, path whitelist) decide what is allowed to reach an expensive AI review or a human.
 
-Bring your own CLIs — Claude Code, Codex, OpenCode Go / DeepSeek API, Antigravity — or call an
+Bring your own CLIs — Claude Code, Codex, DSH (OpenCode Go), Antigravity — or call an
 OpenAI-compatible endpoint directly. VibeBaton coordinates them, enforces the contract, and
 produces an auditable battle report at the end.
 
@@ -18,7 +18,7 @@ produces an auditable battle report at the end.
 `type = "http"` calls `POST {base_url}/chat/completions` directly through the Python standard
 library. There is no external CLI process, no SDK, and no new runtime dependency.
 
-- Works with OpenAI, DeepSeek API, OpenCode Go, vLLM, Ollama, and any OpenAI-compatible gateway.
+- Works with OpenAI, DeepSeek's API, OpenCode Go, vLLM, Ollama, and any OpenAI-compatible gateway.
 - Keys come from environment variables or the local credential store and are never logged.
 - Per-provider `model_pricing` tables turn real `usage` counters into exact
   `prompt_tokens`, `completion_tokens`, `cached_tokens`, and USD `cost_usd`.
@@ -166,7 +166,7 @@ ships that same loop to you.
 
 ## Show HN draft
 
-**Show HN: VibeBaton – run Claude, Codex, and DeepSeek API as one gated software factory**
+**Show HN: VibeBaton – run Claude, Codex, and DSH as one gated software factory**
 
 I built VibeBaton because a single coding agent is great for a 30-second edit and terrible at
 an overnight, multi-module refactor: it runs out of context, edits files it should not touch, and

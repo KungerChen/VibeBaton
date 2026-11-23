@@ -3,10 +3,14 @@ import { presetToItem, starter_2tier } from '../data/presets';
 import type {
   BudgetConfigResponse,
   CredentialStatus,
+  CustomPricingUpdate,
   DoctorRoleResult,
   GraphValidationResult,
   LiveRunSnapshot,
   PresetItem,
+  PricingModelEntry,
+  PricingStatusResponse,
+  PricingSyncResponse,
   RfcBrainstormResult,
   SimulationResult,
 } from '../types/graph';
@@ -209,6 +213,117 @@ test('reads the roles and model catalog and saves the budget profile over HTTP',
     ['/api/config/roles', { method: 'GET' }],
     ['/api/config/budget', jsonRequest('PUT', { budget_profile: 'eco' })],
   ]);
+});
+
+// Golden example for Studio: load, sync, then save or clear overrides by model ID.
+test('loads, syncs, and saves local pricing through the M2 REST API', async () => {
+  const builtin: PricingModelEntry = {
+    model: 'gpt-4o', input_per_1m: 2.5, output_per_1m: 10, cached_input_per_1m: 1.25, source: 'builtin',
+  };
+  const initial: PricingStatusResponse = {
+    models: [builtin],
+    cache: {
+      path: '/local/pricing_cache.json',
+      fetched_at: null,
+      age_sec: null,
+      stale: true,
+      refresh_interval_hours: 24,
+      auto_sync: true,
+      source_url: 'https://example.test/prices.json',
+    },
+    custom_path: '/local/custom_pricing.json',
+  };
+  const wireCache = { ...initial.cache, fetched_at: 1_700_000_000.125, age_sec: 0, stale: false };
+  const catalog: PricingStatusResponse = {
+    ...initial,
+    models: [{ ...builtin, source: 'official_cache' }],
+    cache: { ...wireCache, fetched_at: '2023-11-14T22:13:20.125Z' },
+  };
+  const synced: PricingSyncResponse = {
+    ok: true, fetched: true, skipped_fresh: false, model_count: 1, error: null, catalog,
+  };
+  const failed: PricingSyncResponse = {
+    ok: false, fetched: false, skipped_fresh: false, model_count: 0, error: 'Pricing feed offline', catalog: initial,
+  };
+  const rates = { input_per_1m: 1.5, output_per_1m: 6, cached_input_per_1m: 0.15 };
+  const updates: CustomPricingUpdate = { 'gpt-4o': rates, 'previous-custom-model': null };
+  const saved: PricingStatusResponse = { ...catalog, models: [{ ...builtin, ...rates, source: 'custom' }] };
+  const fetchImpl = healthyFetch()
+    .mockResolvedValueOnce(Response.json(initial))
+    .mockResolvedValueOnce(Response.json(failed))
+    .mockResolvedValueOnce(Response.json({ ...synced, catalog: { ...catalog, cache: wireCache } }))
+    .mockResolvedValueOnce(Response.json({ ...saved, cache: wireCache }))
+    .mockResolvedValueOnce(Response.json({ ...saved, cache: wireCache }));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+
+  await expect(client.getPricing()).resolves.toEqual(initial);
+  await expect(client.syncPricing()).resolves.toEqual(failed);
+  await expect(client.syncPricing(true)).resolves.toEqual(synced);
+  await expect(client.saveCustomPricing(updates)).resolves.toEqual(saved);
+  await expect(client.getPricing()).resolves.toEqual(saved);
+  expect(fetchImpl.mock.calls.slice(1)).toEqual([
+    ['/api/pricing', { method: 'GET' }],
+    ['/api/pricing/sync', jsonRequest('POST', { force: false })],
+    ['/api/pricing/sync', jsonRequest('POST', { force: true })],
+    ['/api/pricing/custom', jsonRequest('PUT', { updates })],
+    ['/api/pricing', { method: 'GET' }],
+  ]);
+});
+
+test('surfaces a local custom pricing HTTP error as ApiError', async () => {
+  const message = 'input_per_1m must be a finite non-negative number';
+  const fetchImpl = healthyFetch().mockResolvedValueOnce(Response.json({ error: message }, { status: 400 }));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+
+  const updates = { 'gpt-4o': { input_per_1m: -1, output_per_1m: 6, cached_input_per_1m: 0.15 } };
+  const result = client.saveCustomPricing(updates);
+  await expect(result).rejects.toBeInstanceOf(ApiError);
+  await expect(result).rejects.toMatchObject({ status: 400, message });
+});
+
+test('saves, syncs, and resets demo pricing in client memory without fetching', async () => {
+  const fetchImpl = vi.fn<typeof fetch>();
+  const client = new BatonApiClient('', fetchImpl);
+  const initial = await client.getPricing();
+  expect(initial.models.length).toBeGreaterThan(0);
+  expect(initial.models.every(({ source }) => source === 'builtin')).toBe(true);
+  expect(initial.cache).toMatchObject({ fetched_at: null, age_sec: null, refresh_interval_hours: 24, auto_sync: false });
+
+  const { model } = initial.models[0];
+  const rates = { input_per_1m: 1.5, output_per_1m: 6, cached_input_per_1m: 0 };
+  const saved = await client.saveCustomPricing({ [model]: rates });
+  expect(saved.models.find((entry) => entry.model === model)).toEqual({ model, ...rates, source: 'custom' });
+  expect(saved.models).toHaveLength(initial.models.length);
+
+  const extra = { model: 'custom-model', ...rates, source: 'custom' };
+  const extended = await client.saveCustomPricing({ [extra.model]: rates });
+  expect(extended.models).toHaveLength(saved.models.length + 1);
+  expect(extended.models).toEqual(expect.arrayContaining([...saved.models, extra]));
+  await expect(client.getPricing()).resolves.toEqual(extended);
+  await expect(new BatonApiClient('', fetchImpl).getPricing()).resolves.toEqual(initial);
+  await expect(client.syncPricing(true)).resolves.toEqual({
+    ok: true, fetched: false, skipped_fresh: true, model_count: extended.models.length, error: null, catalog: extended,
+  });
+
+  await expect(client.saveCustomPricing({ [extra.model]: null })).resolves.toEqual(saved);
+  await expect(client.saveCustomPricing({ [model]: null })).resolves.toEqual(initial);
+  expect(fetchImpl).not.toHaveBeenCalled();
+});
+
+test.each([-1, Number.NaN, Number.POSITIVE_INFINITY])('rejects demo rate %s without applying a partial update', async (rate) => {
+  const fetchImpl = vi.fn<typeof fetch>();
+  const client = new BatonApiClient('', fetchImpl);
+  const initial = await client.getPricing();
+  const rates = { input_per_1m: 1.5, output_per_1m: 6, cached_input_per_1m: 0.15 };
+
+  await expect(client.saveCustomPricing({
+    'gpt-4o': rates,
+    invalid: { ...rates, cached_input_per_1m: rate },
+  })).rejects.toMatchObject({ name: 'ApiError', status: 400 });
+  await expect(client.getPricing()).resolves.toEqual(initial);
+  expect(fetchImpl).not.toHaveBeenCalled();
 });
 
 test('uses the server Doctor result and its measured latency', async () => {

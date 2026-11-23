@@ -23,7 +23,7 @@ export const starter_2tier: WorkflowGraph = {
     {
       id: 'worker',
       type: 'worker_node',
-      label: 'Parallel Worker (DeepSeek API)',
+      label: 'Parallel Worker (DSH)',
       role: 'bulk_worker',
       position: { x: 380, y: 160 },
       config: { provider: 'dsh_opencode', model: 'deepseek-v4.1-flash@max', concurrency: 3 },

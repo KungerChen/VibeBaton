@@ -1,6 +1,6 @@
 import type { AttentionCategory } from '../types/graph';
 import { ATTENTION_TITLE_KEYS, MESSAGES, type Locale } from './messages';
-import { translateRole } from './presets';
+import { formatProviderDisplay, translateRole } from './presets';
 
 const CJK_REGEX = /[\u4e00-\u9fff]/;
 
@@ -153,6 +153,13 @@ function formatAttentionMessage(message: string, locale: Locale, payload: unknow
   };
 }
 
+function formatProviderReferences(message: string): string {
+  return message.replace(
+    /(?<![\w./\\-])dsh_(?:opencode|deepseek)(?![\w-]|\.\w)/gi,
+    (provider: string) => formatProviderDisplay(provider.toLowerCase()),
+  );
+}
+
 /** Structured events accept a decoded payload or the snapshot's payload_json string. */
 export function formatLiveEventMessage(
   kind: string,
@@ -176,7 +183,7 @@ export function formatLiveEventMessage(
   if (match) {
     const [, role, target] = match;
     const roleLabel = translateRole(role, locale);
-    const displayTarget = target.replace(/^dsh_opencode\//i, 'DeepSeek API/');
+    const displayTarget = formatProviderReferences(target);
     return {
       summary: locale === 'en'
         ? `Invoking ${roleLabel} (${displayTarget})`
@@ -188,7 +195,7 @@ export function formatLiveEventMessage(
   if (match) {
     const [, role, target, durationSec, statusLabel] = match;
     const roleLabel = translateRole(role, locale);
-    const displayTarget = target.replace(/^dsh_opencode\//i, 'DeepSeek API/');
+    const displayTarget = formatProviderReferences(target);
     const statusSuffix = statusLabel ? ` · ${statusLabel}` : '';
     return {
       summary: locale === 'en'
@@ -306,12 +313,16 @@ export function formatLiveEventMessage(
     };
   }
 
+  const displayMessage = formatProviderReferences(trimmed);
   if (locale === 'zh' && !containsCjk) {
+    if (displayMessage !== trimmed && !/\s/.test(trimmed)) {
+      return { summary: displayMessage };
+    }
     return {
       summary: FALLBACK_SUMMARY_BY_KIND[kind]?.zh ?? '事件详情（英文原文）',
       rawDetail: trimmed,
     };
   }
 
-  return { summary: trimmed };
+  return { summary: displayMessage };
 }

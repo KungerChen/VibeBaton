@@ -41,7 +41,7 @@ type = "cli"
 max_concurrency = 1
 cooldown_backoff_sec = [300, 900, 1800]
 rate_limit_regex = "(rate.?limit|usage.?limit|429|try again|overloaded|credit balance)"
-command = ["claude", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "text"]
+command = ["claude", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "json"]
 prompt_via = "stdin"
 stall_timeout_sec = 900
 hard_timeout_sec = 2400
@@ -51,7 +51,7 @@ type = "cli"
 max_concurrency = 1
 cooldown_backoff_sec = [300, 900, 1800]
 rate_limit_regex = "(rate.?limit|usage.?limit|429|too many requests|quota)"
-command = ["codex", "exec", "--model", "{model_name}", "-c", "model_reasoning_effort=\"{effort}\"", "-s", "workspace-write", "-c", "approval_policy=\"never\"", "-o", "{output_file}", "-"]
+command = ["codex", "exec", "--json", "--model", "{model_name}", "-c", "model_reasoning_effort=\"{effort}\"", "-s", "workspace-write", "-c", "approval_policy=\"never\"", "-o", "{output_file}", "-"]
 prompt_via = "stdin"
 stall_timeout_sec = 900
 hard_timeout_sec = 2400
@@ -63,7 +63,7 @@ cooldown_backoff_sec = [30, 120, 300]
 rate_limit_regex = "(rate.?limit|429|quota|temporarily unavailable|overloaded)"
 # DeepSeek Harness (dsh) headless mode calling your configured OpenCode Go API profile.
 # Uses a zero-secret patch overlay under `{package_root}/presets/` to enable credentials + opencode-go.
-command = ["dsh", "--profile", "headless", "--patch", "{package_root}/presets/dsh-headless-opencode-go.patch.yml", "--permission-mode", "workspace-write", "--approval-policy", "never", "-"]
+command = ["dsh", "--profile", "headless", "--json", "--patch", "{package_root}/presets/dsh-headless-opencode-go.patch.yml", "--permission-mode", "workspace-write", "--approval-policy", "never", "-"]
 prompt_via = "stdin"
 stall_timeout_sec = 240
 hard_timeout_sec = 1200
@@ -116,3 +116,24 @@ provider = "dsh_opencode"
 model = "deepseek-v4.1-flash@max"
 prompt_file = "prompts/l3_dsh_worker.md"
 fallback = [{ provider = "codex_sub", model = "gpt-6.2-sol@max" }]
+
+# ---------------------------------------------------------------------------
+# Pricing (optional; the values shown are the defaults)
+# Rates are USD per million tokens. Custom overrides take precedence over
+# fetched official rates. Set VIBEBATON_DISABLE_PRICING_SYNC=1 to disable the
+# background rate refresh.
+# ---------------------------------------------------------------------------
+
+# [pricing]
+# auto_sync = true  # Refresh the official rate feed in the background.
+# refresh_interval_hours = 24  # Skip a refresh until the cache is this old.
+# source_url = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+# timeout_sec = 5.0  # HTTP timeout for one rate refresh, in seconds.
+# cache_path = ""  # Empty uses ~/.vibebaton/pricing_cache.json.
+# custom_path = ""  # Empty uses ~/.vibebaton/custom_pricing.json.
+#
+# Override fetched or built-in rates for one model:
+# [pricing.custom."deepseek-v4-pro"]
+# input_per_1m = 1.32
+# output_per_1m = 3.96
+# cached_input_per_1m = 0.044

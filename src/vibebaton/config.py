@@ -71,6 +71,19 @@ class NotificationSettings:
 
 
 @dataclass
+class PricingSettings:
+    auto_sync: bool = True
+    refresh_interval_hours: int = 24
+    source_url: str = (
+        "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+    )
+    timeout_sec: float = 5.0
+    cache_path: str = ""  # Defaults to ~/.vibebaton/pricing_cache.json.
+    custom_path: str = ""  # Defaults to ~/.vibebaton/custom_pricing.json.
+    custom: dict[str, dict[str, float]] = field(default_factory=dict)
+
+
+@dataclass
 class ProviderConfig:
     name: str
     type: str = "cli"
@@ -126,6 +139,7 @@ class BatonConfig:
     roles: dict[str, RoleConfig]
     source_path: Path | None = None
     notifications: NotificationSettings = field(default_factory=NotificationSettings)
+    pricing: PricingSettings = field(default_factory=PricingSettings)
 
     def resolve_role_name(self, preferred: str, *fallbacks: str) -> str:
         """Return the first configured role in preference order."""
@@ -308,6 +322,29 @@ def parse_config_dict(raw: dict[str, Any], source_path: Path | None = None) -> B
         ),
     )
 
+    pricing_raw = raw.get("pricing", {})
+    if not isinstance(pricing_raw, Mapping):
+        raise ValueError("Invalid pricing. Expected a table.")
+    custom_pricing = pricing_raw.get("custom", {})
+    if not isinstance(custom_pricing, Mapping) or any(
+        not isinstance(rates, Mapping) for rates in custom_pricing.values()
+    ):
+        raise ValueError("Invalid pricing.custom. Expected a table of model rates.")
+    pricing = PricingSettings(
+        auto_sync=bool(pricing_raw.get("auto_sync", PricingSettings.auto_sync)),
+        refresh_interval_hours=int(
+            pricing_raw.get("refresh_interval_hours", PricingSettings.refresh_interval_hours)
+        ),
+        source_url=str(pricing_raw.get("source_url", PricingSettings.source_url)),
+        timeout_sec=float(pricing_raw.get("timeout_sec", PricingSettings.timeout_sec)),
+        cache_path=str(pricing_raw.get("cache_path", PricingSettings.cache_path)),
+        custom_path=str(pricing_raw.get("custom_path", PricingSettings.custom_path)),
+        custom={
+            str(model): {str(rate): float(value) for rate, value in rates.items()}
+            for model, rates in custom_pricing.items()
+        },
+    )
+
     providers: dict[str, ProviderConfig] = {}
     for name, item in raw.get("providers", {}).items():
         providers[name] = ProviderConfig(
@@ -358,6 +395,7 @@ def parse_config_dict(raw: dict[str, Any], source_path: Path | None = None) -> B
         roles=roles,
         source_path=source_path,
         notifications=notifications,
+        pricing=pricing,
     )
 
 

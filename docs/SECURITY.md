@@ -29,7 +29,7 @@ Because `claude` and shell commands execute under your local OS user account:
 VibeBaton is explicitly designed to **respect provider rate limits and terms of service**, never to bypass them:
 - **Conservative Concurrency**: Subscription CLI providers default to `max_concurrency = 1` in `baton.example.toml`.
 - **Active Cooldown Backoff**: On detecting `429` / usage-limit / quota responses, VibeBaton pauses only the throttled provider using exponential backoff (`cooldown_backoff_sec`) in SQLite and resumes cleanly once the quota window resets.
-- **First-Class API Support**: Pay-as-you-go APIs (e.g. OpenCode Go, DeepSeek API, and Stage 4 native OpenAI-compatible HTTP providers) are treated as first-class citizens alongside local CLIs.
+- **First-Class API Support**: Pay-as-you-go providers (e.g. DSH via the OpenCode Go API, and Stage 4 native OpenAI-compatible HTTP providers) are treated as first-class citizens alongside local CLIs.
 
 ---
 

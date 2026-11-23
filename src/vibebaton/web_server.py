@@ -15,13 +15,14 @@ import tomllib
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
+from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import monotonic
 from typing import Any, Callable, Iterable, Mapping, Protocol, TypedDict
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, credentials, presets
+from . import __version__, credentials, presets, pricing
 from .config import (
     ALLOWED_BUDGET_PROFILES,
     BatonConfig,
@@ -49,6 +50,9 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("GET", re.compile(r"/api/config/roles"), "_get_config_roles"),
     ("PUT", re.compile(r"/api/config/roles/([^/]+)"), "_put_config_role"),
     ("PUT", re.compile(r"/api/config/budget"), "_put_config_budget"),
+    ("GET", re.compile(r"/api/pricing"), "_get_pricing"),
+    ("POST", re.compile(r"/api/pricing/sync"), "_post_pricing_sync"),
+    ("PUT", re.compile(r"/api/pricing/custom"), "_put_pricing_custom"),
     ("POST", re.compile(r"/api/doctor/role"), "_post_doctor_role"),
     ("GET", re.compile(r"/api/credentials"), "_get_credentials"),
     ("POST", re.compile(r"/api/credentials"), "_post_credentials"),
@@ -175,8 +179,12 @@ def _parse_finite_float(token: str) -> float:
     return value
 
 
-def _load_json(data: str | bytes | bytearray) -> Any:
-    return json.loads(data, parse_constant=_parse_finite_float, parse_float=_parse_finite_float)
+def _load_json(
+    data: str | bytes | bytearray,
+    *,
+    parse_float: Callable[[str], float | Decimal] = _parse_finite_float,
+) -> Any:
+    return json.loads(data, parse_constant=_parse_finite_float, parse_float=parse_float)
 
 
 def _text_field(payload: Mapping[str, Any], key: str, *, default: str | None = None) -> str:
@@ -185,6 +193,35 @@ def _text_field(payload: Mapping[str, Any], key: str, *, default: str | None = N
         expected = "a non-empty string" if default is None else "a string"
         raise _BadRequest(f"{key} must be {expected}")
     return value
+
+
+def _validated_pricing_updates(updates: object) -> dict[str, dict[str, float] | None]:
+    """Require JSON numbers before passing the rate table to the pricing writer."""
+    if not isinstance(updates, dict):
+        raise _BadRequest("updates must map model names to rate objects or null")
+
+    validated: dict[str, dict[str, float] | None] = {}
+    for model, row in updates.items():
+        if row is None:
+            validated[model] = None
+            continue
+        if not isinstance(row, dict):
+            raise _BadRequest(f"Pricing for {model!r} must be an object or null")
+
+        rates: dict[str, float] = {}
+        for key, value in row.items():
+            error = f"{key} for {model!r} must be a finite non-negative number"
+            if isinstance(value, bool) or not isinstance(value, (int, Decimal)) or value < 0:
+                raise _BadRequest(error)
+            try:
+                rate = float(value)
+            except OverflowError as exc:
+                raise _BadRequest(error) from exc
+            if not math.isfinite(rate):
+                raise _BadRequest(error)
+            rates[key] = rate
+        validated[model] = rates
+    return validated
 
 
 def _find_preset(preset_id: str) -> presets.PresetSummary:
@@ -348,6 +385,7 @@ class _CanvasHTTPServer(ThreadingHTTPServer):
     credentials_path: Path
     provider_probe: _ProviderProbe
     provider_probe_cache: _ProviderProbeCache
+    pricing_fetcher: pricing.PricingFetcher | None
 
     def __init__(self, address: tuple[str, int]) -> None:
         self.shutdown_event = threading.Event()
@@ -403,12 +441,21 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         data = dict(payload) if isinstance(payload, Mapping) else payload
         self._send_bytes(status, "application/json", json.dumps(data).encode("utf-8"), cors=True)
 
-    def _read_json_body(self) -> dict[str, Any]:
+    def _read_json_body(
+        self,
+        *,
+        optional: bool = False,
+        parse_float: Callable[[str], float | Decimal] = _parse_finite_float,
+    ) -> dict[str, Any]:
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError as exc:
             raise _BadRequest("Invalid Content-Length") from exc
-        if length <= 0:
+        if length < 0:
+            raise _BadRequest("Invalid Content-Length")
+        if length == 0:
+            if optional:
+                return {}
             raise _BadRequest("A JSON request body is required")
 
         body = bytearray()
@@ -418,7 +465,9 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                 raise _BadRequest("Incomplete JSON request body")
             body.extend(chunk)
         try:
-            payload = _load_json(body)
+            payload = _load_json(body, parse_float=parse_float)
+        except InvalidOperation as exc:
+            raise _BadRequest("JSON number is outside the supported range") from exc
         except (ValueError, RecursionError) as exc:
             raise _BadRequest(f"Invalid JSON request body: {exc}") from exc
         if not isinstance(payload, dict):
@@ -669,6 +718,40 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                 return
             self.server.loader = loader
         self._send_json(200, self._budget_config_payload(config))
+
+    def _get_pricing(self) -> None:
+        with self.server.config_lock:
+            settings = self.server.loader.current.pricing
+        self._send_json(200, pricing.build_pricing_catalog(settings))
+
+    def _post_pricing_sync(self) -> None:
+        force = self._read_json_body(optional=True).get("force", False)
+        if not isinstance(force, bool):
+            raise _BadRequest("force must be a boolean")
+
+        with self.server.config_lock:
+            settings = self.server.loader.current.pricing
+        result = pricing.sync_official_pricing(
+            settings,
+            force=force,
+            fetcher=self.server.pricing_fetcher,
+        )
+        self._send_json(200, {**asdict(result), "catalog": pricing.build_pricing_catalog(settings)})
+
+    def _put_pricing_custom(self) -> None:
+        payload = self._read_json_body(parse_float=Decimal)
+        updates = _validated_pricing_updates(payload.get("updates"))
+
+        with self.server.config_lock:
+            settings = self.server.loader.current.pricing
+        try:
+            pricing.save_custom_pricing(settings.custom_path, updates)
+        except ValueError as exc:
+            raise _BadRequest(str(exc)) from exc
+        except OSError as exc:
+            self._send_json(500, {"error": f"Cannot save custom pricing ({exc})"})
+            return
+        self._send_json(200, pricing.build_pricing_catalog(settings))
 
     def _post_doctor_role(self) -> None:
         payload = self._read_json_body()
@@ -957,6 +1040,7 @@ def create_server(
     *,
     credentials_path: Path | None = None,
     provider_probe: _ProviderProbe | None = None,
+    pricing_fetcher: pricing.PricingFetcher | None = None,
 ) -> ThreadingHTTPServer:
     """Bind a server for the repository and initialize its shared context."""
     repo_path = repo_path.resolve()
@@ -976,6 +1060,7 @@ def create_server(
     server.credentials_path = local_credentials_path
     server.provider_probe = credentials.probe_role_or_provider if provider_probe is None else provider_probe
     server.provider_probe_cache = _PROCESS_PROVIDER_PROBES if provider_probe is None else _ProviderProbeCache()
+    server.pricing_fetcher = pricing_fetcher
     return server
 
 

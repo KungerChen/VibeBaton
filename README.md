@@ -55,7 +55,7 @@ python -m vibebaton --version
 # 3. Initialize inside your target git repository
 python -m vibebaton init --repo D:\Projects\MyApp
 
-# 4. Check local CLIs (claude, codex, opencode) and Git health
+# 4. Check local CLIs (Claude, Codex, DSH) and Git health
 python -m vibebaton doctor --repo D:\Projects\MyApp
 
 # 5. Generate a hardened Docker / DevContainer sandbox for untrusted repositories
@@ -80,9 +80,9 @@ python -m vibebaton report --repo D:\Projects\MyApp --out battle_report.md
 
 ---
 
-## Native HTTP Providers (DeepSeek API Example)
+## Native HTTP Providers (OpenAI-Compatible HTTP API Example)
 
-Providers with `type = "http"` bypass local CLIs and call an OpenAI-compatible endpoint directly. To send the existing `dsh_opencode` role slot to the **DeepSeek API** over HTTP instead of the `dsh` CLI, replace that provider's CLI fields with the HTTP form:
+Providers with `type = "http"` bypass local CLIs and call an OpenAI-compatible HTTP API directly. To point the existing `dsh_opencode` role slot at **DeepSeek's API** over HTTP instead of the **DSH** CLI, replace that provider's CLI fields with the HTTP form:
 
 ```toml
 # User-facing display name: DeepSeek API. Backend key `dsh_opencode` is preserved.
@@ -137,7 +137,7 @@ python -m unittest discover -s D:\Projects\VibeBaton\tests -v
 
 ## Why VibeBaton & Honest Boundaries
 
-- **Core Moat**: Cross-vendor heterogeneous orchestration (`Antigravity` + `Claude` + `Codex` + `OpenCode Go / DeepSeek API`) and an open, shareable `.baton.json` workflow recipe ecosystem that no single model vendor will build natively.
+- **Core Moat**: Cross-vendor heterogeneous orchestration (`Antigravity` + `Claude` + `Codex` + `OpenCode Go / DSH`) and an open, shareable `.baton.json` workflow recipe ecosystem that no single model vendor will build natively.
 - **When to Use It**: Medium-to-large multi-module engineering, batch refactors/migrations, and unattended overnight runs with objective test/lint gates (`unittest`, `tsc`, `vitest`).
 - **When NOT to Use It**: Quick 30-second single-file tweaks or vague exploratory UI prototyping — a single interactive agent is faster there.
 - **Current Best-Tested Stacks**: Python 3.11+ and TypeScript/Node standalone repositories on Windows; hardened Docker / DevContainer sandbox templates are now included for untrusted repositories (additional ecosystems remain on the roadmap).

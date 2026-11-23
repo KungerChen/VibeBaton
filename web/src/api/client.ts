@@ -5,11 +5,16 @@ import type {
   BudgetConfigResponse,
   BudgetProfile,
   CredentialStatus,
+  CustomPricingUpdate,
   DoctorRoleRequest,
   DoctorRoleResult,
   GraphValidationResult,
   LiveRunSnapshot,
   PresetItem,
+  PricingCacheStatus,
+  PricingModelEntry,
+  PricingStatusResponse,
+  PricingSyncResponse,
   RfcBrainstormRequest,
   RfcBrainstormResult,
   RfcReadinessResult,
@@ -39,10 +44,37 @@ type WireRolesConfigResponse = Omit<RolesConfigResponse, 'roles'> & {
   roles: Record<string, WireRoleConfig>;
 };
 
+type WirePricingStatusResponse = Omit<PricingStatusResponse, 'cache'> & {
+  cache: PricingCacheStatus | (Omit<PricingCacheStatus, 'fetched_at'> & { fetched_at: number });
+};
+
+type WirePricingSyncResponse = Omit<PricingSyncResponse, 'catalog'> & {
+  catalog: WirePricingStatusResponse;
+};
+
 type RunDecision = 'approve' | 'reject';
 
 const DEMO_DOCTOR_LATENCY_MS = 5000;
 const CREDENTIAL_KEYS = ['DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'OPENCODE_API_KEY', 'ANTHROPIC_API_KEY'] as const;
+
+// Representative rows from the server's built-in catalog.
+const DEMO_PRICING: PricingStatusResponse = {
+  models: [
+    { model: 'claude-sonnet-4-6', input_per_1m: 3, output_per_1m: 15, cached_input_per_1m: 0.3, source: 'builtin' },
+    { model: 'deepseek-flash', input_per_1m: 0.3, output_per_1m: 1.2, cached_input_per_1m: 0.006, source: 'builtin' },
+    { model: 'gpt-4o', input_per_1m: 2.5, output_per_1m: 10, cached_input_per_1m: 1.25, source: 'builtin' },
+  ],
+  cache: {
+    path: '',
+    fetched_at: null,
+    age_sec: null,
+    stale: true,
+    refresh_interval_hours: 24,
+    auto_sync: false,
+    source_url: '',
+  },
+  custom_path: '',
+};
 
 function maskCredential(value: string): string {
   const characters = Array.from(value);
@@ -61,6 +93,15 @@ function toRoleConfig(role: WireRoleConfig): RoleConfig {
   };
 }
 
+function toPricingStatus({ cache, ...catalog }: WirePricingStatusResponse): PricingStatusResponse {
+  const fetchedAt = cache.fetched_at;
+  // The M2 API reports Unix seconds. Studio consumes an ISO timestamp.
+  return {
+    ...catalog,
+    cache: { ...cache, fetched_at: typeof fetchedAt === 'number' ? new Date(fetchedAt * 1000).toJSON() : fetchedAt },
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -71,6 +112,7 @@ export class BatonApiClient {
   private readonly baseUrl: string;
   private demoBudgetProfile: BudgetProfile = 'balanced';
   private readonly demoCredentials = new Map<string, string>();
+  private demoCustomPricing = new Map<string, PricingModelEntry>();
 
   constructor(
     baseUrl = '',
@@ -160,6 +202,57 @@ export class BatonApiClient {
     }
     this.demoBudgetProfile = profile;
     return { budget_profile: profile, model_catalog: structuredClone(DEMO_ROLES_CONFIG.model_catalog) };
+  }
+
+  async getPricing(): Promise<PricingStatusResponse> {
+    if (this.mode === 'local') {
+      return toPricingStatus(await this.requestJson<WirePricingStatusResponse>('/api/pricing'));
+    }
+
+    const models = [
+      ...DEMO_PRICING.models.filter(({ model }) => !this.demoCustomPricing.has(model)),
+      ...this.demoCustomPricing.values(),
+    ].sort((left, right) => left.model.localeCompare(right.model));
+    return structuredClone({ ...DEMO_PRICING, models });
+  }
+
+  async syncPricing(force = false): Promise<PricingSyncResponse> {
+    if (this.mode === 'local') {
+      const result = await this.requestJson<WirePricingSyncResponse>('/api/pricing/sync', {
+        method: 'POST', body: { force },
+      });
+      return { ...result, catalog: toPricingStatus(result.catalog) };
+    }
+
+    const catalog = await this.getPricing();
+    return { ok: true, fetched: false, skipped_fresh: true, model_count: catalog.models.length, error: null, catalog };
+  }
+
+  async saveCustomPricing(updates: CustomPricingUpdate): Promise<PricingStatusResponse> {
+    if (this.mode === 'local') {
+      const catalog = await this.requestJson<WirePricingStatusResponse>('/api/pricing/custom', {
+        method: 'PUT', body: { updates },
+      });
+      return toPricingStatus(catalog);
+    }
+
+    const custom = new Map(this.demoCustomPricing);
+    for (const [name, rates] of Object.entries(updates)) {
+      const model = name.trim();
+      if (!model) throw new ApiError(400, 'Custom pricing requires a non-empty model name.');
+      if (rates === null) {
+        custom.delete(model);
+        continue;
+      }
+
+      const { input_per_1m, output_per_1m, cached_input_per_1m } = rates;
+      if ([input_per_1m, output_per_1m, cached_input_per_1m].some((rate) => !Number.isFinite(rate) || rate < 0)) {
+        throw new ApiError(400, `Invalid custom rates for '${model}'. Expected finite non-negative token rates.`);
+      }
+      custom.set(model, { model, input_per_1m, output_per_1m, cached_input_per_1m, source: 'custom' });
+    }
+    this.demoCustomPricing = custom;
+    return this.getPricing();
   }
 
   async doctorRole(payload: DoctorRoleRequest): Promise<DoctorRoleResult> {

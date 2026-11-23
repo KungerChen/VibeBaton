@@ -14,6 +14,17 @@
 | [20261122-050513-m3-sandbox-runtime](#20261122-050513-m3-sandbox-runtime) | 2026-11-22 | M3 沙箱构建时安装 VibeBaton | 已自测，待用户验收 |
 | [20261122-100548-m2-live-canvas](#20261122-100548-m2-live-canvas) | 2026-11-22 | M2 实时快照保留画布位置和选中状态 | 已自测，待用户验收 |
 | [20261122-101917-m2-task-clock-anchor](#20261122-101917-m2-task-clock-anchor) | 2026-11-22 | M2 任务计时按在途调用推进 | 已自测，待用户验收 |
+| [20261122-215213-m2-dsh-report-gate](#20261122-215213-m2-dsh-report-gate) | 2026-11-22 | M2 全量门禁的 DSH 战报断言修复 | 已自测，待用户验收 |
+
+## 20261122-215213-m2-dsh-report-gate
+
+2026-11-22 21:52:13 PST。M2 复审授权修复定价里程碑门禁。分支为 `baton/6387b6/ms-m2-r1`，基准提交为 `6f7f6d1`，起始工作树干净。
+
+- 基线全量测试和独立的 `tests.test_e2e_pipeline` 都复现了同一失败。战报按 M1 规范将升档来源显示为 `DSH`，端到端断言仍在查找内部标识 `dsh_opencode`。
+- `tests/test_e2e_pipeline.py` 校验真实 Git 工作树和模拟 CLI 运行产出的升档记录。事件载荷使用 `dsh_opencode`，战报和 MCP 最终交付包都显示任务 T-102 第 5 次尝试从 `DSH` 升到 Claude。`tests/test_report_telemetry.py` 新增回归，核对渲染前后的数据库事件一致。两个模块共 15 项通过。
+- 当前沙箱拒绝向共享依赖 junction 写入 Vite 临时配置。在当前工作树的 `web` 下执行 `npm.cmd run build -- --configLoader runner`，用生成的 Studio 资源通过回环 HTTP 集成测试。沙箱策略拒绝清理生成资源，`web/dist` 由 Git 忽略。
+- 四条指定门禁均退出 0。专项通过 147 项，全量运行 475 项并通过 472 项。两项因缺少 Docker CLI 跳过，一项因缺少 Windows 目录符号链接权限跳过。`pricing show --help`、`pricing sync --help` 和 `pricing.py` 标准库导入检查通过。定价同步测试使用模拟抓取。
+- 专项与全量输出分别位于 `%TEMP%\vibebaton-m2-final-focused-f0e2f393-89bf-4adf-8cb2-464a06f43259.log` 和 `%TEMP%\vibebaton-m2-final-discover-b4583bab-faab-44cd-a11d-605ba2e48f26.log`。已自测，待用户验收。回退参考为 `6f7f6d1`。
 
 ## 20261122-101917-m2-task-clock-anchor
 

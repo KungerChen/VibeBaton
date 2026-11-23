@@ -3,12 +3,12 @@ import type { WorkflowGraph } from '../../types/graph';
 export const deepseek_bulk_factory: WorkflowGraph = {
   schema_version: '1.0',
   id: 'deepseek_bulk_factory',
-  name: 'DeepSeek API Bulk Factory',
+  name: 'DSH Bulk Factory',
   difficulty: 'intermediate',
-  description: 'DeepSeek API plans batches and executes them across parallel workers. Automated tests check each batch before human sign-off.',
+  description: 'DSH plans batches and executes them across parallel workers. Automated tests check each batch before human sign-off.',
   recommended_for: [
-    'Repository-wide migrations with DeepSeek API',
-    'Bulk test generation with DeepSeek API',
+    'Repository-wide migrations with DSH',
+    'Bulk test generation with DSH',
   ],
   category: 'bulk_batch',
   required_providers: ['dsh_opencode'],
@@ -17,7 +17,7 @@ export const deepseek_bulk_factory: WorkflowGraph = {
     {
       id: 'plan',
       type: 'planner_node',
-      label: 'Batch Planning (DeepSeek API)',
+      label: 'Batch Planning (DSH)',
       role: 'tactical_planner',
       position: { x: 80, y: 160 },
       config: { provider: 'dsh_opencode', model: 'deepseek-v4.1-flash@max' },
@@ -25,7 +25,7 @@ export const deepseek_bulk_factory: WorkflowGraph = {
     {
       id: 'worker',
       type: 'worker_node',
-      label: 'Parallel Batch Workers (DeepSeek API)',
+      label: 'Parallel Batch Workers (DSH)',
       role: 'bulk_worker',
       position: { x: 380, y: 160 },
       config: { provider: 'dsh_opencode', model: 'deepseek-v4.1-flash@max', concurrency: 4 },
@@ -33,14 +33,14 @@ export const deepseek_bulk_factory: WorkflowGraph = {
     {
       id: 'gate',
       type: 'gate_node',
-      label: 'Test Changes from DeepSeek API',
+      label: 'Test Changes from DSH',
       position: { x: 680, y: 160 },
       config: { commands: ['python -m unittest discover -s tests'] },
     },
     {
       id: 'human_final',
       type: 'human_gate_node',
-      label: 'DeepSeek API Batch Sign-Off',
+      label: 'DSH Batch Sign-Off',
       position: { x: 980, y: 160 },
       config: {},
     },

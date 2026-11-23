@@ -13,6 +13,7 @@ import { Input, Label, Select } from '../ui/input';
 import { MarkdownView } from '../ui/MarkdownView';
 import { Modal } from '../ui/Modal';
 import { formatTokenCount, formatUsd } from './billingFormat';
+import { PricingModal } from './PricingModal';
 import { StartRunModal } from './StartRunModal';
 
 const eventLimit = 200;
@@ -162,6 +163,7 @@ export function LiveRunPanel({
   const [localSnapshot, setLocalSnapshot] = useState<LiveRunSnapshot>(emptySnapshot);
   const [localReconnecting, setLocalReconnecting] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
   const [report, setReport] = useState<{ runId: string; lang: Locale; markdown: string } | null>(null);
   const [reportRawMode, setReportRawMode] = useState(false);
   const [loadingReport, setLoadingReport] = useState(false);
@@ -193,6 +195,7 @@ export function LiveRunPanel({
   });
   const modelLiveTotal = modelTimings.reduce((sum, { durationSec }) => sum + durationSec, 0);
   const billing = telemetry?.billing?.has_exact_billing === true ? telemetry.billing : null;
+  const hasModelRuntime = Boolean(runId) && telemetry !== null && telemetry.models.length > 0;
   const onStreamError = useEffectEvent((error: unknown) => {
     onToast(error instanceof Error ? error.message : String(error), 'err');
   });
@@ -339,6 +342,12 @@ export function LiveRunPanel({
     }
   }
 
+  const pricingButton = (
+    <Button variant="outline" size="sm" aria-haspopup="dialog" onClick={() => setPricingOpen(true)}>
+      {messages.pricing.openButton}
+    </Button>
+  );
+
   return (
     <section
       className="right-inspector__section border-t border-border pt-4"
@@ -393,6 +402,7 @@ export function LiveRunPanel({
             {messages.inspector.battleReport}
           </Button>
         )}
+        {!hasModelRuntime && pricingButton}
       </div>
 
       {runId ? (
@@ -499,11 +509,14 @@ export function LiveRunPanel({
             </div>
           )}
 
-          {telemetry && telemetry.models.length > 0 && (
+          {hasModelRuntime && (
             <div className="right-inspector__telemetry-card">
-              <h3 className="m-0 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                {messages.inspector.modelRuntimeTitle}
-              </h3>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="m-0 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  {messages.inspector.modelRuntimeTitle}
+                </h3>
+                {pricingButton}
+              </div>
               {billing && (
                 <div className="right-inspector__billing-summary">
                   <span className="right-inspector__billing-badge font-mono">
@@ -779,6 +792,7 @@ export function LiveRunPanel({
           )}
         </Modal>
       )}
+      <PricingModal open={visible && pricingOpen} client={client} onClose={() => setPricingOpen(false)} />
       {startOpen && (
         <StartRunModal
           client={client}

@@ -13,22 +13,18 @@ from .db import StateStore
 
 _INVOKING_RE = re.compile(r"Invoking\s+([^\s(]+)\s*\(([^/]+)/([^)]+)\)")
 _COMPLETED_RE = re.compile(r"Completed\s+([^\s(]+)\s*\(([^/]+)/([^)]+)\)")
+_DSH_PROVIDER_REFERENCE_RE = re.compile(
+    r"(?<![\w./\\-])dsh_(?:opencode|deepseek)(?![\w-]|\.\w)", re.ASCII,
+)
 _ACTIVE_STAGE_STATUSES = {"PLANNING", "RUNNING", "IN_PROGRESS", "REVIEWING", "GATE_CHECKING"}
 _ACTIVE_TASK_STATUSES = {"RUNNING", "REVIEWING", "GATE_CHECKING", "COOLDOWN"}
 
-_PROVIDER_DISPLAY = {
-    "en": {
-        "dsh_opencode": "DeepSeek API",
-        "claude_sub": "Claude CLI",
-        "codex_sub": "Codex CLI",
-        "host_native": "Local Host",
-    },
-    "zh": {
-        "dsh_opencode": "DeepSeek API",
-        "claude_sub": "Claude CLI",
-        "codex_sub": "Codex CLI",
-        "host_native": "本地宿主",
-    },
+PROVIDER_DISPLAY_NAMES: dict[str, str] = {
+    "dsh_opencode": "DSH",
+    "dsh_deepseek": "DSH",
+    "claude_sub": "Claude CLI",
+    "codex_sub": "Codex CLI",
+    "host_native": "Local Host",
 }
 
 _STATUS_ZH = {
@@ -67,8 +63,9 @@ def normalize_report_lang(lang: str | None) -> str:
 
 
 def display_provider_name(provider: str, lang: str = "en") -> str:
-    locale = normalize_report_lang(lang)
-    return _PROVIDER_DISPLAY[locale].get(provider, provider or "unknown")
+    if provider == "host_native" and normalize_report_lang(lang) == "zh":
+        return "本地宿主"
+    return PROVIDER_DISPLAY_NAMES.get(provider, provider or "unknown")
 
 
 def _infer_provider_from_model(model: str) -> str:
@@ -775,7 +772,10 @@ def generate_battle_report(store: StateStore, run_id: str, lang: str = "en") -> 
     lines.extend(_smart_allocation_summary(events, lang=locale))
     lines.extend(_token_cost_section(telemetry["billing"], telemetry["models"], lang=locale))
     lines.extend(_conflict_section(telemetry.get("conflicts"), lang=locale))
-    return "\n".join(lines) + "\n"
+    # Event summaries can include bare IDs and historical provider/model or provider:model references.
+    return _DSH_PROVIDER_REFERENCE_RE.sub(
+        lambda match: display_provider_name(match[0], locale), "\n".join(lines) + "\n",
+    )
 
 
 def _build_en_report(

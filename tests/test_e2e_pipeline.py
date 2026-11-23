@@ -313,7 +313,12 @@ class TestEndToEndPipeline(unittest.TestCase):
             self.assertIn("Subscription Cooldowns Handled | **1**", report_md)
             self.assertIn("## Smart Allocation Summary", report_md)
             self.assertIn("| `T-101` | `codex_sub` | `6.2-sol-max` |", report_md)
-            self.assertIn("`dsh_opencode:deepseek-flash-v4.1-max` → `claude_sub:fable-5.2-high`", report_md)
+            step_up_line = (
+                "- `T-102` attempt 5 — "
+                "`DSH:deepseek-flash-v4.1-max` → `claude_sub:fable-5.2-high`"
+            )
+            self.assertIn(step_up_line, report_md)
+            self.assertNotIn(step_ups[0]["from"], report_md)
 
             # Verify zero-dependency MCP Server JSON-RPC protocol
             mcp = VibeBatonMCPServer(default_repo=repo, explicit_config=cfg_path)
@@ -339,6 +344,7 @@ class TestEndToEndPipeline(unittest.TestCase):
             pkg_payload = json.loads(pkg_resp["result"]["content"][0]["text"])
             self.assertEqual(pkg_payload["status"], "READY_FOR_FINAL_GATE")
             self.assertIn("def multiply(a: int, b: int) -> int:", pkg_payload["diff_dev_vs_base"])
+            self.assertIn(step_up_line, pkg_payload["battle_report_markdown"])
 
 
 if __name__ == "__main__":

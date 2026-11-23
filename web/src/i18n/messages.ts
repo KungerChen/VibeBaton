@@ -292,6 +292,29 @@ export interface Messages {
     label: string;
     options: Record<BudgetProfile, { label: string; tooltip: string }>;
   };
+  pricing: {
+    title: string;
+    openButton: string;
+    syncButton: string;
+    lastSynced: string;
+    neverSynced: string;
+    autoSyncEvery24h: string;
+    stale: string;
+    syncing: string;
+    syncFailed: string;
+    columns: Record<'model' | 'source' | 'input' | 'cached' | 'output' | 'actions', string>;
+    unit: string;
+    sourceCustom: string;
+    sourceOfficialCache: string;
+    sourceBuiltin: string;
+    edit: string;
+    save: string;
+    cancel: string;
+    resetToOfficial: string;
+    invalidNumber: string;
+    saved: string;
+    close: string;
+  };
   nodeReadiness: {
     statuses: Record<'ready' | 'cooldown' | 'missing', string>;
     doctorButton: string;
@@ -635,7 +658,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       tabTutorial: 'Tutorial',
       steps: {
         tryStarterTitle: '1. Run Starter 2-Tier Flow Demo',
-        tryStarterDesc: 'Load the minimal DeepSeek API starter workflow and animate Happy Path playback.',
+        tryStarterDesc: 'Load the minimal DSH starter workflow and animate Happy Path playback.',
         watchReplayTitle: '2. Watch Stage 1 Real Run (60×)',
         watchReplayDesc: 'Replay how VibeBaton built itself across 3 milestones, catching bugs and auto-escalating.',
         inspectNodeTitle: '3. Inspect & Hot-Swap Models',
@@ -648,7 +671,7 @@ export const MESSAGES: Record<Locale, Messages> = {
           points: [
             'L0 (You + Architect): Align the goal and constraints up front, then review the Battle Report before merging to main.',
             'L1 (Planner & Milestone Reviewer): Splits the RFC into ordered milestones and verifies every milestone integration.',
-            'L3 (DeepSeek API Workers): Runs routine modules fast in parallel using isolated Git worktrees and file whitelists.',
+            'L3 (DSH Workers): Runs routine modules fast in parallel using isolated Git worktrees and file whitelists.',
             'Mechanical Gate + L2 Reviewer: Deterministic unit tests and lint run first before spending senior review quota.',
           ],
         },
@@ -668,7 +691,7 @@ export const MESSAGES: Record<Locale, Messages> = {
           summary: 'Quick answers for first-time builders running VibeBaton locally.',
           points: [
             'Q: Why did the canvas show a static preset while running? Click the top-left "Live Run Workflow" card to switch the canvas to live task nodes.',
-            'Q: How do I minimize API spend? Use "Starter 2-Tier Flow" or "DeepSeek API Bulk Factory" paired with the Eco budget profile.',
+            'Q: How do I minimize API spend? Use "Starter 2-Tier Flow" or "DSH Bulk Factory" paired with the Eco budget profile.',
             'Q: What happens on 429 rate limits or timeouts? Only that provider pauses in cooldown while sibling workers continue and stuck tasks auto-escalate.',
             'Q: Is my main branch safe overnight? Yes — work happens inside isolated Git worktrees on dev and awaits human final approval.',
           ],
@@ -679,7 +702,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         { key: 'L0', name: 'L0 · Brainstorm & Sign-Off', desc: 'Interactive specification alignment and final human gate.' },
         { key: 'L1', name: 'L1 · Planner & Milestone Gate', desc: 'Decomposes RFC into a milestone DAG and audits final delivery.' },
         { key: 'L2', name: 'L2 · Critical & Micro Review', desc: 'Handles core architecture tasks, escalations, and per-task code review.' },
-        { key: 'L3', name: 'L3 · Parallel Bulk Workers', desc: 'Runs high-concurrency routine implementation tasks via DeepSeek API.' },
+        { key: 'L3', name: 'L3 · Parallel Bulk Workers', desc: 'Runs high-concurrency routine implementation tasks via DSH.' },
         { key: 'GATE', name: 'Mechanical Gate', desc: 'Runs deterministic unit tests & lint checks before spending review quota.' },
         { key: 'MERGE', name: 'Milestone Merge', desc: 'Verifies file whitelists and squash-merges completed worktrees.' },
       ],
@@ -752,14 +775,14 @@ export const MESSAGES: Record<Locale, Messages> = {
     },
     tutorialDiagrams: {
       relayCaption: 'The four-tier relay from planning to final approval.',
-      relayAria: 'The user sets the goal, the planner defines tasks, DeepSeek API workers implement them, and mechanical checks and code review precede final user approval.',
+      relayAria: 'The user sets the goal, the planner defines tasks, DSH workers implement them, and mechanical checks and code review precede final user approval.',
       guidedFlowCaption: 'From budget and recipe selection to the run report.',
       guidedFlowAria: 'Choose a budget and recipe, complete the guarded launch wizard, follow the live run on the canvas, and review the bilingual report before final approval.',
       sandboxCaption: 'Parallel worktrees and path whitelist checks protect the main branch.',
       sandboxAria: 'Workers edit in isolated Git worktrees. The path whitelist guard reverts out-of-scope changes, and merges to the main branch require final approval.',
       l0User: 'L0 (User)',
       l1Planner: 'L1 Planner',
-      l3Workers: 'L3 DeepSeek API Workers',
+      l3Workers: 'L3 DSH Workers',
       mechanicalGate: 'Mechanical Gate',
       l2Reviewer: 'L2 Reviewer',
       finalMerge: 'L0 Final Merge',
@@ -793,6 +816,36 @@ export const MESSAGES: Record<Locale, Messages> = {
         max_quality: { label: 'Max Quality', tooltip: 'Favor the strongest available models and highest reasoning effort.' },
       },
     },
+    pricing: {
+      title: 'API Pricing',
+      openButton: 'API Pricing',
+      syncButton: 'Sync Official Prices',
+      lastSynced: 'Last synced',
+      neverSynced: 'Never synced',
+      autoSyncEvery24h: 'Auto-sync every 24 hours',
+      stale: 'Cache is stale',
+      syncing: 'Syncing prices…',
+      syncFailed: 'Could not sync official prices',
+      columns: {
+        model: 'Model',
+        source: 'Source',
+        input: 'Input',
+        cached: 'Cached Input',
+        output: 'Output',
+        actions: 'Actions',
+      },
+      unit: 'USD / 1M tokens',
+      sourceCustom: 'Custom',
+      sourceOfficialCache: 'Official Cache',
+      sourceBuiltin: 'Built-in',
+      edit: 'Edit',
+      save: 'Save',
+      cancel: 'Cancel',
+      resetToOfficial: 'Reset to Official',
+      invalidNumber: 'Enter a finite, non-negative number.',
+      saved: 'Prices saved',
+      close: 'Close',
+    },
     nodeReadiness: {
       statuses: { ready: 'Ready', cooldown: 'Cooldown', missing: 'Missing' },
       doctorButton: '5s Doctor',
@@ -803,9 +856,9 @@ export const MESSAGES: Record<Locale, Messages> = {
     credentials: {
       title: 'Credentials Setup',
       keyLabels: {
-        DEEPSEEK_API_KEY: 'DeepSeek API Key',
+        DEEPSEEK_API_KEY: 'DSH API Key',
         OPENAI_API_KEY: 'OpenAI API Key',
-        OPENCODE_API_KEY: 'DeepSeek API Gateway Key',
+        OPENCODE_API_KEY: 'DSH Gateway Key',
         ANTHROPIC_API_KEY: 'Anthropic API Key',
       },
       maskedNote: 'Saved keys stay on this host outside the repository. Configured keys appear masked.',
@@ -1143,7 +1196,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       tabTutorial: '详细教程',
       steps: {
         tryStarterTitle: '1. 运行「极简入门双层流」演示',
-        tryStarterDesc: '加载低成本 DeepSeek API 双层工作流，并播放正常流转接力动画。',
+        tryStarterDesc: '加载低成本 DSH 双层工作流，并播放正常流转接力动画。',
         watchReplayTitle: '2. 观看一期自举 60× 真实回放',
         watchReplayDesc: '重温 VibeBaton 在 3 个里程碑中的真实自举轨迹、门禁拦截与熔断升级过程。',
         inspectNodeTitle: '3. 编辑节点配置与模型热切换',
@@ -1156,7 +1209,7 @@ export const MESSAGES: Record<Locale, Messages> = {
           points: [
             'L0（你 + 总控大脑）：开工前头脑风暴对齐需求与验收命令，全部完成通过后再看战报签字合并主分支。',
             'L1（规划师 & 里程碑审校）：把需求拆成带依赖关系的里程碑和任务，并在每个里程碑合入前把关整体验收。',
-            'L3（DeepSeek API 并发工人）：在独立 Git Worktree 沙盒目录里高并发开发常规模块，改错不会污染主工作区。',
+            'L3（DSH 并发工人）：在独立 Git Worktree 沙盒目录里高并发开发常规模块，改错不会污染主工作区。',
             '机械门禁 + L2 审校：先免费跑本地测试和静态检查抓低级错误，全过后再请高阶审校官把关，省钱又稳。',
           ],
         },
@@ -1176,7 +1229,7 @@ export const MESSAGES: Record<Locale, Messages> = {
           summary: '遇到困惑先看这里，覆盖 90% 的初上手疑问。',
           points: [
             '问：为什么运行中左侧和中间画布没有自动显示真实任务？答：预设栏显示的是工作流蓝图，请点击左上角「实时运行工作流」卡片切换到真实任务 DAG 画布。',
-            '问：怎么配置最省钱？答：新手建议选择「极简入门双层流」或「DeepSeek API 批量工厂」，并将预算档位切到「节省」。',
+            '问：怎么配置最省钱？答：新手建议选择「极简入门双层流」或「DSH 批量工厂」，并将预算档位切到「节省」。',
             '问：半夜触发 429 限流或模型卡死怎么办？答：系统只把限流供应方送入冷却池，其他工具照常工作；同一任务多次不过会自动阶梯升档到更强模型。',
             '问：AI 会不会把我的 main 主分支改乱？答：不会。所有改动都只在隔离工作树与 dev 分支内运行，且受文件白名单物理限制，最后必须由你 L0 确认才合入主干。',
           ],
@@ -1187,7 +1240,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         { key: 'L0', name: 'L0 · 头脑风暴与终审', desc: '在开工前对齐规格需求，并在最终合并前由用户签字把关。' },
         { key: 'L1', name: 'L1 · 规划与里程碑评审', desc: '将主规格拆解为无环任务图，并在里程碑合入前把关质量。' },
         { key: 'L2', name: 'L2 · 核心攻坚与微观审校', desc: '负责核心架构编写、熔断升级接管以及常规任务的逐项审校。' },
-        { key: 'L3', name: 'L3 · 并发批量执行', desc: '通过 DeepSeek API 高并发完成大量常规模块与单元测试开发。' },
+        { key: 'L3', name: 'L3 · 并发批量执行', desc: '通过 DSH 高并发完成大量常规模块与单元测试开发。' },
         { key: 'GATE', name: '机械测试门禁', desc: '先运行本地单测与静态检查拦截低级缺陷，节省上层审校额度。' },
         { key: 'MERGE', name: '里程碑分支合入', desc: '自动校验文件改动白名单并执行工作树压缩合并。' },
       ],
@@ -1260,14 +1313,14 @@ export const MESSAGES: Record<Locale, Messages> = {
     },
     tutorialDiagrams: {
       relayCaption: '从任务规划到人工终审的四层协作流程。',
-      relayAria: '用户确定目标，规划师拆分任务，DeepSeek API 执行节点实现需求，机械门禁和代码审校通过后由用户终审合并。',
+      relayAria: '用户确定目标，规划师拆分任务，DSH 执行节点实现需求，机械门禁和代码审校通过后由用户终审合并。',
       guidedFlowCaption: '从选择预算和工作流到查看战报。',
       guidedFlowAria: '选择预算和工作流，完成带护栏的启动向导，在画布上跟踪实时运行，最后查看双语战报并签字。',
       sandboxCaption: '并行工作树与路径白名单保护主分支。',
       sandboxAria: '执行节点在隔离的 Git 工作树中修改代码，路径白名单回退越界改动，合入主分支前须通过人工终审。',
       l0User: 'L0 用户',
       l1Planner: 'L1 规划师',
-      l3Workers: 'L3 DeepSeek API 批量执行',
+      l3Workers: 'L3 DSH 批量执行',
       mechanicalGate: '机械门禁',
       l2Reviewer: 'L2 审校',
       finalMerge: 'L0 终审合并',
@@ -1301,6 +1354,36 @@ export const MESSAGES: Record<Locale, Messages> = {
         max_quality: { label: '质量优先', tooltip: '优先选择能力更强的可用模型和更高的推理档位。' },
       },
     },
+    pricing: {
+      title: '模型单价',
+      openButton: '模型单价',
+      syncButton: '立即同步官方价',
+      lastSynced: '最近同步',
+      neverSynced: '尚未同步',
+      autoSyncEvery24h: '每 24 小时自动同步',
+      stale: '缓存已过期',
+      syncing: '正在同步价格…',
+      syncFailed: '官方价格同步失败',
+      columns: {
+        model: '模型',
+        source: '来源',
+        input: '输入',
+        cached: '缓存输入',
+        output: '输出',
+        actions: '操作',
+      },
+      unit: '美元 / 百万词元',
+      sourceCustom: '自定义',
+      sourceOfficialCache: '官方缓存',
+      sourceBuiltin: '内置官方价',
+      edit: '编辑',
+      save: '保存',
+      cancel: '取消',
+      resetToOfficial: '恢复官方价',
+      invalidNumber: '请输入有限的非负数。',
+      saved: '单价已保存',
+      close: '关闭',
+    },
     nodeReadiness: {
       statuses: { ready: '就绪', cooldown: '冷却中', missing: '缺失' },
       doctorButton: '5 秒诊断',
@@ -1311,9 +1394,9 @@ export const MESSAGES: Record<Locale, Messages> = {
     credentials: {
       title: '凭据设置',
       keyLabels: {
-        DEEPSEEK_API_KEY: 'DeepSeek API 密钥',
+        DEEPSEEK_API_KEY: 'DSH API 密钥',
         OPENAI_API_KEY: 'OpenAI API 密钥',
-        OPENCODE_API_KEY: 'DeepSeek API 网关密钥',
+        OPENCODE_API_KEY: 'DSH 网关密钥',
         ANTHROPIC_API_KEY: 'Anthropic API 密钥',
       },
       maskedNote: '密钥保存在本机的用户目录中。已配置的密钥会脱敏显示。',

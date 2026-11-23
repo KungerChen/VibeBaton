@@ -9,13 +9,13 @@ import logging
 import sys
 import time
 from collections.abc import Iterable
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import replace
 from itertools import count
 from pathlib import Path
 from typing import Any, Iterator
 
-from . import cli_runner
+from . import cli_runner, pricing
 from .allocation import compute_step_up_target, parse_model_spec, resolve_task_allocation
 from .cli_runner import CLIResult, invoke_provider
 from .config import (
@@ -303,6 +303,7 @@ class OrchestrationEngine:
                     output_file=output_file,
                     credentials_path=self.credentials_path,
                     cli_executor=run_provider_cli,
+                    pricing_settings=cfg.pricing,
                     default_stall_timeout=cfg.daemon.default_stall_timeout_sec,
                     default_hard_timeout=cfg.daemon.default_hard_timeout_sec,
                     extra_env={
@@ -320,11 +321,14 @@ class OrchestrationEngine:
                     "status": res.status,
                     "exit_code": res.exit_code,
                 }
-                if res.prompt_tokens > 0:
+                has_cli_usage = active_provider.type != "http" and any((
+                    res.prompt_tokens, res.completion_tokens, res.cached_tokens,
+                ))
+                if has_cli_usage or res.prompt_tokens > 0:
                     payload["prompt_tokens"] = res.prompt_tokens
-                if res.completion_tokens > 0:
+                if has_cli_usage or res.completion_tokens > 0:
                     payload["completion_tokens"] = res.completion_tokens
-                if res.cached_tokens > 0:
+                if has_cli_usage or res.cached_tokens > 0:
                     payload["cached_tokens"] = res.cached_tokens
                 if res.cost_usd is not None:
                     payload["cost_usd"] = res.cost_usd
@@ -491,6 +495,10 @@ class OrchestrationEngine:
                     {episode for episode in self._notified_episodes if episode[0] in ("waiting_human", "paused")}
                 )
 
+            cfg = self.cfg
+            with suppress(Exception):
+                pricing.trigger_background_pricing_sync(cfg.pricing)
+
             overrides: dict[str, str] = json.loads(run["model_overrides_json"] or "{}")
             rfc_path = Path(run["rfc_path"])
             if not rfc_path.exists():
@@ -502,13 +510,13 @@ class OrchestrationEngine:
                 return RunStatus.FAILED
             rfc_text = rfc_path.read_text(encoding="utf-8")
 
-            with windows_wake_lock(self.cfg.daemon.prevent_sleep_windows):
+            with windows_wake_lock(cfg.daemon.prevent_sleep_windows):
                 base_branch = ensure_git_ready(
                     self.repo_path,
-                    base_branch=self.cfg.daemon.base_branch,
-                    dev_branch=self.cfg.daemon.dev_branch,
+                    base_branch=cfg.daemon.base_branch,
+                    dev_branch=cfg.daemon.dev_branch,
                 )
-                dev_branch = self.cfg.daemon.dev_branch
+                dev_branch = cfg.daemon.dev_branch
 
                 # Stage 1: Planning (or load pre-supplied / already-registered plan)
                 if await self._stop_if_paused(self.store.get_run(run_id)):
@@ -625,9 +633,8 @@ class OrchestrationEngine:
             if res.status != "ok":
                 last_err = f"Planner CLI failed ({res.status}): {res.stderr or res.stdout}"
             else:
-                raw_text = res.output_file_text or res.stdout
                 try:
-                    parsed = extract_json_object(raw_text)
+                    parsed = extract_json_object(res.text)
                     plan = PlanDAG.from_dict(parsed)
                     plan_out.write_text(json.dumps(plan.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
                     current = self.store.get_run(run_id)["status"]
@@ -1376,9 +1383,8 @@ class OrchestrationEngine:
                 verdict=VerdictKind.MAJOR_REWORK,
                 summary=f"Reviewer CLI error ({res.status}): {(res.stderr or res.stdout)[:300]}",
             )
-        raw_text = res.output_file_text or res.stdout
         try:
-            parsed = extract_json_object(raw_text)
+            parsed = extract_json_object(res.text)
             return ReviewVerdict.from_dict(parsed, default_target=target_id, default_reviewer=actor)
         except SchemaValidationError as exc:
             return ReviewVerdict(

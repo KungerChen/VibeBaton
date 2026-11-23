@@ -13,7 +13,7 @@ import webbrowser
 from dataclasses import replace
 from pathlib import Path
 
-from . import __version__
+from . import __version__, pricing
 from .cli_runner import check_provider_binary, run_provider_cli
 from .config import HotReloadConfig, find_config_path, parse_config_dict
 from .credentials import default_credentials_path
@@ -383,6 +383,64 @@ def cmd_graph(args: argparse.Namespace) -> int:
     return 0 if result.status == "completed" else 1
 
 
+def _print_pricing_table(catalog: pricing.PricingCatalog) -> None:
+    rows = [("Model", "Source", "Input/1M", "Cached/1M", "Output/1M")]
+    rows.extend(
+        (
+            row["model"],
+            row["source"],
+            str(row["input_per_1m"]),
+            str(row["cached_input_per_1m"]),
+            str(row["output_per_1m"]),
+        )
+        for row in catalog["models"]
+    )
+    model_width, source_width, input_width, cached_width, output_width = (
+        max(map(len, column)) for column in zip(*rows)
+    )
+    for model, source, input_rate, cached_rate, output_rate in rows:
+        print(
+            f"{model:<{model_width}}  {source:<{source_width}}  "
+            f"{input_rate:>{input_width}}  {cached_rate:>{cached_width}}  {output_rate:>{output_width}}"
+        )
+
+
+def cmd_pricing(args: argparse.Namespace) -> int:
+    """Refresh the official pricing cache or show the resolved catalog."""
+    from dataclasses import asdict
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+
+    try:
+        repo = Path(args.repo).resolve()
+        cfg_path = find_config_path(repo, explicit=Path(args.config) if args.config else None)
+        settings = HotReloadConfig(cfg_path).current.pricing
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.pricing_command == "sync":
+        result = pricing.sync_official_pricing(settings, force=args.force)
+        if args.json:
+            print(json.dumps(asdict(result), indent=2))
+        else:
+            print(f"ok: {result.ok}")
+            print(f"skipped_fresh: {result.skipped_fresh}")
+            print(f"model_count: {result.model_count}")
+            print(f"cache_path: {result.cache_path}")
+            if result.error:
+                print(f"error: {result.error}")
+        return 0
+
+    catalog = pricing.build_pricing_catalog(settings)
+    if args.json:
+        print(json.dumps(catalog, indent=2))
+    else:
+        _print_pricing_table(catalog)
+    return 0
+
+
 def cmd_ui(args: argparse.Namespace) -> int:
     """Serve the local canvas and open it in the default browser."""
     from .web_server import VibeBatonWebServer
@@ -581,6 +639,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_simulate.add_argument("--scenario", choices=SCENARIOS, default="happy_path")
     p_simulate.add_argument("--json", action="store_true", help="Output JSON")
     p_simulate.set_defaults(func=cmd_graph)
+
+    # No help= summary: the top-level command listing is a tested CLI contract.
+    p_pricing = sub.add_parser("pricing")
+    pricing_sub = p_pricing.add_subparsers(dest="pricing_command", required=True)
+
+    p_pricing_sync = pricing_sub.add_parser("sync", help="Refresh the official pricing cache")
+    p_pricing_sync.add_argument("--repo", default=".", help="Target repository path")
+    p_pricing_sync.add_argument("--config", default=None, help="Explicit configuration file path")
+    p_pricing_sync.add_argument(
+        "--force", action="store_true", help="Refresh even when the cache is fresh"
+    )
+    p_pricing_sync.add_argument("--json", action="store_true", help="Output JSON")
+    p_pricing_sync.set_defaults(func=cmd_pricing)
+
+    p_pricing_show = pricing_sub.add_parser("show", help="Show resolved token pricing")
+    p_pricing_show.add_argument("--repo", default=".", help="Target repository path")
+    p_pricing_show.add_argument("--config", default=None, help="Explicit configuration file path")
+    p_pricing_show.add_argument("--json", action="store_true", help="Output JSON")
+    p_pricing_show.set_defaults(func=cmd_pricing)
 
     p_ui = sub.add_parser("ui", help="Serve the local workflow canvas")
     p_ui.add_argument("--repo", default=".")
