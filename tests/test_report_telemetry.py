@@ -158,6 +158,24 @@ class TestReportTelemetry(unittest.TestCase):
                 self.assertIn("`DSH:deepseek-v4.1-flash@low` → `DSH:deepseek-v4.1-flash@max`", report)
                 self.assertNotRegex(report, r"\bdsh_(?:opencode|deepseek)[/:]")
 
+    def test_rendering_dsh_step_up_preserves_recorded_provider_ids(self) -> None:
+        self.store.log_event(
+            self.run_id,
+            "task_step_up",
+            payload={
+                "task_id": "T1",
+                "from": "dsh_opencode:deepseek-v4.1-flash@low",
+                "to": "claude_sub:fable@high",
+                "attempt": 2,
+            },
+        )
+        recorded_events = self.store.get_events(self.run_id)
+
+        report = generate_battle_report(self.store, self.run_id)
+
+        self.assertIn("`DSH:deepseek-v4.1-flash@low` → `claude_sub:fable@high`", report)
+        self.assertEqual(self.store.get_events(self.run_id), recorded_events)
+
     def test_historical_fallback_estimates_durations_from_invoked_timestamps(self) -> None:
         self._register_sample_plan()
         self.store.update_run_status(self.run_id, RunStatus.RUNNING)

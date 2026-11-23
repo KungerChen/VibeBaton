@@ -12,10 +12,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Mapping
-from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
+from . import pricing
 from .cli_runner import CLIResult, parse_retry_after_seconds
 from .config import ProviderConfig
 from .credentials import default_credentials_path
@@ -26,17 +26,7 @@ _REDACTED = "[redacted]"
 _INVALID_BASE_URL = "Provider base_url must be an http(s) URL"
 
 
-# USD per 1M text tokens. OpenAI standard and DeepSeek peak list rates.
-# https://developers.openai.com/api/docs/models
-# https://api-docs.deepseek.com/quick_start/pricing/
-DEFAULT_MODEL_PRICING: dict[str, dict[str, float]] = {
-    "gpt-4o": {"input_per_1m": 2.50, "output_per_1m": 10.00, "cached_input_per_1m": 1.25},
-    "gpt-4o-mini": {"input_per_1m": 0.15, "output_per_1m": 0.60, "cached_input_per_1m": 0.075},
-    "gpt-4.1": {"input_per_1m": 2.00, "output_per_1m": 8.00, "cached_input_per_1m": 0.50},
-    "gpt-5-mini": {"input_per_1m": 0.25, "output_per_1m": 2.00, "cached_input_per_1m": 0.025},
-    "deepseek-flash": {"input_per_1m": 0.30, "output_per_1m": 1.20, "cached_input_per_1m": 0.006},
-    "deepseek-v4-pro": {"input_per_1m": 1.32, "output_per_1m": 3.96, "cached_input_per_1m": 0.044},
-}
+DEFAULT_MODEL_PRICING = pricing.DEFAULT_MODEL_PRICING
 
 
 def resolve_http_api_key(
@@ -71,37 +61,10 @@ def compute_token_cost_usd(
     cached_tokens: int = 0,
     pricing_table: Mapping[str, Mapping[str, float]] | None = None,
 ) -> float | None:
-    """Price one completion using the exact model ID and rates per 1M tokens.
-
-    A configured model entry takes precedence over the built-in entry. Cached
-    tokens are part of the prompt and use the input rate when a cache rate is
-    absent. Missing or invalid rates yield ``None``.
-    """
-    if not 0 <= cached_tokens <= prompt_tokens or completion_tokens < 0:
-        raise ValueError("Token counts must be non-negative and cached tokens cannot exceed prompt tokens.")
-
-    rates = pricing_table.get(model) if pricing_table is not None else None
-    if rates is None:
-        rates = DEFAULT_MODEL_PRICING.get(model)
-    if rates is None:
-        return None
-    input_rate = rates.get("input_per_1m")
-    output_rate = rates.get("output_per_1m")
-    if input_rate is None or output_rate is None:
-        return None
-    cached_rate = rates.get("cached_input_per_1m", input_rate)
-
-    input_price = Decimal(str(input_rate))
-    output_price = Decimal(str(output_rate))
-    cached_price = Decimal(str(cached_rate))
-    if any(not price.is_finite() or price < 0 for price in (input_price, output_price, cached_price)):
-        return None
-    total = (
-        (prompt_tokens - cached_tokens) * input_price
-        + cached_tokens * cached_price
-        + completion_tokens * output_price
+    """Delegate token pricing while keeping the HTTP provider's public signature."""
+    return pricing.compute_token_cost_usd(
+        model, prompt_tokens, completion_tokens, cached_tokens, pricing_table,
     )
-    return float(total / 1_000_000)
 
 
 def build_chat_completions_request(
