@@ -53,11 +53,39 @@
   font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Consolas, monospace;
 }
 
-.right-inspector__tasks {
-  overflow-x: auto;
+.task-accordion,
+.task-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.task-card {
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   background: var(--card);
+}
+
+.task-card > button {
+  display: block;
+  padding: 0.625rem 0.75rem;
+  border-radius: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.task-card > button:hover {
+  background: color-mix(in srgb, var(--muted) 65%, transparent);
+}
+
+.task-card > button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.task-card > button[aria-expanded='true'] {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+  background: var(--accent-soft);
 }
 
 .right-inspector__event-log {
@@ -218,22 +246,28 @@ textarea.right-inspector__mono {
   justify-content: space-between;
 }
 
-.right-inspector__task-row {
-  cursor: pointer;
-  transition: background-color 120ms ease;
+.live-dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--emerald);
+  animation: live-dot-pulse 1.4s ease-in-out infinite;
 }
 
-.right-inspector__task-row:hover {
-  background: color-mix(in srgb, var(--muted) 65%, transparent);
+@keyframes live-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
-.right-inspector__task-row[data-expanded='true'] {
-  background: var(--accent-soft);
-}
-
-.right-inspector__task-detail-row > td {
-  padding: 0.65rem 0.75rem;
-  background: color-mix(in srgb, var(--muted) 55%, var(--card));
-  border-top: 1px solid var(--border);
-  white-space: normal;
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
 }

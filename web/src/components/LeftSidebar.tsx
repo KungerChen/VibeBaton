@@ -2,12 +2,18 @@ import './LeftSidebar.css';
 import './ui/ui.css';
 import { useId, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
 import { Activity, ChevronDown, Coins, Download, Link2, Upload } from 'lucide-react';
-import { formatDurationSec } from '../engine/liveRunGraph';
+import { computeLiveSeconds, formatDurationSec, isRunStatusActive } from '../engine/liveClock';
 import { validateGraph } from '../engine/localSimulator';
 import { useI18n } from '../i18n';
 import { translatePresetText } from '../i18n/presets';
 import { cn } from '../lib/utils';
-import { NODE_TYPES, tierForNodeType, type BudgetProfile, type WorkflowEdge, type WorkflowGraph } from '../types/graph';
+import {
+  NODE_TYPES,
+  tierForNodeType,
+  type BudgetProfile,
+  type WorkflowEdge,
+  type WorkflowGraph,
+} from '../types/graph';
 import { NODE_ICONS, TIER_COLORS } from './nodes/BatonNode';
 import { filterPresets, getPresetBadges, RECIPE_FILTERS, type RecipeFilter } from './recipePlaza';
 import type { LeftSidebarProps } from './types';
@@ -63,6 +69,7 @@ export function LeftSidebar({
   validation,
   liveSnapshot,
   liveViewActive = false,
+  liveNowSec,
   onSelectLiveRun,
 }: LeftSidebarProps) {
   const { locale, messages } = useI18n();
@@ -126,6 +133,17 @@ export function LeftSidebar({
             : liveSnapshot.run.created_at) - liveSnapshot.run.created_at,
       )
       : 0);
+  const isActive = isRunStatusActive(liveSnapshot?.run?.status);
+  const serverNow = liveSnapshot?.telemetry?.server_now;
+  const isTicking = isActive && liveNowSec !== undefined && Number.isFinite(serverNow);
+  // telemetry.elapsed_sec already covers in-flight work up to server_now, so advance
+  // from the snapshot timestamp to avoid double-counting the current stage.
+  const elapsed = computeLiveSeconds(
+    liveElapsedSec,
+    serverNow,
+    isTicking,
+    liveNowSec ?? 0,
+  );
 
   return (
     <aside className="left-sidebar border-e border-border bg-card">
@@ -133,11 +151,17 @@ export function LeftSidebar({
         <section className="left-sidebar__section" aria-label={messages.sidebar.liveRunTitle}>
           <div className="flex items-center justify-between gap-2">
             <h2 className="left-sidebar__title">{messages.sidebar.liveRunTitle}</h2>
-            <span className="text-[11px] font-mono text-muted-foreground">
-              {formatDurationSec(liveElapsedSec, locale)}
+            <span className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground">
+              {formatDurationSec(elapsed, locale, isTicking)}
+              {isActive && (
+                <span className="live-badge inline-flex items-center rounded-full border border-emerald-500/30 bg-[var(--emerald-soft)] px-1.5 py-0 text-[9.5px] font-semibold uppercase tracking-wide text-[var(--emerald)]">
+                  {messages.liveClock.live}
+                </span>
+              )}
             </span>
           </div>
           <Card
+            data-tour-id="live-run-card"
             className={cn(
               'min-w-0 transition-colors',
               liveViewActive
@@ -182,7 +206,7 @@ export function LeftSidebar({
         </section>
       )}
 
-      <fieldset className="m-0 min-w-0 border-0 p-0" disabled={budgetProfile === null} aria-busy={budgetProfileSaving}>
+      <fieldset className="m-0 min-w-0 border-0 p-0" disabled={budgetProfile === null} aria-busy={budgetProfileSaving} data-tour-id="budget-profile">
         <legend className="left-sidebar__title">{budget.label}</legend>
         <div className="mt-2 grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/65 p-1">
           {BUDGET_PROFILES.map((profile) => {
@@ -208,7 +232,7 @@ export function LeftSidebar({
         </div>
       </fieldset>
 
-      <section className="left-sidebar__section">
+      <section className="left-sidebar__section" data-tour-id="recipe-plaza">
         <div className="flex items-center justify-between gap-2">
           <h2 className="left-sidebar__title">{plaza.title}</h2>
           <output className="text-[11px] font-mono text-muted-foreground" aria-label={plaza.title}>

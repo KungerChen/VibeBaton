@@ -6,6 +6,8 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 from vibebaton.db import StateStore
 from vibebaton.report import compute_run_telemetry, generate_battle_report
@@ -34,6 +36,10 @@ class TestReportTelemetry(unittest.TestCase):
             ],
         )
         self.store.register_plan(self.run_id, plan)
+
+    def _log_timed_event(self, created_at: float, kind: str, **fields: Any) -> None:
+        with patch("vibebaton.db.time.time", return_value=created_at):
+            self.store.log_event(self.run_id, kind, **fields)
 
     def test_exact_role_completed_and_stage_telemetry_with_deepseek_display(self) -> None:
         base_t = time.time() - 120.0
@@ -143,6 +149,150 @@ class TestReportTelemetry(unittest.TestCase):
         self.assertEqual(len(telemetry["models"]), 1)
         self.assertTrue(telemetry["models"][0]["estimated"])
         self.assertGreaterEqual(telemetry["models"][0]["duration_sec"], 29.0)
+
+    def test_unplanned_pending_run_retains_legacy_top_level_keys(self) -> None:
+        telemetry = compute_run_telemetry(self.store, self.run_id, now_ts=120.0)
+
+        self.assertEqual(set(telemetry), {"elapsed_sec", "stages", "models", "billing"})
+
+    def test_pending_run_with_registered_tasks_exposes_inactive_timings(self) -> None:
+        self._register_sample_plan()
+
+        telemetry = compute_run_telemetry(self.store, self.run_id, now_ts=120.0)
+
+        self.assertEqual(telemetry["server_now"], 120.0)
+        self.assertEqual(telemetry["task_timings"], {
+            "M1-T1": {"duration_sec": 0.0, "started_at": None, "is_active": False},
+            "M1-T2": {"duration_sec": 0.0, "started_at": None, "is_active": False},
+        })
+
+    def test_server_now_uses_snapshot_clock_to_millisecond_precision(self) -> None:
+        self.store.update_run_status(self.run_id, RunStatus.RUNNING)
+
+        with patch("vibebaton.report.time.time", return_value=123.4567):
+            telemetry = compute_run_telemetry(self.store, self.run_id)
+
+        self.assertEqual(telemetry["server_now"], 123.457)
+        self.assertEqual(telemetry["task_timings"], {})
+
+    def test_planning_stage_starts_at_run_creation(self) -> None:
+        self.store.update_run_status(self.run_id, RunStatus.PLANNING)
+        created_at = self.store.get_run(self.run_id)["created_at"]
+
+        stage, = compute_run_telemetry(self.store, self.run_id, now_ts=created_at + 20)["stages"]
+
+        self.assertEqual(stage["id"], "PLANNING")
+        self.assertIs(stage["is_active"], True)
+        self.assertEqual(stage["started_at"], created_at)
+        self.assertEqual(stage["wall_sec"], 20.0)
+
+    def test_milestone_stage_starts_at_its_first_event_while_active(self) -> None:
+        self._register_sample_plan()
+        self.store.update_run_status(self.run_id, RunStatus.RUNNING)
+        self.store.update_milestone(self.run_id, "M1", TaskStatus.RUNNING)
+        self._log_timed_event(110.125, "milestone_started", milestone_id="M1")
+        self._log_timed_event(112.0, "task_passed", task_id="M1-T1", milestone_id="M1")
+
+        planning, milestone = compute_run_telemetry(self.store, self.run_id, now_ts=120)["stages"]
+
+        self.assertIs(planning["is_active"], False)
+        self.assertIsNone(planning["started_at"])
+        self.assertIs(milestone["is_active"], True)
+        self.assertEqual(milestone["started_at"], 110.125)
+        self.assertEqual(milestone["wall_sec"], 9.9)
+
+    def test_model_anchor_uses_earliest_unpaired_invocation_still_running(self) -> None:
+        self._register_sample_plan()
+        self.store.update_run_status(self.run_id, RunStatus.RUNNING)
+        self.store.update_task(self.run_id, "M1-T1", status=TaskStatus.RUNNING)
+        self.store.update_task(self.run_id, "M1-T2", status=TaskStatus.RUNNING)
+        actor = "bulk_worker:flash"
+        self._log_timed_event(101.0, "role_invoked", actor=actor, task_id="M1-T1")
+        self._log_timed_event(
+            103.0, "role_completed", actor=actor, task_id="M1-T1", payload={"duration_sec": 2.0}
+        )
+        self._log_timed_event(108.0, "role_invoked", actor=actor, task_id="M1-T1")
+        self._log_timed_event(105.0, "role_invoked", actor=actor, task_id="M1-T2")
+
+        model, = compute_run_telemetry(self.store, self.run_id, now_ts=120)["models"]
+
+        self.assertEqual(model["active_started_at"], 105.0)
+        self.assertEqual(model["calls"], 3)
+        self.assertEqual(model["duration_sec"], 29.0)
+
+    def test_unpaired_invocation_with_legacy_end_event_has_no_live_anchor(self) -> None:
+        self._register_sample_plan()
+        self.store.update_run_status(self.run_id, RunStatus.RUNNING)
+        self.store.update_task(self.run_id, "M1-T1", status=TaskStatus.RUNNING)
+        self._log_timed_event(105.0, "role_invoked", actor="critical_executor:gpt", task_id="M1-T1")
+        self._log_timed_event(107.0, "task_exec_error", task_id="M1-T1")
+        self._log_timed_event(
+            110.0, "role_completed", actor="micro_orchestrator:fable", task_id="M1-T1",
+            payload={"duration_sec": 3.0},
+        )
+
+        telemetry = compute_run_telemetry(self.store, self.run_id, now_ts=120)
+
+        self.assertEqual(
+            {model["role"]: model["active_started_at"] for model in telemetry["models"]},
+            {"critical_executor": None, "micro_orchestrator": None},
+        )
+        self.assertEqual(telemetry["task_timings"]["M1-T1"], {
+            "duration_sec": 5.0, "started_at": None, "is_active": True,
+        })
+
+    def test_task_timings_prefer_recorded_duration_and_sum_fallback_work(self) -> None:
+        self._register_sample_plan()
+        self.store.update_run_status(self.run_id, RunStatus.RUNNING)
+        self.store.update_task(self.run_id, "M1-T1", status=TaskStatus.PASSED, duration_sec=9.125)
+        self.store.update_task(self.run_id, "M1-T2", status=TaskStatus.REVIEWING)
+        self._log_timed_event(103.0, "role_invoked", actor="bulk_worker:flash", task_id="M1-T2")
+        self._log_timed_event(
+            105.0, "role_completed", actor="bulk_worker:flash", task_id="M1-T2", payload={"duration_sec": 2.0}
+        )
+        self._log_timed_event(
+            106.0, "role_completed", actor="critical_executor:gpt", task_id="M1-T1",
+            payload={"duration_sec": 5.0},
+        )
+        self._log_timed_event(110.25, "role_invoked", actor="micro_orchestrator:fable", task_id="M1-T2")
+
+        telemetry = compute_run_telemetry(self.store, self.run_id, now_ts=120)
+
+        self.assertEqual(telemetry["task_timings"], {
+            "M1-T1": {"duration_sec": 9.125, "started_at": None, "is_active": False},
+            "M1-T2": {"duration_sec": 11.75, "started_at": 110.25, "is_active": True},
+        })
+
+    def test_finished_run_clears_stale_stage_model_and_task_anchors(self) -> None:
+        self._register_sample_plan()
+        self.store.update_run_status(self.run_id, RunStatus.RUNNING)
+        self.store.update_milestone(self.run_id, "M1", TaskStatus.RUNNING)
+        self.store.update_task(self.run_id, "M1-T1", status=TaskStatus.COOLDOWN, duration_sec=7.5)
+        self._log_timed_event(
+            115.0, "role_invoked", actor="critical_executor:gpt", task_id="M1-T1", milestone_id="M1"
+        )
+
+        live = compute_run_telemetry(self.store, self.run_id, now_ts=120)
+        self.assertIs(live["stages"][1]["is_active"], True)
+        self.assertEqual(live["stages"][1]["started_at"], 115.0)
+        self.assertEqual(live["models"][0]["active_started_at"], 115.0)
+        self.assertEqual(live["task_timings"]["M1-T1"]["started_at"], 115.0)
+        self.assertEqual(live["task_timings"]["M1-T2"], {
+            "duration_sec": 0.0, "started_at": None, "is_active": False,
+        })
+
+        self.store.update_run_status(self.run_id, RunStatus.COMPLETED)
+        finished = compute_run_telemetry(self.store, self.run_id, now_ts=125)
+
+        self.assertEqual(finished["server_now"], 125.0)
+        for stage in finished["stages"]:
+            self.assertIs(stage["is_active"], False)
+            self.assertIsNone(stage["started_at"])
+        self.assertIsNone(finished["models"][0]["active_started_at"])
+        self.assertEqual(finished["task_timings"], {
+            "M1-T1": {"duration_sec": 7.5, "started_at": None, "is_active": False},
+            "M1-T2": {"duration_sec": 0.0, "started_at": None, "is_active": False},
+        })
 
 
 if __name__ == "__main__":

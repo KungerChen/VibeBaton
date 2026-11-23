@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
-from vibebaton import credentials
+from vibebaton import __version__, credentials
 from vibebaton.db import StateStore
 from vibebaton.web_server import create_server
 
@@ -101,7 +101,7 @@ class WebFullStackTests(unittest.TestCase):
             asset = response.read()
         self.assertTrue(asset)
         self.assertEqual(asset, (built_index.parent / asset_path).read_bytes())
-        self.assertEqual(self.request_json(base, "/api/health")["version"], "1.0.0")
+        self.assertEqual(self.request_json(base, "/api/health")["version"], __version__)
 
         presets = self.request_json(base, "/api/presets")["presets"]
         self.assertEqual(len(presets), 7)

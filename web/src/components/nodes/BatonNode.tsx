@@ -11,12 +11,14 @@ import {
   UserCheck,
   type LucideIcon,
 } from 'lucide-react';
+import { computeLiveSeconds, formatLiveDuration } from '../../engine/liveClock';
 import { useI18n } from '../../i18n';
 import { formatProviderDisplay, translateHandle, translatePresetText, translateRole } from '../../i18n/presets';
 import { cn } from '../../lib/utils';
 import {
   tierForNodeType,
   type ExecutionState,
+  type NodeTimingConfig,
   type NodeType,
   type TierKey,
 } from '../../types/graph';
@@ -30,7 +32,7 @@ import {
 } from '../ui/base-node';
 import { getReadinessState, type ModelPinFields, type ProviderHealthMap } from './readiness';
 
-export type BatonNodeData = ModelPinFields & {
+export type BatonNodeData = ModelPinFields & NodeTimingConfig & {
   label: string;
   nodeType: NodeType;
   role?: string;
@@ -42,6 +44,8 @@ export type BatonNodeData = ModelPinFields & {
   max_loops?: number;
   concurrency?: number;
   state: ExecutionState;
+  server_now?: number;
+  now_epoch_sec?: number;
 };
 
 export type BatonFlowNode = Node<BatonNodeData, 'baton'>;
@@ -116,6 +120,13 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
     ? getReadinessState(data.providerHealth?.get(readinessProvider ?? ''), data.readinessTime ?? Date.now())
     : 'ready';
   const readinessLabel = messages.nodeReadiness.statuses[readiness];
+  const { duration_sec: durationSec, server_now: serverNow, now_epoch_sec: nowEpochSec } = data;
+  const timingActive = Boolean(data.is_timing_active);
+  const tickActive = timingActive && Number.isFinite(data.started_at)
+    && nowEpochSec !== undefined && Number.isFinite(serverNow);
+  // The snapshot duration already includes elapsed time through server_now.
+  const displaySec = computeLiveSeconds(durationSec ?? 0, serverNow, tickActive, nowEpochSec ?? 0);
+  const showTiming = durationSec !== undefined || timingActive;
 
   const style = {
     '--tier-color': tierColor,
@@ -176,7 +187,7 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
         />
       </BaseNodeHeader>
 
-      {(localizedRole || modelLabel || maxLoops !== undefined || parallelCount !== undefined) && (
+      {(localizedRole || modelLabel || maxLoops !== undefined || parallelCount !== undefined || showTiming) && (
         <BaseNodeContent>
           {localizedRole && (
             <p className="m-0 text-[11.5px] leading-snug text-muted-foreground">
@@ -204,6 +215,13 @@ export const BatonNode = memo(function BatonNode({ data, isConnectable, selected
                 </NodeStatusBadge>
               )}
             </div>
+          )}
+          {showTiming && (
+            <span className="baton-node-timing gap-1" data-active={timingActive}>
+              {timingActive && <span className="sr-only">{messages.liveClock.liveBadgeLabel}</span>}
+              <span aria-hidden="true">{timingActive ? '●' : '⏱'}</span>
+              {formatLiveDuration(displaySec, locale)}
+            </span>
           )}
         </BaseNodeContent>
       )}

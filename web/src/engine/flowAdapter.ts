@@ -46,7 +46,10 @@ function layoutDepths(graph: WorkflowGraph): Map<string, number> {
 }
 
 function editableConfig(config: WorkflowNode['config']) {
-  const { provider, model, max_loops, concurrency, pinned, assigned_model } = config ?? {};
+  const {
+    provider, model, max_loops, concurrency, pinned, assigned_model,
+    duration_sec, started_at, is_timing_active,
+  } = config ?? {};
   return {
     provider: typeof provider === 'string' ? provider : undefined,
     model: typeof model === 'string' ? model : undefined,
@@ -54,6 +57,9 @@ function editableConfig(config: WorkflowNode['config']) {
     concurrency: typeof concurrency === 'number' ? concurrency : undefined,
     pinned: typeof pinned === 'boolean' ? pinned : undefined,
     assigned_model: typeof assigned_model === 'string' ? assigned_model : undefined,
+    duration_sec: typeof duration_sec === 'number' ? duration_sec : undefined,
+    started_at: typeof started_at === 'number' || started_at === null ? started_at : undefined,
+    is_timing_active: typeof is_timing_active === 'boolean' ? is_timing_active : undefined,
   };
 }
 

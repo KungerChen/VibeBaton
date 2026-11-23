@@ -18,6 +18,17 @@ VibeBaton 把开发拆成一场 **四层接力赛**：
 | **L3 并发批量工人** | 高性价比熟练工团队 | **DeepSeek API** 等快而省模型 | 在彼此隔离的 Git Worktree 目录中并行开发常规模块与单元测试。 |
 | **机械门禁 & 路径白名单** | 自动安检门（0 成本） | `unittest` / `tsc` / `lint` / Git | AI 刚交卷就先免费跑单测和路径检查——越界改动直接回滚、单测不过原地返修，绝不浪费上层高阶额度！ |
 
+> 下图与工作台右上角 **教程（Guide）→「详细教程」（Tutorial）** 标签页中的四层接力流程图一致；你也可以在「快速开始」弹窗点击 **开始 1 分钟交互式导览（Start 1-Minute Interactive Tour）** 跟着高亮上手。
+
+```mermaid
+flowchart LR
+  L0User["L0 User"] --> L1Planner["L1 Planner"]
+  L1Planner --> L3Workers["L3 DeepSeek API Workers"]
+  L3Workers --> Gate["Mechanical Gate"]
+  Gate --> L2Reviewer["L2 Reviewer"]
+  L2Reviewer --> FinalMerge["L0 Final Merge"]
+```
+
 ---
 
 ## 二、怎么启动界面（Windows PowerShell）
@@ -89,6 +100,23 @@ python -m vibebaton ui --repo D:\Projects\YourProject
    - 引擎会自动把限流的那一家模型送入 **指数冷却池（Cooldown）**，不影响其他模型继续干活；如果某个 L3 任务多次没过门禁，会自动触发 **智能升档（Step-Up）** 转交给更强推理档位或 L2 核心模型处理。
 4. **AI 乱改了不该改的配置文件怎么办？**
    - 每个任务在规划阶段都会绑定 `allowed_files` 白名单并在独立 Git Worktree 沙盒里运行。越界改动会在物理层面被直接拦截回滚，不留脏文件。
+   > 下图与 **教程（Guide）→「详细教程」（Tutorial）** 标签页中的工作树保护图一致；在「快速开始」弹窗点击 **开始 1 分钟交互式导览（Start 1-Minute Interactive Tour）** 也能跟着高亮查看这些护栏。
+
+   ```mermaid
+   flowchart LR
+     subgraph WT["并行隔离工作树 .baton/worktrees/task-*"]
+       T1[".baton/worktrees/task-101"]
+       T2[".baton/worktrees/task-102"]
+       T3[".baton/worktrees/task-103"]
+     end
+     T1 --> WR["Whitelist Revert"]
+     T2 --> WR
+     T3 --> WR
+     WR -->|白名单内改动| Gate["Mechanical Gate"]
+     Gate --> Main["main"]
+     WR -.->|越界写入被拦截| Blocked["Blocked"]
+   ```
+
 5. **还有哪些更详细的参考文档？**
    - 安全边界与权限说明：[docs/SECURITY.md](SECURITY.md)
    - Stage 3 架构设计稿：[docs/RFC_STAGE3_DRAFT.md](RFC_STAGE3_DRAFT.md)

@@ -1,10 +1,11 @@
 import './QuickStartModal.css';
-import { ArrowRight, Check } from 'lucide-react';
+import { ArrowRight, Check, Target } from 'lucide-react';
 import { useState } from 'react';
 import { useI18n } from '../i18n';
 import { cn } from '../lib/utils';
 import type { TierKey } from '../types/graph';
 import { TIER_COLORS } from './nodes/BatonNode';
+import { GuidedFlowDiagram, RelayPipelineDiagram, SandboxGuardDiagram } from './tutorial/TutorialDiagrams';
 import { Button } from './ui/button';
 import { Modal } from './ui/Modal';
 
@@ -19,7 +20,10 @@ export interface QuickStartModalProps {
   onTryStarter(): void;
   onWatchReplay(): void;
   onInspectWorker(): void;
+  onStartTour?: () => void;
 }
+
+const TUTORIAL_DIAGRAMS = [RelayPipelineDiagram, GuidedFlowDiagram, SandboxGuardDiagram] as const;
 
 const EDGE_SAMPLE_COLOR: Record<'normal' | 'retry' | 'escalate', string> = {
   normal: 'var(--emerald)',
@@ -36,10 +40,21 @@ export function QuickStartModal({
   onTryStarter,
   onWatchReplay,
   onInspectWorker,
+  onStartTour,
 }: QuickStartModalProps) {
   const { messages } = useI18n();
   const [tab, setTab] = useState<'quickstart' | 'legend' | 'tutorial'>('quickstart');
   const q = messages.quickStart;
+  const startTourButton = onStartTour && (
+    <Button
+      variant="default"
+      className="h-auto min-h-8 max-w-full whitespace-normal text-start"
+      onClick={onStartTour}
+    >
+      <Target size={15} aria-hidden="true" />
+      {messages.tour.startTourButton}
+    </Button>
+  );
 
   const steps: readonly {
     id: QuickStartStepId;
@@ -74,6 +89,12 @@ export function QuickStartModal({
   return (
     <Modal open={open} wide={tab === 'tutorial'} title={q.title} onClose={onClose}>
       <div className="quick-start">
+        {startTourButton && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/35 bg-[var(--accent-soft)] p-3.5">
+            <p className="m-0 text-[13px] font-medium text-text-strong">{messages.tour.startTourBanner}</p>
+            {startTourButton}
+          </div>
+        )}
         <p className="m-0 text-[13px] leading-relaxed text-muted-foreground">{q.subtitle}</p>
 
         <div
@@ -225,17 +246,22 @@ export function QuickStartModal({
           </div>
         ) : (
           <div className="quick-start__tutorial-grid">
-            {q.tutorialChapters.map((chapter) => (
-              <section key={chapter.title} className="quick-start__tutorial-card">
-                <h3 className="m-0 text-sm font-semibold text-text-strong">{chapter.title}</h3>
-                <p className="m-0 text-xs leading-relaxed text-muted-foreground">{chapter.summary}</p>
-                <ul className="quick-start__tutorial-points">
-                  {chapter.points.map((point) => (
-                    <li key={point}>{point}</li>
-                  ))}
-                </ul>
-              </section>
-            ))}
+            {q.tutorialChapters.map((chapter, index) => {
+              const Diagram = TUTORIAL_DIAGRAMS[index];
+              return (
+                <section key={chapter.title} className="quick-start__tutorial-card">
+                  <h3 className="m-0 text-sm font-semibold text-text-strong">{chapter.title}</h3>
+                  <p className="m-0 text-xs leading-relaxed text-muted-foreground">{chapter.summary}</p>
+                  {Diagram && <Diagram />}
+                  <ul className="quick-start__tutorial-points">
+                    {chapter.points.map((point) => (
+                      <li key={point}>{point}</li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })}
+            {startTourButton && <div>{startTourButton}</div>}
           </div>
         )}
 

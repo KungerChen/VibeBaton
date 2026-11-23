@@ -1,3 +1,4 @@
+import type { TourStepId } from '../components/tour/tourSteps';
 import type { BudgetProfile, CostTier, ExecutionState, NodeType, PresetCategory, Scenario, TraceKind } from '../types/graph';
 
 export type Locale = 'en' | 'zh';
@@ -27,6 +28,11 @@ export interface Messages {
     sidebar: string;
     inspector: string;
   };
+  splitPane: {
+    sidebarHandleLabel: string;
+    inspectorHandleLabel: string;
+    resizeHint: string;
+  };
   sidebar: {
     presetsTitle: string;
     nodePaletteTitle: string;
@@ -51,6 +57,10 @@ export interface Messages {
   nodeStates: Partial<Record<ExecutionState, string>>;
   nodeCard: {
     parallelWorkersTitle: string;
+  };
+  liveClock: {
+    live: string;
+    liveBadgeLabel: string;
   };
   playback: {
     scenarioAria: string;
@@ -214,6 +224,38 @@ export interface Messages {
     dontShowAgain: string;
     getStarted: string;
   };
+  tour: {
+    startTourButton: string;
+    startTourBanner: string;
+    stepProgress(current: number, total: number): string;
+    next: string;
+    prev: string;
+    skip: string;
+    finish: string;
+    clickHint: string;
+    steps: Record<TourStepId, { title: string; description: string; hint: string }>;
+  };
+  tutorialDiagrams: {
+    relayCaption: string;
+    relayAria: string;
+    guidedFlowCaption: string;
+    guidedFlowAria: string;
+    sandboxCaption: string;
+    sandboxAria: string;
+    l0User: string;
+    l1Planner: string;
+    l3Workers: string;
+    mechanicalGate: string;
+    l2Reviewer: string;
+    finalMerge: string;
+    budgetRecipe: string;
+    wizardGuards: string;
+    liveSync: string;
+    bilingualReport: string;
+    worktrees: string;
+    whitelistRevert: string;
+    mainBranch: string;
+  };
   recipePlaza: {
     title: string;
     filters: Record<'all' | 'ready_on_host' | Exclude<PresetCategory, 'general'>, string>;
@@ -311,6 +353,11 @@ export const MESSAGES: Record<Locale, Messages> = {
       sidebar: 'Sidebar',
       inspector: 'Inspector',
     },
+    splitPane: {
+      sidebarHandleLabel: 'Resize sidebar',
+      inspectorHandleLabel: 'Resize inspector',
+      resizeHint: 'Double-click to reset the pane width.',
+    },
     sidebar: {
       presetsTitle: 'Presets',
       nodePaletteTitle: 'Node Palette',
@@ -355,6 +402,10 @@ export const MESSAGES: Record<Locale, Messages> = {
     },
     nodeCard: {
       parallelWorkersTitle: 'Parallel workers',
+    },
+    liveClock: {
+      live: 'LIVE',
+      liveBadgeLabel: 'Live timer running',
     },
     playback: {
       scenarioAria: 'Scenario',
@@ -590,6 +641,79 @@ export const MESSAGES: Record<Locale, Messages> = {
       dontShowAgain: "Don't show automatically on startup",
       getStarted: 'Get Started',
     },
+    tour: {
+      startTourButton: 'Start 1-Minute Interactive Tour',
+      startTourBanner: 'Follow the highlighted controls to explore the Studio.',
+      stepProgress: (current, total) => `Step ${current} / ${total}`,
+      next: 'Next',
+      prev: 'Back',
+      skip: 'Skip',
+      finish: 'Finish',
+      clickHint: 'Click the highlighted area to continue.',
+      steps: {
+        'live-run-card': {
+          title: 'Live Run Workflow',
+          description: 'Follow the selected run and its milestones on the canvas.',
+          hint: 'Click the live run card to open its workflow.',
+        },
+        'budget-profile': {
+          title: 'Budget Profile',
+          description: 'Set cost and reasoning preferences for local runs.',
+          hint: 'Compare Eco, Balanced, and Max Quality.',
+        },
+        'recipe-plaza': {
+          title: 'Recipe Plaza',
+          description: 'Browse workflow presets by project type or local readiness.',
+          hint: 'Select a preset to load it onto the canvas.',
+        },
+        'canvas-workspace': {
+          title: 'Canvas and Playback',
+          description: 'Inspect the workflow graph, play a simulation, or follow a live run.',
+          hint: 'Select a node or try the playback controls.',
+        },
+        'demo-playback': {
+          title: 'Stage 1 Replay',
+          description: 'Watch the recorded four-tier workflow run without a local server.',
+          hint: 'Use Replay to load the recorded run, then step through its events.',
+        },
+        'inspector-live-tab': {
+          title: 'Trace & Live Run',
+          description: 'Review simulation events and monitor runs in local mode.',
+          hint: 'Open the highlighted tab to view the trace.',
+        },
+        'start-real-run-btn': {
+          title: 'Start Real Run',
+          description: 'The launch wizard checks local readiness and guides you through the RFC and run settings.',
+          hint: 'Click Start Real Run to open the wizard.',
+        },
+        'header-controls': {
+          title: 'Studio Controls',
+          description: 'Switch language or theme, adjust audio, and reopen the guide.',
+          hint: 'Use Guide to return to the tutorial.',
+        },
+      },
+    },
+    tutorialDiagrams: {
+      relayCaption: 'The four-tier relay from planning to final approval.',
+      relayAria: 'The user sets the goal, the planner defines tasks, DeepSeek API workers implement them, and mechanical checks and code review precede final user approval.',
+      guidedFlowCaption: 'From budget and recipe selection to the run report.',
+      guidedFlowAria: 'Choose a budget and recipe, complete the guarded launch wizard, follow the live run on the canvas, and review the bilingual report before final approval.',
+      sandboxCaption: 'Parallel worktrees and path whitelist checks protect the main branch.',
+      sandboxAria: 'Workers edit in isolated Git worktrees. The path whitelist guard reverts out-of-scope changes, and merges to the main branch require final approval.',
+      l0User: 'L0 (User)',
+      l1Planner: 'L1 Planner',
+      l3Workers: 'L3 DeepSeek API Workers',
+      mechanicalGate: 'Mechanical Gate',
+      l2Reviewer: 'L2 Reviewer',
+      finalMerge: 'L0 Final Merge',
+      budgetRecipe: 'Budget + Recipe',
+      wizardGuards: '3-Step Wizard + Guards',
+      liveSync: 'Live Run + Canvas Sync',
+      bilingualReport: 'Bilingual Report + L0 Sign-Off',
+      worktrees: 'Isolated Git Worktrees',
+      whitelistRevert: 'Path Whitelist Revert',
+      mainBranch: 'Protected Main Branch',
+    },
     recipePlaza: {
       title: 'Recipe Plaza',
       filters: {
@@ -705,6 +829,11 @@ export const MESSAGES: Record<Locale, Messages> = {
       sidebar: '侧边栏',
       inspector: '属性检查',
     },
+    splitPane: {
+      sidebarHandleLabel: '调整侧边栏宽度',
+      inspectorHandleLabel: '调整属性检查面板宽度',
+      resizeHint: '双击恢复面板默认宽度。',
+    },
     sidebar: {
       presetsTitle: '预置工作流',
       nodePaletteTitle: '节点面板',
@@ -749,6 +878,10 @@ export const MESSAGES: Record<Locale, Messages> = {
     },
     nodeCard: {
       parallelWorkersTitle: '并发执行数',
+    },
+    liveClock: {
+      live: '实时计时',
+      liveBadgeLabel: '计时进行中',
     },
     playback: {
       scenarioAria: '仿真场景',
@@ -983,6 +1116,79 @@ export const MESSAGES: Record<Locale, Messages> = {
       ],
       dontShowAgain: '下次打开不再自动弹出',
       getStarted: '开始使用',
+    },
+    tour: {
+      startTourButton: '开始 1 分钟交互式导览',
+      startTourBanner: '跟随高亮提示，熟悉工作台的主要操作。',
+      stepProgress: (current, total) => `第 ${current} 步，共 ${total} 步`,
+      next: '下一步',
+      prev: '上一步',
+      skip: '跳过',
+      finish: '完成',
+      clickHint: '点击高亮区域继续。',
+      steps: {
+        'live-run-card': {
+          title: '实时运行工作流',
+          description: '在画布上跟踪选中运行的里程碑进度。',
+          hint: '点击实时运行卡片打开对应的工作流。',
+        },
+        'budget-profile': {
+          title: '预算档位',
+          description: '为本地运行设置成本和推理强度偏好。',
+          hint: '查看节省、均衡和质量优先三个档位。',
+        },
+        'recipe-plaza': {
+          title: '工作流广场',
+          description: '按项目类型或本机就绪状态筛选工作流预设。',
+          hint: '选择一个预设，将它加载到画布。',
+        },
+        'canvas-workspace': {
+          title: '画布与回放',
+          description: '查看工作流图、播放模拟轨迹或跟踪实时运行。',
+          hint: '选中一个节点，或试用回放控件。',
+        },
+        'demo-playback': {
+          title: '第一阶段回放',
+          description: '在离线演示中观看四层工作流的运行记录。',
+          hint: '点击「回放」加载运行记录，然后逐步查看事件。',
+        },
+        'inspector-live-tab': {
+          title: '轨迹与实时运行',
+          description: '查看模拟事件，并在本地模式下监控真实运行。',
+          hint: '打开高亮标签页查看轨迹。',
+        },
+        'start-real-run-btn': {
+          title: '启动真实运行',
+          description: '启动向导检查本机就绪状态，并引导你确认 RFC 和运行设置。',
+          hint: '点击「启动真实运行」打开向导。',
+        },
+        'header-controls': {
+          title: '工作台控件',
+          description: '切换语言和主题、调整声音或重新打开教程。',
+          hint: '点击「教程」可以回到指南。',
+        },
+      },
+    },
+    tutorialDiagrams: {
+      relayCaption: '从任务规划到人工终审的四层协作流程。',
+      relayAria: '用户确定目标，规划师拆分任务，DeepSeek API 执行节点实现需求，机械门禁和代码审校通过后由用户终审合并。',
+      guidedFlowCaption: '从选择预算和工作流到查看战报。',
+      guidedFlowAria: '选择预算和工作流，完成带护栏的启动向导，在画布上跟踪实时运行，最后查看双语战报并签字。',
+      sandboxCaption: '并行工作树与路径白名单保护主分支。',
+      sandboxAria: '执行节点在隔离的 Git 工作树中修改代码，路径白名单回退越界改动，合入主分支前须通过人工终审。',
+      l0User: 'L0 用户',
+      l1Planner: 'L1 规划师',
+      l3Workers: 'L3 DeepSeek API 批量执行',
+      mechanicalGate: '机械门禁',
+      l2Reviewer: 'L2 审校',
+      finalMerge: 'L0 终审合并',
+      budgetRecipe: '预算与工作流',
+      wizardGuards: '三步向导与护栏',
+      liveSync: '实时运行与画布同步',
+      bilingualReport: '双语战报与 L0 签字',
+      worktrees: '隔离的 Git 工作树',
+      whitelistRevert: '路径白名单回退',
+      mainBranch: '受保护的主分支',
     },
     recipePlaza: {
       title: '工作流广场',

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { addEdge, useEdgesState, useNodesState, type OnConnect } from '@xyflow/react';
 import { BatonApiClient, type ApiMode } from './api/client';
 import { CanvasWorkspace, updateWorkspaceReadiness } from './components/CanvasWorkspace';
@@ -8,12 +8,26 @@ import { LeftSidebar } from './components/LeftSidebar';
 import { PlaybackBar } from './components/PlaybackBar';
 import { QuickStartModal, type QuickStartStepId } from './components/QuickStartModal';
 import { RightInspector } from './components/RightInspector';
+import { SplitHandle } from './components/SplitHandle';
+import {
+  DEFAULT_INSPECTOR_WIDTH,
+  DEFAULT_SIDEBAR_WIDTH,
+  MAX_INSPECTOR_WIDTH,
+  MAX_SIDEBAR_WIDTH,
+  MIN_INSPECTOR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  readPaneWidths,
+  writePaneWidths,
+} from './components/splitPane';
+import { GuidedTourOverlay } from './components/tour/GuidedTourOverlay';
+import { resolveAvailableTourSteps, tourSelector, type TourStep } from './components/tour/tourSteps';
 import type { EdgePatch, NodePatch } from './components/types';
 import { ToastHost, useToasts } from './components/ui/Toast';
 import { findPreset, flagship_4tier, starter_2tier } from './data/presets';
 import { getStage1ReplayTrace } from './data/stage1Replay';
 import { flowToGraph, graphToFlow } from './engine/flowAdapter';
-import { buildLiveRunGraph, deriveLiveRoleStates } from './engine/liveRunGraph';
+import { isRunStatusActive, useLiveClock } from './engine/liveClock';
+import { buildLiveRunGraph, deriveLiveRoleStates, projectLiveRunCanvas } from './engine/liveRunGraph';
 import { deriveStates, stepIntervalMs } from './engine/playback';
 import { buildShareUrl, decodeRecipeHash, encodeRecipeHash } from './engine/shareUrl';
 import { I18nProvider, useI18n } from './i18n';
@@ -109,6 +123,7 @@ function AppContent() {
   const [edges, setEdges, onEdgesChange] = useEdgesState(starter.edges);
   const [selection, setSelection] = useState(emptySelection);
   const [pane, setPane] = useState<WorkspacePane>('canvas');
+  const [paneWidths, setPaneWidths] = useState(readPaneWidths);
   const [canvasKey, setCanvasKey] = useState(0);
   const [scenario, setScenario] = useState<Scenario>('happy_path');
   const [replayActive, setReplayActive] = useState(false);
@@ -119,6 +134,11 @@ function AppContent() {
   const [guideOpen, setGuideOpen] = useState<boolean>(
     () => typeof window !== 'undefined' && !window.location.hash.startsWith('#recipe=') && !readGuideDismissed(),
   );
+  const [tourState, setTourState] = useState<{ open: boolean; stepIndex: number; steps: TourStep[] }>({
+    open: false,
+    stepIndex: 0,
+    steps: [],
+  });
   const [completedGuideSteps, setCompletedGuideSteps] = useState<Set<QuickStartStepId>>(() => new Set());
   const [playback, setPlayback] = useState(initialPlayback);
   const [speed, setSpeed] = useState(1);
@@ -132,6 +152,8 @@ function AppContent() {
     trace: GraphTraceEvent[];
   } | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<LiveRunSnapshot | null>(null);
+  const isSelectedRunActive = isRunStatusActive(liveSnapshot?.run?.status);
+  const liveNowSec = useLiveClock(isSelectedRunActive, liveSnapshot?.telemetry?.server_now);
   const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const selectedRunIdRef = useRef<string | null>(null);
@@ -162,6 +184,10 @@ function AppContent() {
   const stepIndex = Math.min(playback.stepIndex, trace.length);
   const playing = playback.playing && trace.length > 0;
   const resetPlayback = useCallback(() => setPlayback(initialPlayback), []);
+
+  useEffect(() => {
+    writePaneWidths(paneWidths);
+  }, [paneWidths]);
 
   useEffect(() => {
     let active = true;
@@ -382,36 +408,41 @@ function AppContent() {
     return () => clearInterval(timer);
   }, [playing, speed, stepCount]);
 
-  const liveGraphView = useMemo(
-    () => (liveViewActive && liveSnapshot?.run ? buildLiveRunGraph(liveSnapshot, locale) : null),
-    [liveSnapshot, liveViewActive, locale],
-  );
+  const liveGraphView = useMemo(() => {
+    if (!liveViewActive || !liveSnapshot?.run) return null;
+    const { graph, ...liveState } = buildLiveRunGraph(liveSnapshot, locale);
+    return { ...projectLiveRunCanvas(graph), ...liveState };
+  }, [liveSnapshot, liveViewActive, locale]);
+  const liveNodeTimings = baseGraph.id === liveGraphView?.graph.id ? liveGraphView.nodeTimings : undefined;
+  const serverNow = liveSnapshot?.telemetry?.server_now;
+  const canvasNow = isSelectedRunActive ? liveNowSec : undefined;
+  const liveCanvasTiming = useMemo(() => liveNodeTimings && {
+    nodeTimings: liveNodeTimings,
+    server_now: serverNow,
+    now_epoch_sec: canvasNow,
+  }, [liveNodeTimings, serverNow, canvasNow]);
 
   useEffect(() => {
-    if (!liveViewActive || !liveGraphView) {
+    if (!liveGraphView) {
       lastLiveCanvasRef.current = null;
       return;
     }
     const runId = typeof liveSnapshot?.run?.id === 'string' ? liveSnapshot.run.id : null;
-    const signature = JSON.stringify({
-      name: liveGraphView.graph.name,
-      nodes: liveGraphView.graph.nodes.map((node) => [node.id, node.label, node.role, node.config]),
-      edges: liveGraphView.graph.edges.map((edge) => edge.id),
-    });
+    const { graph: canvasGraph, signature } = liveGraphView;
     if (lastLiveCanvasRef.current?.runId === runId && lastLiveCanvasRef.current?.signature === signature) {
       return;
     }
     const isNewRun = lastLiveCanvasRef.current?.runId !== runId;
     lastLiveCanvasRef.current = { runId, signature };
-    const flow = graphToFlow(liveGraphView.graph, liveGraphView.nodeStates);
-    setBaseGraph(liveGraphView.graph);
+    const flow = graphToFlow(canvasGraph, liveGraphView.nodeStates);
+    setBaseGraph(canvasGraph);
     setNodes(flow.nodes);
     setEdges(flow.edges);
     if (isNewRun) {
       setSelection(emptySelection);
       setCanvasKey((key) => key + 1);
     }
-  }, [liveGraphView, liveSnapshot?.run?.id, liveViewActive, setEdges, setNodes]);
+  }, [liveGraphView, liveSnapshot?.run?.id, setEdges, setNodes]);
 
   const simDerived = useMemo(
     () => deriveStates(graph, trace, trace[stepIndex - 1]?.seq ?? -1),
@@ -654,6 +685,29 @@ function AppContent() {
     });
   }
 
+  function onStartTour() {
+    const steps = resolveAvailableTourSteps(
+      mode ?? 'demo',
+      Boolean(liveSnapshot),
+      (id) => document.querySelector(tourSelector(id)) !== null,
+    );
+    setGuideOpen(false);
+    setTourState({ open: steps.length > 0, stepIndex: 0, steps });
+  }
+
+  function onRequirePane(requiredPane: TourStep['requiredPane'], tab: TourStep['requiredInspectorTab']) {
+    if (requiredPane) setPane(requiredPane);
+    if (tab === 'live') {
+      // RightInspector owns the tab state, so use the same selection path as a user click.
+      const liveTab = document.querySelector<HTMLButtonElement>(tourSelector('inspector-live-tab'));
+      if (liveTab?.getAttribute('aria-selected') === 'false') liveTab.click();
+    }
+  }
+
+  const onCloseTour = useCallback(() => {
+    setTourState((current) => ({ ...current, open: false }));
+  }, []);
+
   function onGuideTryStarter() {
     markGuideStep('starter');
     latestPresetRequest.current += 1;
@@ -695,7 +749,13 @@ function AppContent() {
 
   const version = client.health?.version;
   return (
-    <div className="app">
+    <div
+      className="app"
+      style={{
+        '--sidebar-w': `${paneWidths.sidebar}px`,
+        '--inspector-w': `${paneWidths.inspector}px`,
+      } as CSSProperties}
+    >
       <HeaderBar
         mode={mode ?? 'demo'}
         version={typeof version === 'string' ? version : undefined}
@@ -730,15 +790,27 @@ function AppContent() {
           onShare={onShare}
           validation={validation}
           liveSnapshot={liveSnapshot}
+          liveNowSec={liveNowSec}
           liveViewActive={liveViewActive}
           onSelectLiveRun={onSelectLiveRun}
         />
       </div>
+      <SplitHandle
+        ariaLabel={messages.splitPane.sidebarHandleLabel}
+        hint={messages.splitPane.resizeHint}
+        value={paneWidths.sidebar}
+        min={MIN_SIDEBAR_WIDTH}
+        max={MAX_SIDEBAR_WIDTH}
+        defaultValue={DEFAULT_SIDEBAR_WIDTH}
+        side="left"
+        onChange={(sidebar) => setPaneWidths((current) => ({ ...current, sidebar }))}
+      />
       <main className="app-pane app-pane--canvas" id="workspace-canvas" data-active={pane === 'canvas'}>
         <CanvasWorkspace
           key={canvasKey}
           nodes={nodes}
           edges={edges}
+          liveTiming={liveCanvasTiming}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -764,6 +836,16 @@ function AppContent() {
           />
         </CanvasWorkspace>
       </main>
+      <SplitHandle
+        ariaLabel={messages.splitPane.inspectorHandleLabel}
+        hint={messages.splitPane.resizeHint}
+        value={paneWidths.inspector}
+        min={MIN_INSPECTOR_WIDTH}
+        max={MAX_INSPECTOR_WIDTH}
+        defaultValue={DEFAULT_INSPECTOR_WIDTH}
+        side="right"
+        onChange={(inspector) => setPaneWidths((current) => ({ ...current, inspector }))}
+      />
       <div className="app-pane app-pane--inspector" id="workspace-inspector" data-active={pane === 'inspector'}>
         <RightInspector
           mode={mode ?? 'demo'}
@@ -778,6 +860,7 @@ function AppContent() {
           onJumpToStep={onJumpToStep}
           onToast={push}
           liveSnapshot={liveSnapshot}
+          liveNowSec={liveNowSec}
           recentRuns={recentRuns}
           selectedRunId={selectedRunId}
           liveReconnecting={liveReconnecting}
@@ -794,7 +877,17 @@ function AppContent() {
         onTryStarter={onGuideTryStarter}
         onWatchReplay={onGuideWatchReplay}
         onInspectWorker={onGuideInspectWorker}
+        onStartTour={onStartTour}
       />
+      {tourState.open && (
+        <GuidedTourOverlay
+          steps={tourState.steps}
+          stepIndex={tourState.stepIndex}
+          onStepChange={(stepIndex) => setTourState((current) => ({ ...current, stepIndex }))}
+          onClose={onCloseTour}
+          onRequirePane={onRequirePane}
+        />
+      )}
       <ToastHost toasts={toasts} />
     </div>
   );

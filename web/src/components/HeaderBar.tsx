@@ -67,7 +67,7 @@ export function HeaderBar({ mode, version, graphName, onOpenGuide }: HeaderBarPr
         {localizedGraphName}
       </span>
 
-      <div className="header-bar__right">
+      <div className="header-bar__right" data-tour-id="header-controls">
         {onOpenGuide && (
           <>
             <Button

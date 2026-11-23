@@ -12,6 +12,26 @@ test.each(positionedPresets)('round-trips $id with its positions and config', (g
   expect(flowToGraph(graph, nodes, edges)).toStrictEqual(graph);
 });
 
+test('propagates timing telemetry into React Flow data', () => {
+  const timing = { duration_sec: 0, started_at: null, is_timing_active: false };
+  const graph: WorkflowGraph = {
+    schema_version: '1.0',
+    id: 'live-timing',
+    name: 'Live timing',
+    nodes: [{
+      id: 'build',
+      type: 'worker_node',
+      label: 'Build',
+      config: { provider: 'codex_sub', ...timing },
+    }],
+    edges: [],
+  };
+
+  const { nodes: [worker] } = graphToFlow(graph);
+
+  expect(worker.data).toMatchObject({ provider: 'codex_sub', ...timing });
+});
+
 test('exports a pinned worker, restores it from JSON, and removes the override when unpinned', () => {
   const graph: WorkflowGraph = {
     schema_version: '1.0',

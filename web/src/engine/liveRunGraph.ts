@@ -1,5 +1,15 @@
 import type { Locale } from '../i18n/messages';
-import type { ExecutionState, LiveRunSnapshot, WorkflowEdge, WorkflowGraph, WorkflowNode } from '../types/graph';
+import type {
+  ExecutionState,
+  LiveRunSnapshot,
+  NodeTimingConfig,
+  StageTelemetry,
+  TaskTiming,
+  WorkflowEdge,
+  WorkflowGraph,
+  WorkflowNode,
+} from '../types/graph';
+import { computeLiveSeconds } from './liveClock';
 
 export const LIVE_GRAPH_ID = '__live_run__';
 
@@ -8,6 +18,24 @@ export interface LiveRunGraphView {
   nodeStates: Record<string, ExecutionState>;
   activeEdgeIds: Set<string>;
   traversedEdgeIds: Set<string>;
+}
+
+/** Keep snapshot timings out of the canvas layout and the editable recipe. */
+export function projectLiveRunCanvas(graph: WorkflowGraph) {
+  const nodeTimings = new Map<string, NodeTimingConfig>();
+  const nodes = graph.nodes.map((node) => {
+    const { duration_sec, started_at, is_timing_active, ...config } = node.config ?? {};
+    if (duration_sec === undefined && started_at === undefined && is_timing_active === undefined) return node;
+
+    nodeTimings.set(node.id, { duration_sec, started_at, is_timing_active });
+    return { ...node, config: Object.keys(config).length > 0 ? config : undefined };
+  });
+  const signature = JSON.stringify({
+    name: graph.name,
+    nodes: nodes.map(({ id, label, role, config }) => [id, label, role, config]),
+    edges: graph.edges.map(({ id }) => id),
+  });
+  return { graph: { ...graph, nodes }, signature, nodeTimings };
 }
 
 function asText(value: unknown): string {
@@ -38,30 +66,6 @@ function truncateLabel(text: string, maxLen = 42): string {
   const clean = text.trim();
   if (clean.length <= maxLen) return clean;
   return `${clean.slice(0, maxLen - 1)}…`;
-}
-
-export function formatDurationSec(sec: number, locale: Locale): string {
-  const safe = Number.isFinite(sec) && sec > 0 ? sec : 0;
-  if (safe === 0) return locale === 'en' ? '0s' : '0秒';
-  if (safe < 60) {
-    return locale === 'en' ? `${safe.toFixed(1)}s` : `${safe.toFixed(1)}秒`;
-  }
-  if (safe < 3600) {
-    let mins = Math.floor(safe / 60);
-    let secs = Math.round(safe % 60);
-    if (secs === 60) {
-      mins += 1;
-      secs = 0;
-    }
-    if (mins === 60) {
-      return locale === 'en' ? '1h 0m' : '1时0分';
-    }
-    return locale === 'en' ? `${mins}m ${secs}s` : `${mins}分${secs}秒`;
-  }
-  const totalMins = Math.round(safe / 60);
-  const hours = Math.floor(totalMins / 60);
-  const mins = totalMins % 60;
-  return locale === 'en' ? `${hours}h ${mins}m` : `${hours}时${mins}分`;
 }
 
 export function mapRunStatusToExecutionState(status: unknown): ExecutionState {
@@ -134,11 +138,39 @@ function extractActorAssignments(snapshot: LiveRunSnapshot): {
   return { byTaskId, byRole };
 }
 
-export function buildLiveRunGraph(snapshot: LiveRunSnapshot, locale: Locale): LiveRunGraphView {
+/** Static renders may pass nowEpochSec to advance active durations past telemetry.server_now. */
+export function buildLiveRunGraph(
+  snapshot: LiveRunSnapshot,
+  locale: Locale,
+  nowEpochSec?: number,
+): LiveRunGraphView {
   const run = snapshot.run ?? {};
   const runId = asText(run.id) || 'run-live';
   const runStatus = asText(run.status).toUpperCase();
   const { byTaskId, byRole } = extractActorAssignments(snapshot);
+  const { telemetry } = snapshot;
+  const stages = telemetry?.stages ?? [];
+
+  function nodeConfig(
+    assignment: { provider?: string; model?: string } | undefined,
+    timing: StageTelemetry | TaskTiming | undefined,
+  ): WorkflowNode['config'] {
+    const config = assignment?.provider || assignment?.model
+      ? { provider: assignment.provider, model: assignment.model }
+      : undefined;
+    if (!timing) return config;
+
+    const baseSec = 'wall_sec' in timing ? timing.wall_sec : timing.duration_sec;
+    const { started_at, is_active } = timing;
+    // The backend durations can include in-flight work up to the snapshot time.
+    const snapshotAnchor = started_at != null && Number.isFinite(started_at)
+      ? telemetry?.server_now
+      : undefined;
+    const durationSec = nowEpochSec === undefined
+      ? baseSec
+      : computeLiveSeconds(baseSec, snapshotAnchor, is_active, nowEpochSec);
+    return { ...config, duration_sec: durationSec, started_at, is_timing_active: is_active };
+  }
 
   const nodes: WorkflowNode[] = [];
   const edges: WorkflowEdge[] = [];
@@ -152,15 +184,14 @@ export function buildLiveRunGraph(snapshot: LiveRunSnapshot, locale: Locale): Li
       return k === 'plan_generated' || k === 'plan_registered';
     });
   const plannerAssign = byRole.get('tactical_planner');
+  const plannerTiming = stages.find((stage) => stage.kind === 'planning' && stage.id === 'PLANNING');
   nodes.push({
     id: plannerId,
     type: 'planner_node',
     label: locale === 'en' ? '01_PLAN · Tactical Plan' : '01_PLAN · 战术规划',
     role: 'tactical_planner',
     position: { x: 0, y: 120 },
-    config: plannerAssign?.provider || plannerAssign?.model
-      ? { provider: plannerAssign.provider, model: plannerAssign.model }
-      : undefined,
+    config: nodeConfig(plannerAssign, plannerTiming),
   });
   nodeStates[plannerId] = hasPlan
     ? 'passed'
@@ -215,9 +246,7 @@ export function buildLiveRunGraph(snapshot: LiveRunSnapshot, locale: Locale): Li
         label: truncateLabel(`${taskId} · ${taskTitle}`, 40),
         role,
         position: { x: baseX, y: taskIndex * 150 },
-        config: taskAssign?.provider || taskAssign?.model
-          ? { provider: taskAssign.provider, model: taskAssign.model }
-          : undefined,
+        config: nodeConfig(taskAssign, telemetry?.task_timings?.[taskId]),
       });
       nodeStates[nodeId] = mapRunStatusToExecutionState(task.status);
 
@@ -248,6 +277,7 @@ export function buildLiveRunGraph(snapshot: LiveRunSnapshot, locale: Locale): Li
     }
 
     const reviewerAssign = byRole.get('milestone_reviewer');
+    const reviewerTiming = stages.find((stage) => stage.kind === 'milestone' && stage.id === msId);
     const centerY = msTasks.length > 0 ? ((msTasks.length - 1) * 150) / 2 : 120;
     nodes.push({
       id: reviewerId,
@@ -255,9 +285,7 @@ export function buildLiveRunGraph(snapshot: LiveRunSnapshot, locale: Locale): Li
       label: truncateLabel(`${msId} · ${msTitle}`, 38),
       role: 'milestone_reviewer',
       position: { x: baseX + 300, y: centerY },
-      config: reviewerAssign?.provider || reviewerAssign?.model
-        ? { provider: reviewerAssign.provider, model: reviewerAssign.model }
-        : undefined,
+      config: nodeConfig(reviewerAssign, reviewerTiming),
     });
     nodeStates[reviewerId] = mapRunStatusToExecutionState(ms.status);
 

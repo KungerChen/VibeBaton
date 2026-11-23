@@ -12,6 +12,30 @@
 | [20261122-004033-m4-hidden-eval-remediation](#20261122-004033-m4-hidden-eval-remediation) | 2026-11-22 | M4 隐藏评估失败按臂计分并继续导出 | 已自测，待用户验收 |
 | [20261122-041231-m2-merge-crash-recovery](#20261122-041231-m2-merge-crash-recovery) | 2026-11-22 | M2 恢复中断后的合并工作树 | 已自测，待用户验收 |
 | [20261122-050513-m3-sandbox-runtime](#20261122-050513-m3-sandbox-runtime) | 2026-11-22 | M3 沙箱构建时安装 VibeBaton | 已自测，待用户验收 |
+| [20261122-100548-m2-live-canvas](#20261122-100548-m2-live-canvas) | 2026-11-22 | M2 实时快照保留画布位置和选中状态 | 已自测，待用户验收 |
+| [20261122-101917-m2-task-clock-anchor](#20261122-101917-m2-task-clock-anchor) | 2026-11-22 | M2 任务计时按在途调用推进 | 已自测，待用户验收 |
+
+## 20261122-101917-m2-task-clock-anchor
+
+2026-11-22 10:19:17 PST。M2 第二轮复审授权修复侧栏任务卡和画布节点的计时回跳。分支为 `baton/cae4b2/ms-m2-r2`，基准提交为 `b941e6b`，起始工作树干净。
+
+- 后端在门禁检查或冷却期间可以报告 `is_active=true` 和 `started_at=null`。基准回归在 `GATE_CHECKING` 和 `COOLDOWN` 两种状态下复现侧栏和画布各多计 3 秒，四项断言失败。
+- `LiveRunPanel.tsx` 和 `BatonNode.tsx` 要求有限的 `started_at` 才按 `liveNowSec - server_now` 外推。当任务没有在途调用时，显示快照耗时。画布的活动样式继续读取 `is_timing_active`。
+- `LiveRunPanel.test.ts` 和 `liveRunGraph.test.ts` 新增五项组件渲染测试，覆盖两种缺少起点的状态，并核对已有起点的活动任务继续按快照时钟推进。修复后五项均通过。
+- `cmd /c "cd /d web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build"` 退出码为 0。Vitest 通过 31 个文件、348 项，TypeScript 检查和生产构建通过。共享依赖 junction 拒绝 Vite 写入临时配置，门禁使用工作树内的本地依赖副本和 125 个经 SHA-256 核对的前端及预设文件。构建报告分块体积告警。
+- `python -m unittest discover -s tests -v` 退出码为 0，运行 371 项。两项因缺少 Docker CLI 跳过，一项因缺少 Windows 目录符号链接权限跳过。三项 `test_web_fullstack.py` 回环 HTTP 测试通过。Python 加载当前工作树源码，Git 子进程使用工作树的 ignore 文件。
+- 内置浏览器连接需要审批，当前环境禁用审批。独立无头 Chrome 在 GPU 初始化时退出。人工验收时观察没有在途调用的门禁检查或冷却任务，跨一次快照确认任务卡和画布读数保持稳定。回退参考为 `b941e6b` 和当前工作树差异。
+
+## 20261122-100548-m2-live-canvas
+
+2026-11-22 10:05:48 PST。M2 复审授权修复实时快照导致画布节点回到默认位置的问题。分支为 `baton/cae4b2/ms-m2-r1`，基准提交为 `5308b49`，起始工作树干净。
+
+- 基准回归使用同一运行的两次快照。第二次快照将时钟从 120 秒推进到 125 秒，节点从拖动后的 `(640, 380)` 回到布局坐标 `(340, 150)`，并丢失选中状态。
+- `App.tsx` 与 `liveRunGraph.ts` 使用工作流配置计算画布签名，`CanvasWorkspace.tsx` 按节点 ID 将快照计时叠加到当前节点。导出和分享保留拖动坐标和工作流配置。沿用 RFC 中的活动状态集合，保留静态渲染用的可选时间参数，统一计时格式化入口和组件类型，给活动计时徽标添加本地化朗读文本。
+- Golden Example 位于 `web/src/engine/liveRunGraph.test.ts`。回归模拟 React Flow 的移动和选中变更，核对第二份快照的画布坐标、选中样式和导出配置。任务快照耗时 13 秒，经共享时钟推进 3 秒后显示 16 秒。另覆盖计时出现与结束、任务拓扑与模型指派变更。
+- 前端依赖的共享 junction 拒绝 Vite 写入临时配置。原门禁命令 `cmd /c "cd /d web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build"` 在工作树内的临时目录运行，使用本地依赖副本和 124 个经 SHA-256 核对的前端及预设输入文件。Vitest 通过 30 个文件、343 项，类型检查和构建通过。Vite 报告资源分块体积告警。
+- `python -m unittest discover -s tests -v` 退出码为 0，运行 371 项。两项需要 Docker CLI，一项需要 Windows 目录符号链接权限，这三项按条件跳过。Python 使用当前工作树的源码和 Git ignore 配置。最终前端构建另通过 3 项 `test_web_fullstack.py` 回环 HTTP 测试。
+- 内置浏览器工具需要审批，当前环境无法授予。Chrome 和 Edge 的独立无头进程均在 GPU 初始化阶段退出。人工验收时打开运行中的画布，移动并选中一个节点，刷新快照后确认位置和选中状态保持、计时继续。回退参考为 `5308b49` 和当前工作树差异。
 
 ## 20261122-050513-m3-sandbox-runtime
 

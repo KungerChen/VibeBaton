@@ -1,4 +1,5 @@
 import { expect, expectTypeOf, test } from 'vitest';
+import { BatonApiClient } from '../api/client';
 import { claude_only_3tier, findPreset } from '../data/presets';
 import { flagship_4tier } from '../data/presets/flagship_4tier';
 import type {
@@ -7,6 +8,7 @@ import type {
   CostTier,
   CredentialStatus,
   DoctorRoleResult,
+  LiveRunSnapshot,
   ModelCapability,
   ModelTelemetry,
   NodeType,
@@ -15,6 +17,8 @@ import type {
   ProviderHealthSummary,
   RfcReadinessResult,
   RunTelemetry,
+  StageTelemetry,
+  TaskTiming,
   TierKey,
   WorkflowGraph,
 } from './graph';
@@ -151,6 +155,64 @@ test('run telemetry carries exact billing, per-model usage, and merge conflict c
       conflicts_auto_resolved: number;
       conflicts_failed: number;
     } | null;
+  }>();
+});
+
+test('run snapshots preserve the optional live timing fields across JSON parsing', async () => {
+  const telemetry = {
+    elapsed_sec: 20,
+    server_now: 120.125,
+    stages: [{
+      id: 'M1',
+      kind: 'milestone',
+      title: 'Core Backend',
+      status: 'RUNNING',
+      wall_sec: 10,
+      task_sum_sec: 4,
+      passed_tasks: 1,
+      total_tasks: 2,
+      started_at: 110.125,
+      is_active: true,
+    }],
+    models: [{
+      actor: 'critical_executor:gpt',
+      role: 'critical_executor',
+      provider: 'codex_sub',
+      display_provider: 'Codex CLI',
+      model: 'gpt',
+      calls: 1,
+      duration_sec: 5,
+      estimated: true,
+      avg_sec: 5,
+      share_pct: 100,
+      active_started_at: 115.125,
+    }],
+    task_timings: {
+      'M1-T1': { duration_sec: 4, started_at: null, is_active: false },
+      'M1-T2': { duration_sec: 5, started_at: 115.125, is_active: true },
+    },
+  } satisfies RunTelemetry;
+  const fixture = {
+    run: { id: 'run-1', status: 'RUNNING' },
+    milestones: [], tasks: [], events: [], quotas: [],
+    telemetry,
+  } satisfies LiveRunSnapshot;
+  const client = new BatonApiClient('', async () => Response.json(fixture));
+  client.mode = 'local';
+
+  const snapshot = await client.getRun('run-1');
+
+  expect(snapshot.telemetry).toEqual(telemetry);
+  expectTypeOf<Pick<StageTelemetry, 'started_at' | 'is_active'>>().toEqualTypeOf<{
+    started_at?: number | null;
+    is_active?: boolean;
+  }>();
+  expectTypeOf<Pick<ModelTelemetry, 'active_started_at'>>().toEqualTypeOf<{
+    active_started_at?: number | null;
+  }>();
+  expectTypeOf<Pick<RunTelemetry, 'server_now' | 'task_timings'>>().toEqualTypeOf<{
+    server_now?: number;
+    task_timings?: Record<string, TaskTiming>;
   }>();
 });
 

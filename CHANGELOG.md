@@ -83,6 +83,33 @@ The ecosystem beta: approachable recipes, smart allocation, and reproducible ben
 - Public reproducible three-arm benchmark harness under `benchmarks/` with a hidden evaluation
   runner covering pass rate, high-tier call share, and stage latency.
 
+## [v1.0.1] - 2026-11-22
+
+### Added
+
+- Resize both Studio side panes with the mouse or keyboard. The Studio remembers their widths.
+- Live telemetry includes server time and timing anchors for stages, model calls, and tasks.
+- The bilingual Studio spotlight tour opens from Quick Start or Tutorial. It has seven steps when
+  a local run is available and six in the standalone demo.
+- The Tutorial tab includes three theme-aware SVG diagrams covering the relay, guided launch,
+  and worktree safeguards. The beginner guide also illustrates the relay and worktree safeguards
+  with Mermaid diagrams. [Beginner tutorial](docs/TUTORIAL.md)
+
+### Changed
+
+- The live-run inspector uses expandable task cards to show gate, review, and whitelist details.
+- Active clocks on the canvas, live-run card, and inspector update once a second. Historical runs
+  display their recorded durations.
+
+<!--
+20261122-111109-m3-t5 · 2026-11-22 11:11 PST · 已自测，待用户验收
+M3-T5 在 baton/cae4b2/m3-t5 工树接入导览、插图和发布材料。基准及回退参考为 f864514。
+离线导览使用已有回放控件。375×667 浏览器复现第六步启动按钮在检查器滚动区下方，修正后目标会滚入可见区。窄屏插图支持横向浏览。
+Python 全量门禁运行 371 项，两项因缺 Docker CLI 跳过，一项因缺 Windows 目录符号链接权限跳过。发布材料、版本一致性和回环 HTTP 测试均通过。
+共享依赖 junction 的缓存写入受限。前端门禁在逐字节核对的 130 个前端及预设文件和预装依赖副本上通过，含 359 项 Vitest、TypeScript 检查和生产构建。构建报告分块体积告警。
+隔离 Chromium 验证桌面离线六步、375×667 本地七步、双语入口和图注、浅深色插图与移动端滚动。本地模式使用回环服务和临时运行记录。人工验收入口为 Studio 的 Guide。
+-->
+
 ## [v1.0.0] - 2026-11-22
 
 Production release: native HTTP providers, automatic conflict resolution, OS-level container

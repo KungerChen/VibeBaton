@@ -16,6 +16,12 @@
 
 ---
 
+## What's New in v1.0.1
+
+Resize the Studio side panes, expand task cards for details, and watch active run clocks update
+every second. Open **Guide** to start the one-minute interactive tour or see the illustrated
+walkthroughs in **Tutorial**.
+
 ## What's New in v1.0.0
 
 - **Native HTTP providers with exact Token & Cost billing**: `type = "http"` calls any OpenAI-compatible `/v1/chat/completions` endpoint directly from the Python standard library — no external CLI and no SDK. Real `prompt_tokens`, `completion_tokens`, cached tokens, and USD `cost_usd` are recorded per role, aggregated into run telemetry, and rendered in bilingual battle reports and the Studio live-run panel.
