@@ -11,6 +11,8 @@ import type {
   CredentialStatus,
   CustomPricingUpdate,
   DoctorRoleResult,
+  LaunchRunMode,
+  LaunchRunRequest,
   LiveRunSnapshot,
   ModelCapability,
   ModelTelemetry,
@@ -62,7 +64,7 @@ test.each<[NodeType, TierKey]>([
 });
 
 test('workflow graphs allow optional preset metadata with the catalog values', () => {
-  expectTypeOf<PresetCategory>().toEqualTypeOf<'same_family' | 'bulk_batch' | 'small_project' | 'audit' | 'general'>();
+  expectTypeOf<PresetCategory>().toEqualTypeOf<'same_family' | 'bulk_batch' | 'small_project' | 'audit' | 'panel' | 'general'>();
   expectTypeOf<CostTier>().toEqualTypeOf<'low' | 'medium' | 'high'>();
   expectTypeOf<Pick<WorkflowGraph, 'category' | 'required_providers' | 'cost_tier' | 'inspired_by'>>()
     .toEqualTypeOf<{
@@ -71,6 +73,17 @@ test('workflow graphs allow optional preset metadata with the catalog values', (
       cost_tier?: CostTier;
       inspired_by?: string | null;
     }>();
+});
+
+test('launch requests accept the panel run mode', () => {
+  expectTypeOf<LaunchRunMode>().toEqualTypeOf<'overnight' | 'interactive' | 'panel'>();
+  expectTypeOf<LaunchRunRequest>().toEqualTypeOf<{
+    rfc_path?: string;
+    rfc_markdown?: string;
+    mode?: LaunchRunMode;
+    model_overrides?: Record<string, string>;
+  }>();
+  expectTypeOf<Parameters<BatonApiClient['startRun']>[0]>().toEqualTypeOf<LaunchRunRequest>();
 });
 
 test('Stage 3 API types match local server payloads', () => {

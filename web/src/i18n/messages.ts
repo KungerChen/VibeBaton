@@ -270,6 +270,13 @@ export interface Messages {
     noEvents: string;
     originalNote: string;
     planningStageLabel: string;
+    /** LiveRunPanel stage label for the 00_PANEL phase. */
+    panelStageLabel: string;
+    /** Live-graph node labels for panel-mode runs. */
+    liveGraphNodes: {
+      specialist: string;
+      synthesizer: string;
+    };
     modalStartTitle: string;
     modalReportTitle: string;
     reportRendered: string;
@@ -459,6 +466,8 @@ export interface Messages {
     };
     switchToReadyPreset: string;
     runModes: Record<'overnight' | 'interactive', string>;
+    runModeTitle: string;
+    launchModes: Record<'overnight' | 'panel', { label: string; desc: string }>;
     startRealRun: string;
     launchSummary: {
       title: string;
@@ -800,6 +809,11 @@ export const MESSAGES: Record<Locale, Messages> = {
       noEvents: 'No events yet.',
       originalNote: 'Original note',
       planningStageLabel: '01_PLAN',
+      panelStageLabel: 'Specialist Panel',
+      liveGraphNodes: {
+        specialist: 'Specialist',
+        synthesizer: 'Synthesizer',
+      },
       modalStartTitle: 'Start Real Run',
       modalReportTitle: 'Battle Report',
       reportRendered: 'Rendered',
@@ -995,6 +1009,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         bulk_batch: 'Bulk Batch',
         small_project: 'Small Project',
         audit: 'Audit',
+        panel: 'Panel & Execute',
       },
       hostReady: 'Ready on Host',
       hostMissing: 'Missing on Host',
@@ -1096,6 +1111,17 @@ export const MESSAGES: Record<Locale, Messages> = {
       },
       switchToReadyPreset: 'Switch to a Ready Preset',
       runModes: { overnight: 'Overnight', interactive: 'Interactive' },
+      runModeTitle: 'Run Mode',
+      launchModes: {
+        overnight: {
+          label: 'Overnight Pipeline',
+          desc: 'Plan, execute, and review the RFC unattended.',
+        },
+        panel: {
+          label: 'Specialist Panel + Execute',
+          desc: 'Specialists review the RFC in parallel and a synthesizer merges a master spec before the pipeline runs.',
+        },
+      },
       startRealRun: 'Start Real Run',
       launchSummary: {
         title: 'Role Division & Safety Guards',
@@ -1439,6 +1465,11 @@ export const MESSAGES: Record<Locale, Messages> = {
       noEvents: '暂无事件。',
       originalNote: '查看原文',
       planningStageLabel: '01_PLAN · 规划',
+      panelStageLabel: '专家会诊',
+      liveGraphNodes: {
+        specialist: '会诊专家',
+        synthesizer: '综合裁决',
+      },
       modalStartTitle: '启动真实运行',
       modalReportTitle: '战报详情',
       reportRendered: '渲染视图',
@@ -1634,6 +1665,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         bulk_batch: '批量处理',
         small_project: '小型项目',
         audit: '审计',
+        panel: '会诊协作',
       },
       hostReady: '本机就绪',
       hostMissing: '本机未就绪',
@@ -1735,6 +1767,17 @@ export const MESSAGES: Record<Locale, Messages> = {
       },
       switchToReadyPreset: '切换到已就绪的预设',
       runModes: { overnight: '通宵无人值守', interactive: '交互式' },
+      runModeTitle: '运行模式',
+      launchModes: {
+        overnight: {
+          label: '通宵流水线',
+          desc: '无人值守地完成 RFC 的规划、执行与评审。',
+        },
+        panel: {
+          label: '专家会诊 + 执行',
+          desc: '多位专家并行审阅 RFC，由综合裁决者汇总成主规格后再进入执行流水线。',
+        },
+      },
       startRealRun: '启动真实运行',
       launchSummary: {
         title: '模型分工与安全护栏',

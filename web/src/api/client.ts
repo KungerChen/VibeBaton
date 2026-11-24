@@ -11,6 +11,7 @@ import type {
   DoctorRoleRequest,
   DoctorRoleResult,
   GraphValidationResult,
+  LaunchRunRequest,
   LiveRunSnapshot,
   PresetItem,
   PricingCacheStatus,
@@ -364,12 +365,7 @@ export class BatonApiClient {
   }
 
   async startRun(
-    payload: {
-      rfc_path?: string;
-      rfc_markdown?: string;
-      mode?: 'overnight' | 'interactive';
-      model_overrides?: Record<string, string>;
-    },
+    payload: LaunchRunRequest,
     timeoutMs = DEFAULT_START_RUN_TIMEOUT_MS,
   ): Promise<{ run_id: string; daemon_pid: number; status: string }> {
     if (this.mode === 'demo') throw new ApiError(0, 'Not available in standalone demo');

@@ -41,7 +41,7 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
   const [step, setStep] = useState<WizardStep>('preflight');
   const [rolesConfig, setRolesConfig] = useState<RolesConfigResponse | null>(null);
   const [savingCredentials, setSavingCredentials] = useState(false);
-  const [mode, setMode] = useState<NonNullable<StartPayload['mode']>>('overnight');
+  const [mode, setMode] = useState<'overnight' | 'panel'>('overnight');
   const [overrides, setOverrides] = useState('');
   const [overridesError, setOverridesError] = useState<string>();
   const [startError, setStartError] = useState<{ kind: 'timeout' | 'error'; detail?: string } | null>(null);
@@ -150,16 +150,18 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
                 <CardContent className="pt-3.5">
                   <form id={`${id}-start`} className="grid gap-3" onSubmit={(event) => void startRun(event)}>
                     <div className="start-run-wizard__field">
-                      <Label htmlFor={`${id}-mode`}>{inspector.runModeLabel}</Label>
+                      <Label htmlFor={`${id}-mode`}>{wizard.runModeTitle}</Label>
                       <Select
                         id={`${id}-mode`}
                         value={mode}
+                        aria-describedby={`${id}-mode-desc`}
                         disabled={submitting}
-                        onChange={(event) => setMode(event.currentTarget.value === 'interactive' ? 'interactive' : 'overnight')}
+                        onChange={(event) => setMode(event.currentTarget.value === 'panel' ? 'panel' : 'overnight')}
                       >
-                        <option value="overnight">{wizard.runModes.overnight}</option>
-                        <option value="interactive">{wizard.runModes.interactive}</option>
+                        <option value="overnight">{wizard.launchModes.overnight.label}</option>
+                        <option value="panel">{wizard.launchModes.panel.label}</option>
                       </Select>
+                      <p className="start-run-wizard__note" id={`${id}-mode-desc`}>{wizard.launchModes[mode].desc}</p>
                     </div>
                     <div className="start-run-wizard__field">
                       <Label htmlFor={`${id}-overrides`}>{inspector.modelOverridesLabel}</Label>

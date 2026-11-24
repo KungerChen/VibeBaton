@@ -216,4 +216,41 @@ describe('StartRunModal timeout and error recovery', () => {
     const alert = harness.container.find('p', (n) => n.attrs.get('role') === 'alert');
     expect(alert?.text).toContain('Worktree has uncommitted changes');
   });
+
+  describe('run mode', () => {
+    async function submitLaunch(harness: ReturnType<typeof createDialogHarness>) {
+      const launchForm = harness.container.find('form', (n) => Boolean(n.attrs.get('id')?.endsWith('-start')));
+      expect(launchForm).toBeDefined();
+      await act(async () => harness.submit(launchForm!));
+    }
+
+    test('defaults to overnight mode and renders the localized run-mode labels', async () => {
+      const startRun = vi.fn().mockResolvedValue({ run_id: 'run-mode', daemon_pid: 4242, status: 'queued' });
+      const { harness } = await mountAndAdvanceToLaunch(createMockClient(startRun));
+
+      const modeSelect = harness.container.find('select', (n) => Boolean(n.attrs.get('id')?.endsWith('-mode')));
+      expect(modeSelect).toBeDefined();
+      expect(modeSelect!.options.map((option) => option.text)).toEqual([
+        MESSAGES.en.wizard.launchModes.overnight.label,
+        MESSAGES.en.wizard.launchModes.panel.label,
+      ]);
+
+      await submitLaunch(harness);
+
+      expect(startRun).toHaveBeenCalledWith(expect.objectContaining({ mode: 'overnight' }));
+    });
+
+    test('sends mode panel when the specialist panel option is selected', async () => {
+      const startRun = vi.fn().mockResolvedValue({ run_id: 'run-mode', daemon_pid: 4242, status: 'queued' });
+      const { harness } = await mountAndAdvanceToLaunch(createMockClient(startRun));
+
+      const modeSelect = harness.container.find('select', (n) => Boolean(n.attrs.get('id')?.endsWith('-mode')));
+      expect(modeSelect).toBeDefined();
+      await act(async () => harness.input(modeSelect!, 'panel'));
+
+      await submitLaunch(harness);
+
+      expect(startRun).toHaveBeenCalledWith(expect.objectContaining({ mode: 'panel' }));
+    });
+  });
 });

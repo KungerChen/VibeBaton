@@ -120,7 +120,7 @@ class WebFullStackTests(unittest.TestCase):
         self.assertEqual(self.request_json(base, "/api/health")["version"], __version__)
 
         presets = self.request_json(base, "/api/presets")["presets"]
-        self.assertEqual(len(presets), 7)
+        self.assertEqual(len(presets), 8)
         for preset in presets:
             with self.subTest(preset_id=preset["id"]):
                 missing = preset["missing_providers"]
@@ -129,6 +129,8 @@ class WebFullStackTests(unittest.TestCase):
         readiness = {preset["id"]: preset["missing_providers"] for preset in presets}
         self.assertEqual(readiness["codex_only_3tier"], [])
         self.assertEqual(readiness["deepseek_bulk_factory"], ["dsh_opencode"])
+        panel = [preset["id"] for preset in presets if preset["category"] == "panel"]
+        self.assertEqual(panel, ["specialist_panel"])
 
         config = self.request_json(base, "/api/config/roles")
         self.assertEqual(config["budget_profile"], "balanced")

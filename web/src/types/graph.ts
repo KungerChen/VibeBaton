@@ -42,7 +42,7 @@ export interface WorkflowEdge {
   condition?: string;
 }
 
-export type PresetCategory = 'same_family' | 'bulk_batch' | 'small_project' | 'audit' | 'general';
+export type PresetCategory = 'same_family' | 'bulk_batch' | 'small_project' | 'audit' | 'panel' | 'general';
 export type CostTier = 'low' | 'medium' | 'high';
 export type BudgetProfile = 'eco' | 'balanced' | 'max_quality';
 
@@ -232,6 +232,16 @@ export interface RolesConfigResponse extends BudgetConfigResponse {
   roles: Record<string, RoleConfig>;
 }
 
+/** Run modes accepted by POST /api/runs/start; 'panel' runs 00_PANEL before planning. */
+export type LaunchRunMode = 'overnight' | 'interactive' | 'panel';
+
+export interface LaunchRunRequest {
+  rfc_path?: string;
+  rfc_markdown?: string;
+  mode?: LaunchRunMode;
+  model_overrides?: Record<string, string>;
+}
+
 export interface RunListItem {
   id: string;
   status: string;
@@ -248,7 +258,7 @@ export interface RunListItem {
 
 export interface StageTelemetry {
   id: string;
-  kind: 'planning' | 'milestone';
+  kind: 'panel' | 'planning' | 'milestone';
   title: string;
   status: string;
   wall_sec: number;

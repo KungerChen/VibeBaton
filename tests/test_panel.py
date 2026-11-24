@@ -757,9 +757,24 @@ class TestShippedConfigsParse(unittest.TestCase):
     def test_baton_example_toml_parses(self) -> None:
         raw = tomllib.loads((_REPO_ROOT / "baton.example.toml").read_text(encoding="utf-8"))
         cfg = parse_config_dict(raw)
-        if "panel" not in raw:
-            self.skipTest("baton.example.toml parsed, but its [panel] block is not added until M2-T1")
-        self.assertTrue(cfg.panel.members)
+
+        self.assertTrue(cfg.panel.enabled)
+        self.assertEqual(cfg.panel.synthesizer_provider, "claude_sub")
+        self.assertEqual(cfg.panel.synthesizer_model, "sonnet@high")
+        self.assertEqual(
+            [(m.perspective, m.provider, m.model) for m in cfg.panel.members],
+            [
+                ("UX & Copy", "claude_sub", "opus@high"),
+                ("Visual & Structure", "gemini_http", "gemini-4-neon-high"),
+                ("Source & Safety", "codex_sub", "gpt-6.2-sol@max"),
+            ],
+        )
+        roles = {name: f"{role.provider}:{role.model}" for name, role in cfg.roles.items()}
+        self.assertEqual(roles["tactical_planner"], "claude_sub:opus@high")
+        self.assertEqual(roles["critical_executor"], "codex_sub:gpt-6.2-sol@max")
+        self.assertEqual(roles["micro_orchestrator"], "codex_sub:gpt-6.2-sol@high")
+        self.assertEqual(roles["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@max")
+        self.assertIn("max_quality", (_REPO_ROOT / "baton.example.toml").read_text(encoding="utf-8"))
 
     def test_local_baton_toml_parses_if_present(self) -> None:
         path = _REPO_ROOT / ".baton" / "baton.toml"

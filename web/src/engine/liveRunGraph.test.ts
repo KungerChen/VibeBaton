@@ -110,6 +110,178 @@ describe('buildLiveRunGraph', () => {
     expect(view.graph.nodes.find((n) => n.id === 'live-final-gate')?.label).toBe('L0 终审合入');
   });
 
+  test('leaves the non-panel graph deep-equal to the previous output', () => {
+    const view = buildLiveRunGraph({
+      run: { id: 'run-overnight', status: 'COMPLETED' },
+      milestones: [],
+      tasks: [],
+      events: [],
+      quotas: [],
+    }, 'en');
+
+    expect(view).toStrictEqual({
+      graph: {
+        schema_version: '1.0',
+        id: LIVE_GRAPH_ID,
+        name: 'Live Run · run-overnight',
+        difficulty: 'live',
+        description: 'Live execution workflow for run-overnight (COMPLETED).',
+        nodes: [
+          {
+            id: 'live-planner',
+            type: 'planner_node',
+            label: '01_PLAN · Tactical Plan',
+            role: 'tactical_planner',
+            position: { x: 0, y: 120 },
+            config: undefined,
+          },
+          {
+            id: 'live-final-gate',
+            type: 'human_gate_node',
+            label: 'L0 Final Gate',
+            role: 'brainstorm_and_final_gate',
+            position: { x: 340, y: 120 },
+            config: { provider: 'host_native', model: 'L0' },
+          },
+        ],
+        edges: [{
+          id: 'live-edge-live-planner-to-live-final-gate',
+          source: 'live-planner',
+          target: 'live-final-gate',
+          sourceHandle: 'dag',
+          targetHandle: 'in',
+        }],
+      },
+      nodeStates: { 'live-planner': 'passed', 'live-final-gate': 'passed' },
+      activeEdgeIds: new Set(),
+      traversedEdgeIds: new Set(['live-edge-live-planner-to-live-final-gate']),
+    });
+  });
+
+  const panelStage: StageTelemetry = {
+    id: '00_PANEL',
+    kind: 'panel',
+    title: 'Panel & Synthesis',
+    status: 'RUNNING',
+    wall_sec: 20,
+    task_sum_sec: 0,
+    passed_tasks: 0,
+    total_tasks: 0,
+    started_at: 100,
+    is_active: true,
+  };
+
+  const panelSnapshot: LiveRunSnapshot = {
+    run: { id: 'run-panel', status: 'RUNNING' },
+    milestones: [],
+    tasks: [],
+    events: [
+      {
+        id: 1,
+        kind: 'panel_started',
+        message: 'Panel started with 2 specialists',
+        payload_json: JSON.stringify({ member_count: 2 }),
+      },
+      {
+        id: 2,
+        kind: 'panel_member_completed',
+        message: 'Panel specialist ux completed',
+        payload_json: JSON.stringify({
+          member_id: 'ux',
+          perspective: 'UX & Copy',
+          provider: 'claude_sub',
+          model: 'opus@high',
+          ok: true,
+        }),
+      },
+      {
+        id: 3,
+        kind: 'panel_member_completed',
+        message: 'Panel specialist safety failed',
+        payload_json: JSON.stringify({
+          member_id: 'safety',
+          perspective: 'Source & Safety',
+          provider: 'codex_sub',
+          model: 'gpt-6.2-sol@max',
+          ok: false,
+          error: 'timeout',
+        }),
+      },
+    ],
+    quotas: [],
+    telemetry: { elapsed_sec: 20, server_now: 120, stages: [panelStage], models: [] },
+  };
+
+  test('synthesizes specialist and synthesizer nodes before 01_PLAN from panel events', () => {
+    const view = buildLiveRunGraph(panelSnapshot, 'en');
+
+    expect(view.graph.nodes.map((n) => n.id)).toEqual([
+      'live-panel-specialist-ux',
+      'live-panel-specialist-safety',
+      'live-panel-synthesizer',
+      'live-planner',
+      'live-final-gate',
+    ]);
+    expect(view.graph.nodes.find((n) => n.id === 'live-panel-specialist-ux')?.label).toBe('Specialist · UX & Copy');
+    expect(view.graph.nodes.find((n) => n.id === 'live-panel-specialist-safety')?.label).toBe('Specialist · Source & Safety');
+    expect(view.graph.nodes.find((n) => n.id === 'live-panel-synthesizer')?.label).toBe('Synthesizer');
+
+    expect(view.nodeStates['live-panel-specialist-ux']).toBe('passed');
+    expect(view.nodeStates['live-panel-specialist-safety']).toBe('failed');
+    expect(view.nodeStates['live-panel-synthesizer']).toBe('active');
+
+    expect(view.graph.nodes.find((n) => n.id === 'live-panel-specialist-ux')?.config).toEqual({
+      provider: 'claude_sub',
+      model: 'opus@high',
+    });
+    expect(view.graph.nodes.find((n) => n.id === 'live-panel-synthesizer')?.config).toEqual({
+      duration_sec: 20,
+      started_at: 100,
+      is_timing_active: true,
+    });
+
+    expect(view.graph.edges.map(({ source, target }) => [source, target])).toEqual([
+      ['live-panel-specialist-ux', 'live-panel-synthesizer'],
+      ['live-panel-specialist-safety', 'live-panel-synthesizer'],
+      ['live-panel-synthesizer', 'live-planner'],
+      ['live-planner', 'live-final-gate'],
+    ]);
+    expect(view.graph.edges.find((e) => e.target === 'live-planner')).toMatchObject({
+      source: 'live-panel-synthesizer',
+      sourceHandle: 'out',
+      targetHandle: 'in',
+    });
+    expect(view.traversedEdgeIds.has('live-edge-live-panel-specialist-ux-to-live-panel-synthesizer')).toBe(true);
+  });
+
+  test('localizes the panel graph nodes in Chinese', () => {
+    const view = buildLiveRunGraph(panelSnapshot, 'zh');
+    expect(view.graph.nodes.find((n) => n.id === 'live-panel-specialist-ux')?.label).toBe('会诊专家 · UX & Copy');
+    expect(view.graph.nodes.find((n) => n.id === 'live-panel-synthesizer')?.label).toBe('综合裁决');
+  });
+
+  test('synthesizes the panel group from the 00_PANEL telemetry stage alone', () => {
+    const view = buildLiveRunGraph({
+      run: { id: 'run-panel', status: 'RUNNING' },
+      milestones: [],
+      tasks: [],
+      events: [],
+      quotas: [],
+      telemetry: { elapsed_sec: 20, stages: [panelStage], models: [] },
+    }, 'en');
+
+    expect(view.graph.nodes.map((n) => n.id)).toEqual([
+      'live-panel-synthesizer',
+      'live-planner',
+      'live-final-gate',
+    ]);
+    expect(view.graph.edges.map((e) => e.id)).toEqual([
+      'live-edge-live-panel-synthesizer-to-live-planner',
+      'live-edge-live-planner-to-live-final-gate',
+    ]);
+    expect(view.nodeStates['live-panel-synthesizer']).toBe('active');
+  });
+
   test('advances an active planner from the snapshot clock', () => {
     const snapshot: LiveRunSnapshot = {
       run: { id: 'run-planning', status: 'PLANNING' },

@@ -9,6 +9,7 @@ export const EN_TO_ZH_PRESET_TEXT: Record<string, string> = {
   'Claude-Only 3-Tier Flow': 'Claude 专用三层工作流',
   'Codex-Only 3-Tier Flow': 'Codex 专用三层工作流',
   'DSH Bulk Factory': 'DSH 批量工厂',
+  'Specialist Panel': '专家会诊协作',
 
   // Preset descriptions
   'Antigravity brainstorm & final sign-off -> Claude planning & milestone gate -> Codex critical execution & micro-review -> DSH parallel bulk execution. Built for commercial full-stack projects and overnight unattended runs.':
@@ -25,6 +26,8 @@ export const EN_TO_ZH_PRESET_TEXT: Record<string, string> = {
     'Codex Astra 规划任务并审查 Codex Sol 实现的变更。通过测试与审查的变更合入后由用户验收。',
   'DSH plans batches and executes them across parallel workers. Automated tests check each batch before human sign-off.':
     'DSH 划分批次，再并行执行任务。自动测试逐批验证结果，再交由用户验收。',
+  'A read-only specialist panel audits the RFC from three perspectives in parallel. A Claude Sonnet synthesizer merges their reports into one plan, isolated DSH workers implement it, and a mechanical gate plus AI review feed final human sign-off.':
+    '只读专家组从三个视角并行审阅需求规格；Claude Sonnet 综合者将各方报告合并为统一方案，由隔离的 DSH 执行者实现，再经机械门禁与 AI 审校后交由用户最终验收。',
 
   // flagship_4tier nodes
   'L0 Brainstorm (Antigravity)': 'L0 头脑风暴 (Antigravity)',
@@ -71,6 +74,15 @@ export const EN_TO_ZH_PRESET_TEXT: Record<string, string> = {
   'Parallel Batch Workers (DSH)': '并行批量执行 (DSH)',
   'Test Changes from DSH': '测试 DSH 生成的变更',
   'DSH Batch Sign-Off': '验收 DSH 批量任务',
+
+  // specialist_panel nodes
+  'UX & Copy Specialist': '体验与文案专家',
+  'Visual & Structure Specialist': '视觉与结构专家',
+  'Source & Safety Specialist': '源码与安全专家',
+  'Synthesizer': '综合者',
+  'Isolated Workers': '隔离执行者',
+  'Mechanical Gate': '机械门禁',
+  'AI Reviewer': 'AI 审校',
 };
 
 const ROLE_LABELS_EN: Record<string, string> = {
@@ -80,6 +92,8 @@ const ROLE_LABELS_EN: Record<string, string> = {
   critical_executor: 'L2 Critical Executor',
   micro_orchestrator: 'L2 Micro Reviewer',
   bulk_worker: 'L3 Bulk Worker',
+  specialist_reviewer: 'Panel Specialist',
+  synthesizer: 'Panel Synthesizer',
 };
 
 const ROLE_LABELS_ZH: Record<string, string> = {
@@ -89,6 +103,8 @@ const ROLE_LABELS_ZH: Record<string, string> = {
   critical_executor: 'L2 核心执行',
   micro_orchestrator: 'L2 微观审校',
   bulk_worker: 'L3 并发批量执行',
+  specialist_reviewer: '会诊专家',
+  synthesizer: '会诊综合者',
 };
 
 const HANDLE_LABELS_ZH: Record<string, string> = {

@@ -6,6 +6,7 @@ import { deepseek_bulk_factory } from './presets/deepseek_bulk_factory';
 import { flagship_4tier } from './presets/flagship_4tier';
 import { review_only_audit } from './presets/review_only_audit';
 import { solo_coder_3tier } from './presets/solo_coder_3tier';
+import { specialist_panel } from './presets/specialist_panel';
 import { starter_2tier } from './presets/starter_2tier';
 
 export {
@@ -16,6 +17,7 @@ export {
   claude_only_3tier,
   codex_only_3tier,
   deepseek_bulk_factory,
+  specialist_panel,
 };
 
 // These four graphs have baseline simulator parity fixtures.
@@ -31,6 +33,7 @@ export const PRESET_REGISTRY: readonly WorkflowGraph[] = [
   claude_only_3tier,
   codex_only_3tier,
   deepseek_bulk_factory,
+  specialist_panel,
 ];
 
 export function presetToItem(graph: WorkflowGraph): PresetItem {

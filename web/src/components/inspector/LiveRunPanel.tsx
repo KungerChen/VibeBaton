@@ -519,7 +519,9 @@ export function LiveRunPanel({
                 {telemetry.stages.map((stage) => {
                   const stageLabel = stage.kind === 'planning'
                     ? messages.inspector.planningStageLabel
-                    : `${stage.id} · ${stage.title}`;
+                    : stage.kind === 'panel'
+                      ? messages.inspector.panelStageLabel
+                      : `${stage.id} · ${stage.title}`;
                   const stageStatus = messages.inspector.runStatuses[stage.status] ?? stage.status;
                   const stageActive = isActive && stage.is_active === true;
                   const stageLiveSec = computeLiveSeconds(

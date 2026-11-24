@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { assert, expect, test, vi } from 'vitest';
 import { BatonApiClient } from '../../api/client';
 import { I18nProvider } from '../../i18n';
-import type { LiveRunSnapshot, RunAttentionState } from '../../types/graph';
+import type { LiveRunSnapshot, RunAttentionState, StageTelemetry } from '../../types/graph';
 import { LiveRunPanel } from './LiveRunPanel';
 
 // The Node test runner needs only the host methods used to render the panel and open its dialog.
@@ -258,6 +258,70 @@ const shareCaseSnapshot: LiveRunSnapshot = {
   events: [],
   quotas: [],
 };
+
+const planningStage: StageTelemetry = {
+  id: 'PLANNING',
+  kind: 'planning',
+  title: 'DAG Planning',
+  status: 'PASSED',
+  wall_sec: 8,
+  task_sum_sec: 0,
+  passed_tasks: 0,
+  total_tasks: 0,
+  started_at: null,
+  is_active: false,
+};
+
+const panelStage: StageTelemetry = {
+  id: '00_PANEL',
+  kind: 'panel',
+  title: 'Panel & Synthesis',
+  status: 'PASSED',
+  wall_sec: 12,
+  task_sum_sec: 0,
+  passed_tasks: 0,
+  total_tasks: 0,
+  started_at: null,
+  is_active: false,
+};
+
+test.each([
+  { locale: 'en' as const, heading: 'Stage Timing', label: 'Specialist Panel' },
+  { locale: 'zh' as const, heading: '阶段耗时明细', label: '专家会诊' },
+])('renders the 00_PANEL stage card only when the stage exists ($locale)', ({ locale, heading, label }) => {
+  function renderStages(stages: StageTelemetry[]) {
+    vi.stubGlobal('window', { localStorage: { getItem: () => locale } });
+    try {
+      return renderToStaticMarkup(createElement(I18nProvider, {
+        children: createElement(LiveRunPanel, {
+          client: new BatonApiClient(),
+          visible: true,
+          liveSnapshot: {
+            run: { id: 'run-panel', status: 'COMPLETED' },
+            milestones: [],
+            tasks: [],
+            events: [],
+            quotas: [],
+            telemetry: { elapsed_sec: 20, stages, models: [] },
+          },
+          onSelectRunId: () => {},
+          onToast: () => {},
+        }),
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+
+  const panel = renderStages([panelStage, planningStage]);
+  expect(panel).toContain(heading);
+  expect(panel).toContain(label);
+  expect(panel).not.toContain('00_PANEL · Panel & Synthesis');
+
+  const withoutPanel = renderStages([planningStage]);
+  expect(withoutPanel).toContain(heading);
+  expect(withoutPanel).not.toContain(label);
+});
 
 test('renders Share Case beside Battle Report only when a case export handler is provided', () => {
   const client = new BatonApiClient();

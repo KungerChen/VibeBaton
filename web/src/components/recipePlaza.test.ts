@@ -17,25 +17,28 @@ const RECIPES = [
   recipe('batch', { category: 'bulk_batch', host_ready: false }),
   recipe('codex_only', { category: 'same_family', host_ready: true }),
   recipe('audit', { category: 'audit', host_ready: false }),
+  recipe('panel', { category: 'panel', host_ready: false }),
   recipe('general', { category: 'general', host_ready: false }),
 ] as const;
 
 describe('Recipe Plaza filters', () => {
   test.each<readonly [RecipeFilter, readonly string[]]>([
-    ['all', ['starter', 'claude_only', 'legacy', 'batch', 'codex_only', 'audit', 'general']],
+    ['all', ['starter', 'claude_only', 'legacy', 'batch', 'codex_only', 'audit', 'panel', 'general']],
     ['ready_on_host', ['starter', 'codex_only']],
     ['same_family', ['claude_only', 'codex_only']],
     ['bulk_batch', ['batch']],
     ['small_project', ['starter']],
     ['audit', ['audit']],
+    ['panel', ['panel']],
   ])('filters %s independently and preserves catalog order', (filter, expected) => {
     expect(filterPresets(RECIPES, filter).map(({ id }) => id)).toEqual(expected);
   });
 
-  test('All displays seven official presets and Ready on Host is empty in standalone demo', async () => {
+  test('All displays eight official presets, Panel lists specialist_panel, and Ready on Host is empty in standalone demo', async () => {
     const presets = await new BatonApiClient().listPresets();
 
-    expect(filterPresets(presets, 'all')).toHaveLength(7);
+    expect(filterPresets(presets, 'all')).toHaveLength(8);
+    expect(filterPresets(presets, 'panel').map(({ id }) => id)).toEqual(['specialist_panel']);
     expect(filterPresets(presets, 'ready_on_host')).toEqual([]);
   });
 });

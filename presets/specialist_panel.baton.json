@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0",
+  "id": "specialist_panel",
+  "name": "Specialist Panel",
+  "difficulty": "intermediate",
+  "description": "A read-only specialist panel audits the RFC from three perspectives in parallel. A Claude Sonnet synthesizer merges their reports into one plan, isolated DSH workers implement it, and a mechanical gate plus AI review feed final human sign-off.",
+  "recommended_for": [
+    "Design and content reviews",
+    "Security-sensitive RFC validation",
+    "Multi-perspective feature planning"
+  ],
+  "category": "panel",
+  "required_providers": ["claude_sub", "gemini_http", "codex_sub", "dsh_opencode"],
+  "cost_tier": "medium",
+  "nodes": [
+    {
+      "id": "ux_copy_specialist",
+      "type": "reviewer_node",
+      "label": "UX & Copy Specialist",
+      "role": "specialist_reviewer",
+      "position": { "x": 80, "y": 60 },
+      "config": { "provider": "claude_sub", "model": "opus@high", "read_only": true }
+    },
+    {
+      "id": "visual_structure_specialist",
+      "type": "reviewer_node",
+      "label": "Visual & Structure Specialist",
+      "role": "specialist_reviewer",
+      "position": { "x": 80, "y": 200 },
+      "config": { "provider": "gemini_http", "model": "gemini-4-neon-high", "read_only": true }
+    },
+    {
+      "id": "source_safety_specialist",
+      "type": "reviewer_node",
+      "label": "Source & Safety Specialist",
+      "role": "specialist_reviewer",
+      "position": { "x": 80, "y": 340 },
+      "config": { "provider": "codex_sub", "model": "gpt-6.2-sol@max", "read_only": true }
+    },
+    {
+      "id": "synthesizer",
+      "type": "planner_node",
+      "label": "Synthesizer",
+      "role": "synthesizer",
+      "position": { "x": 380, "y": 200 },
+      "config": { "provider": "claude_sub", "model": "sonnet@high" }
+    },
+    {
+      "id": "isolated_workers",
+      "type": "worker_node",
+      "label": "Isolated Workers",
+      "role": "bulk_worker",
+      "position": { "x": 680, "y": 200 },
+      "config": { "provider": "dsh_opencode", "model": "deepseek-v4.1-flash@max", "concurrency": 4 }
+    },
+    {
+      "id": "mechanical_gate",
+      "type": "gate_node",
+      "label": "Mechanical Gate",
+      "position": { "x": 980, "y": 200 },
+      "config": { "max_loops": 2, "commands": ["python -m unittest discover -s tests"] }
+    },
+    {
+      "id": "ai_reviewer",
+      "type": "reviewer_node",
+      "label": "AI Reviewer",
+      "role": "micro_orchestrator",
+      "position": { "x": 1280, "y": 200 },
+      "config": { "provider": "codex_sub", "model": "gpt-6.2-sol@high", "max_rejects": 2 }
+    },
+    {
+      "id": "human_signoff",
+      "type": "human_gate_node",
+      "label": "Human Sign-Off",
+      "position": { "x": 1580, "y": 200 },
+      "config": {}
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "ux_copy_specialist", "sourceHandle": "out", "target": "synthesizer", "targetHandle": "in" },
+    { "id": "e2", "source": "visual_structure_specialist", "sourceHandle": "out", "target": "synthesizer", "targetHandle": "in" },
+    { "id": "e3", "source": "source_safety_specialist", "sourceHandle": "out", "target": "synthesizer", "targetHandle": "in" },
+    { "id": "e4", "source": "synthesizer", "sourceHandle": "out", "target": "isolated_workers", "targetHandle": "in" },
+    { "id": "e5", "source": "isolated_workers", "sourceHandle": "out", "target": "mechanical_gate", "targetHandle": "in" },
+    { "id": "e6", "source": "mechanical_gate", "sourceHandle": "fail", "target": "isolated_workers", "targetHandle": "fix", "max_loops": 2 },
+    { "id": "e7", "source": "mechanical_gate", "sourceHandle": "pass", "target": "ai_reviewer", "targetHandle": "in" },
+    { "id": "e8", "source": "ai_reviewer", "sourceHandle": "minor_fix", "target": "isolated_workers", "targetHandle": "fix", "max_loops": 2 },
+    { "id": "e9", "source": "ai_reviewer", "sourceHandle": "escalate", "target": "synthesizer", "targetHandle": "in", "max_loops": 2 },
+    { "id": "e10", "source": "ai_reviewer", "sourceHandle": "pass", "target": "human_signoff", "targetHandle": "in" }
+  ]
+}

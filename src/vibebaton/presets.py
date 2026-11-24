@@ -30,7 +30,8 @@ PRESET_SUFFIX = ".baton.json"
 class PresetSummary:
     """Preset metadata with defaults for graphs that omit it.
 
-    The default category is ``audit`` for ``review_only_audit``, ``small_project``
+    The default category is ``audit`` for ``review_only_audit``, ``panel`` for
+    ``specialist_panel``, ``small_project``
     for other beginner graphs, and ``general`` otherwise. Provider requirements
     default to distinct nonempty provider IDs in node order, excluding
     ``host_native``. The default cost tier is ``medium`` and the default
@@ -134,6 +135,8 @@ def validate_all_presets(
 def _default_category(graph: WorkflowGraph) -> str:
     if graph.id == "review_only_audit":
         return "audit"
+    if graph.id == "specialist_panel":
+        return "panel"
     return "small_project" if graph.difficulty == "beginner" else "general"
 
 

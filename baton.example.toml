@@ -16,6 +16,7 @@ machine_gate_before_ai_review = true
 max_self_heal_attempts = 2
 max_review_rejects = 2
 require_human_approval_at = ["rfc_signoff", "plan_amendment", "final_merge"]
+# budget_profile = "balanced"  # eco | balanced | max_quality ("max_quality" escalates to flagship targets)
 
 # [notifications]
 # enabled = true
@@ -68,6 +69,15 @@ prompt_via = "stdin"
 stall_timeout_sec = 240
 hard_timeout_sec = 1200
 
+# OpenAI-compatible Gemini endpoint used by the "Visual & Structure" panel
+# specialist below. Set GEMINI_API_KEY before running `--mode panel`.
+[providers.gemini_http]
+type = "http"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+api_key_env = "GEMINI_API_KEY"
+max_concurrency = 1
+cooldown_backoff_sec = [60, 300, 900]
+
 # To use this OpenAI-compatible provider, set OPENAI_API_KEY, uncomment the
 # example, and set a role's provider to "openai_http" and model to "gpt-4o-mini".
 # [providers.openai_http]
@@ -83,6 +93,8 @@ hard_timeout_sec = 1200
 
 # ---------------------------------------------------------------------------
 # Logical Roles (Swap any model in 1 line; swap provider in 2 lines)
+# Defaults are cost-balanced: upper-mid planners/specialists plus eco bulk workers.
+# For full flagship escalation set [policies].budget_profile = "max_quality".
 # ---------------------------------------------------------------------------
 
 [roles.brainstorm_and_final_gate]
@@ -92,7 +104,7 @@ prompt_file = "prompts/l0_final_gate.md"
 
 [roles.tactical_planner]
 provider = "claude_sub"
-model = "fable@high"
+model = "opus@high"
 prompt_file = "prompts/l1_planner.md"
 
 [roles.milestone_reviewer]
@@ -103,7 +115,7 @@ fallback = [{ provider = "codex_sub", model = "gpt-6.2-astra@xhigh" }]
 
 [roles.micro_orchestrator]
 provider = "codex_sub"
-model = "gpt-6.2-astra@xhigh"
+model = "gpt-6.2-sol@high"
 prompt_file = "prompts/l2_codex_orchestrator.md"
 
 [roles.critical_executor]
@@ -116,6 +128,42 @@ provider = "dsh_opencode"
 model = "deepseek-v4.1-flash@max"
 prompt_file = "prompts/l3_dsh_worker.md"
 fallback = [{ provider = "codex_sub", model = "gpt-6.2-sol@max" }]
+
+# ---------------------------------------------------------------------------
+# Specialist Panel (00_PANEL, used by `--mode panel`)
+# Read-only specialists review the RFC concurrently; the synthesizer merges
+# their reports into a master spec before planning. Set enabled = false to
+# keep the block without running it.
+# ---------------------------------------------------------------------------
+
+[panel]
+enabled = true
+max_concurrency = 3
+synthesizer_provider = "claude_sub"
+synthesizer_model = "sonnet@high"
+# synthesizer_prompt_file = "prompts/panel_synthesizer.md"
+# arbitration_rules = ["code truth over opinion", "simplest change that meets the RFC"]
+
+[[panel.members]]
+id = "ux_copy"
+perspective = "UX & Copy"
+provider = "claude_sub"
+model = "opus@high"
+
+[[panel.members]]
+id = "visual_structure"
+perspective = "Visual & Structure"
+# host_native runs inside the host agent and cannot be dispatched by the daemon,
+# so this specialist calls the same model through Gemini's OpenAI-compatible API.
+provider = "gemini_http"
+model = "gemini-4-neon-high"
+
+[[panel.members]]
+id = "source_safety"
+perspective = "Source & Safety"
+provider = "codex_sub"
+model = "gpt-6.2-sol@max"
+fallback = [{ provider = "claude_sub", model = "opus@high" }]
 
 # ---------------------------------------------------------------------------
 # Pricing (optional; the values shown are the defaults)

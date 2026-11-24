@@ -4,7 +4,7 @@ import type { BadgeProps } from './ui/badge';
 export type RecipeFilter = 'all' | 'ready_on_host' | Exclude<PresetCategory, 'general'>;
 
 export const RECIPE_FILTERS = [
-  'all', 'ready_on_host', 'same_family', 'bulk_batch', 'small_project', 'audit',
+  'all', 'ready_on_host', 'same_family', 'bulk_batch', 'small_project', 'audit', 'panel',
 ] as const satisfies readonly RecipeFilter[];
 
 export function filterPresets(presets: readonly PresetItem[], filter: RecipeFilter): readonly PresetItem[] {

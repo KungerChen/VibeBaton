@@ -19,14 +19,26 @@ PRESET_IDS = (
     "flagship_4tier",
     "review_only_audit",
     "solo_coder_3tier",
+    "specialist_panel",
     "starter_2tier",
 )
 
+LEGACY_PRESET_NODE_COUNTS = {
+    "claude_only_3tier": 6,
+    "codex_only_3tier": 6,
+    "deepseek_bulk_factory": 4,
+    "flagship_4tier": 10,
+    "review_only_audit": 4,
+    "solo_coder_3tier": 6,
+    "starter_2tier": 4,
+}
+
 
 class TestPresetsModule(unittest.TestCase):
-    def test_list_presets_returns_seven_summaries(self) -> None:
+    def test_list_presets_returns_eight_summaries(self) -> None:
         summaries = list_presets()
         self.assertEqual([summary.id for summary in summaries], list(PRESET_IDS))
+        self.assertEqual(len(summaries), 8)
         for summary in summaries:
             with self.subTest(preset=summary.id):
                 self.assertGreater(summary.node_count, 0)
@@ -40,6 +52,17 @@ class TestPresetsModule(unittest.TestCase):
             with self.subTest(preset=preset_id):
                 self.assertTrue(result.valid, result.errors)
                 self.assertEqual(result.errors, [])
+                self.assertEqual(result.warnings, [])
+
+    def test_legacy_preset_node_counts_are_unchanged(self) -> None:
+        summaries = {summary.id: summary for summary in list_presets()}
+        self.assertEqual(
+            [preset_id for preset_id in PRESET_IDS if preset_id != "specialist_panel"],
+            list(LEGACY_PRESET_NODE_COUNTS),
+        )
+        for preset_id, node_count in LEGACY_PRESET_NODE_COUNTS.items():
+            with self.subTest(preset=preset_id):
+                self.assertEqual(summaries[preset_id].node_count, node_count)
 
     def test_original_presets_declare_metadata(self) -> None:
         expected = {
@@ -113,6 +136,68 @@ class TestPresetsModule(unittest.TestCase):
                 for field, value in metadata.items():
                     self.assertEqual(graph[field], value)
                     self.assertEqual(summary[field], value)
+
+    def test_specialist_panel_metadata_and_nodes(self) -> None:
+        graph = load_preset("specialist_panel")
+        summaries = {summary.id: summary.to_dict() for summary in list_presets()}
+
+        self.assertEqual(graph.category, "panel")
+        self.assertEqual(graph.cost_tier, "medium")
+        self.assertEqual(graph.required_providers, ["claude_sub", "gemini_http", "codex_sub", "dsh_opencode"])
+        self.assertEqual(len(graph.nodes), 8)
+        self.assertEqual(summaries["specialist_panel"]["category"], "panel")
+        self.assertEqual(summaries["specialist_panel"]["cost_tier"], "medium")
+        self.assertEqual(summaries["specialist_panel"]["node_count"], 8)
+
+        self.assertEqual(
+            [node.label for node in graph.nodes],
+            [
+                "UX & Copy Specialist",
+                "Visual & Structure Specialist",
+                "Source & Safety Specialist",
+                "Synthesizer",
+                "Isolated Workers",
+                "Mechanical Gate",
+                "AI Reviewer",
+                "Human Sign-Off",
+            ],
+        )
+
+        specialists = [node for node in graph.nodes if node.label.endswith("Specialist")]
+        self.assertEqual(len(specialists), 3)
+        for node in specialists:
+            with self.subTest(specialist=node.id):
+                self.assertEqual(node.type, NodeType.reviewer_node)
+                self.assertTrue(node.config.get("read_only"))
+        self.assertEqual(
+            {node.config["model"] for node in specialists},
+            {"opus@high", "gemini-4-neon-high", "gpt-6.2-sol@max"},
+        )
+
+        synthesizer = next(node for node in graph.nodes if node.label == "Synthesizer")
+        self.assertEqual(synthesizer.type, NodeType.planner_node)
+        self.assertEqual(synthesizer.config["model"], "sonnet@high")
+
+        workers = next(node for node in graph.nodes if node.label == "Isolated Workers")
+        self.assertEqual(workers.type, NodeType.worker_node)
+        self.assertEqual(workers.config["provider"], "dsh_opencode")
+        self.assertIn(workers.config["model"], {"deepseek-v4.1-flash@max", "gemini-4-hydrogen-high"})
+
+        gate = next(node for node in graph.nodes if node.label == "Mechanical Gate")
+        self.assertEqual(gate.type, NodeType.gate_node)
+        self.assertEqual(
+            [edge.target for edge in graph.edges if edge.source == gate.id and edge.source_handle == "fail"],
+            [workers.id],
+        )
+
+        reviewer = next(node for node in graph.nodes if node.label == "AI Reviewer")
+        self.assertEqual(reviewer.type, NodeType.reviewer_node)
+        self.assertTrue(
+            any(edge.source == reviewer.id and edge.source_handle == "escalate" for edge in graph.edges)
+        )
+
+        human = next(node for node in graph.nodes if node.label == "Human Sign-Off")
+        self.assertEqual(human.type, NodeType.human_gate_node)
 
     def test_explicit_empty_provider_list_and_attribution_are_preserved(self) -> None:
         data = load_preset("starter_2tier").to_dict()

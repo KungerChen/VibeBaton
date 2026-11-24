@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest';
-import { presetToItem, starter_2tier } from '../data/presets';
+import { presetToItem, specialist_panel, starter_2tier } from '../data/presets';
 import goldenCase from '../engine/__fixtures__/goldenCase.json';
+import { filterPresets } from '../components/recipePlaza';
 import { buildOfficialStage1Case } from '../engine/caseReplay';
 import type {
   BudgetConfigResponse,
@@ -60,8 +61,10 @@ test('serves presets and graph operations offline after a rejected probe', async
     const presets = await client.listPresets();
     expect(presets.map(({ id }) => id)).toEqual([
       'flagship_4tier', 'solo_coder_3tier', 'starter_2tier', 'review_only_audit',
-      'claude_only_3tier', 'codex_only_3tier', 'deepseek_bulk_factory',
+      'claude_only_3tier', 'codex_only_3tier', 'deepseek_bulk_factory', 'specialist_panel',
     ]);
+    expect(filterPresets(presets, 'panel').map(({ id }) => id)).toEqual(['specialist_panel']);
+    await expect(client.simulate(specialist_panel, 'happy_path')).resolves.toMatchObject({ status: 'completed' });
     for (const { id, graph, ...summary } of presets) {
       expect(summary).toMatchObject({
         category: graph.category,
@@ -550,6 +553,19 @@ test('loads run data and submits run commands to the local server', async () => 
     [`/api/runs/${runId}/control`, jsonRequest('POST', { action: 'resume' })],
     [`/api/runs/${runId}/resolve`, jsonRequest('POST', { decision: 'reject' })],
   ]);
+});
+
+test('launches a specialist panel run with mode panel', async () => {
+  const started = { run_id: 'run-panel', daemon_pid: 4244, status: 'queued' };
+  const fetchImpl = healthyFetch().mockResolvedValueOnce(Response.json(started, { status: 201 }));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+
+  const payload = { rfc_markdown: '# RFC', mode: 'panel' } as const;
+  await expect(client.startRun(payload)).resolves.toEqual(started);
+  expect(fetchImpl.mock.calls[1]).toEqual(
+    ['/api/runs/start', { ...jsonRequest('POST', payload), signal: expect.any(AbortSignal) }],
+  );
 });
 
 test('exports a local run case with encoded options and normalizes the backend models', async () => {

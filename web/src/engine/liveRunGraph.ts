@@ -1,4 +1,4 @@
-import type { Locale } from '../i18n/messages';
+import { MESSAGES, type Locale } from '../i18n/messages';
 import type {
   ExecutionState,
   LiveRunSnapshot,
@@ -12,6 +12,14 @@ import type {
 import { computeLiveSeconds } from './liveClock';
 
 export const LIVE_GRAPH_ID = '__live_run__';
+
+/** Stage id the backend reports for the panel-mode specialist consultation. */
+export const PANEL_STAGE = '00_PANEL';
+/** Live-graph node ids for panel-mode runs; specialists append their member id. */
+export const PANEL_SPECIALIST_NODE_PREFIX = 'live-panel-specialist-';
+export const PANEL_SYNTHESIZER_NODE_ID = 'live-panel-synthesizer';
+
+const PANEL_EVENT_KINDS = new Set(['panel_started', 'panel_member_completed', 'panel_synthesized']);
 
 export interface LiveRunGraphView {
   graph: WorkflowGraph;
@@ -40,6 +48,22 @@ export function projectLiveRunCanvas(graph: WorkflowGraph) {
 
 function asText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function readEventPayload(event: Record<string, unknown>): Record<string, unknown> {
+  const raw = event.payload_json;
+  if (typeof raw !== 'string') return asRecord(raw);
+  try {
+    return asRecord(JSON.parse(raw));
+  } catch {
+    return {};
+  }
 }
 
 function parseProviderModel(target: string): { provider?: string; model?: string } {
@@ -177,6 +201,74 @@ export function buildLiveRunGraph(
   const nodeStates: Record<string, ExecutionState> = {};
 
   const plannerId = 'live-planner';
+
+  const panelEvents = snapshot.events.filter((event) => PANEL_EVENT_KINDS.has(asText(event.kind)));
+  const panelStage = stages.find((stage) => stage.id === PANEL_STAGE);
+  if (panelStage || panelEvents.length > 0) {
+    const panelLabels = MESSAGES[locale].inspector.liveGraphNodes;
+    const members = new Map<string, {
+      id: string;
+      perspective: string;
+      ok: boolean;
+      provider?: string;
+      model?: string;
+    }>();
+    for (const event of panelEvents) {
+      if (asText(event.kind) !== 'panel_member_completed') continue;
+      const payload = readEventPayload(event);
+      const memberId = asText(payload.member_id);
+      if (!memberId) continue;
+      members.set(memberId, {
+        id: memberId,
+        perspective: asText(payload.perspective) || memberId,
+        ok: payload.ok === true,
+        provider: asText(payload.provider) || undefined,
+        model: asText(payload.model) || undefined,
+      });
+    }
+
+    const memberList = [...members.values()];
+    memberList.forEach((member, index) => {
+      const nodeId = `${PANEL_SPECIALIST_NODE_PREFIX}${member.id}`;
+      nodes.push({
+        id: nodeId,
+        type: 'worker_node',
+        label: truncateLabel(`${panelLabels.specialist} · ${member.perspective}`),
+        position: { x: -600, y: 120 + (index - (memberList.length - 1) / 2) * 150 },
+        config: nodeConfig({ provider: member.provider, model: member.model }, undefined),
+      });
+      nodeStates[nodeId] = member.ok ? 'passed' : 'failed';
+      edges.push({
+        id: `live-edge-${nodeId}-to-${PANEL_SYNTHESIZER_NODE_ID}`,
+        source: nodeId,
+        target: PANEL_SYNTHESIZER_NODE_ID,
+        sourceHandle: 'out',
+        targetHandle: 'in',
+      });
+    });
+
+    const synthesized = panelEvents.some((event) => asText(event.kind) === 'panel_synthesized');
+    nodes.push({
+      id: PANEL_SYNTHESIZER_NODE_ID,
+      type: 'merge_node',
+      label: panelLabels.synthesizer,
+      position: { x: -300, y: 120 },
+      config: nodeConfig(undefined, panelStage),
+    });
+    nodeStates[PANEL_SYNTHESIZER_NODE_ID] = synthesized
+      ? 'passed'
+      : panelStage
+        ? mapRunStatusToExecutionState(panelStage.status)
+        : mapRunStatusToExecutionState(runStatus);
+    edges.push({
+      id: `live-edge-${PANEL_SYNTHESIZER_NODE_ID}-to-${plannerId}`,
+      source: PANEL_SYNTHESIZER_NODE_ID,
+      target: plannerId,
+      sourceHandle: 'out',
+      targetHandle: 'in',
+    });
+  }
+
   const hasPlan = snapshot.milestones.length > 0
     || snapshot.tasks.length > 0
     || snapshot.events.some((event) => {
