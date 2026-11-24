@@ -153,7 +153,7 @@ type = "http"
 base_url = "https://api.deepseek.com/v1"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
-Note: `baton doctor` checks CLI templates (reporting HTTP-only providers as lacking a CLI command); Studio validates HTTP endpoints separately. `Retry-After` parses integer seconds.
+Note: `baton doctor` validates HTTP endpoints and API keys directly (and tests them with `--role`). `Retry-After` parses integer seconds.
 </details>
 <details>
 <summary>3-Tier API Pricing (<code>baton pricing</code>)</summary>

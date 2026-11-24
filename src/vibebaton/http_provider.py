@@ -17,7 +17,7 @@ from typing import Literal
 
 from . import pricing
 from .cli_runner import CLIResult, parse_retry_after_seconds
-from .config import ProviderConfig
+from .config import PricingSettings, ProviderConfig
 from .credentials import default_credentials_path
 
 
@@ -193,6 +193,7 @@ async def run_http_provider(
     cwd: Path,
     credentials_path: Path | None = None,
     hard_timeout_sec: float | None = None,
+    pricing_settings: PricingSettings | None = None,
 ) -> CLIResult:
     """Run blocking urllib transport via asyncio.to_thread and return a CLIResult."""
     started = time.monotonic()
@@ -267,13 +268,25 @@ async def run_http_provider(
 
     text, prompt_tokens, completion_tokens, cached_tokens = completion
     text = _sanitize(text, api_key)
-    cost_usd = compute_token_cost_usd(
-        model,
-        prompt_tokens,
-        completion_tokens,
-        cached_tokens,
-        pricing_table=provider.model_pricing or None,
-    )
+    if pricing_settings and (pricing_settings.custom or pricing_settings.cache_path or pricing_settings.custom_path):
+        cost_usd = pricing.compute_token_cost_usd(
+            model,
+            prompt_tokens,
+            completion_tokens,
+            cached_tokens,
+            pricing_table=provider.model_pricing or None,
+            custom_pricing=pricing_settings.custom,
+            cache_path=pricing_settings.cache_path,
+            custom_path=pricing_settings.custom_path,
+        )
+    else:
+        cost_usd = compute_token_cost_usd(
+            model,
+            prompt_tokens,
+            completion_tokens,
+            cached_tokens,
+            pricing_table=provider.model_pricing or None,
+        )
 
     if output_file is not None:
         try:

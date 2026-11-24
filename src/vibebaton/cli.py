@@ -14,7 +14,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from . import __version__, case_export, pricing
-from .cli_runner import check_provider_binary, run_provider_cli
+from .cli_runner import check_provider_binary, invoke_provider, run_provider_cli
 from .config import HotReloadConfig, find_config_path, parse_config_dict
 from .credentials import default_credentials_path
 from .db import StateStore
@@ -82,11 +82,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     print("\nProviders:")
     all_ok = git_ok
     for pname, pcfg in cfg.providers.items():
-        res = check_provider_binary(pcfg)
-        badge = "OK  " if res["ok"] else "MISS"
-        print(f"  [{badge}] {pname:<14} cmd={res['binary']:<10} concurrency={pcfg.max_concurrency}  ({res['detail']})")
-        if not res["ok"]:
-            all_ok = False
+        if pcfg.type == "http":
+            from .http_provider import probe_http_provider
+
+            ok, detail = probe_http_provider(pcfg)
+            badge = "OK  " if ok else "MISS"
+            print(f"  [{badge}] {pname:<14} type=http       concurrency={pcfg.max_concurrency}  ({detail})")
+            if not ok:
+                all_ok = False
+        else:
+            res = check_provider_binary(pcfg)
+            badge = "OK  " if res["ok"] else "MISS"
+            print(f"  [{badge}] {pname:<14} cmd={res['binary']:<10} concurrency={pcfg.max_concurrency}  ({res['detail']})")
+            if not res["ok"]:
+                all_ok = False
 
     print("\nRole Routing:")
     for rname, rcfg in cfg.roles.items():
@@ -100,20 +109,33 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             return 0
         print(f"\nRunning live smoke test for role '{args.role}' ({prov_cfg.name}/{role_cfg.model})...")
         smoke_dir = repo / ".baton" / "doctor_smoke"
+        smoke_model = role_cfg.model
+        smoke_effort: str | None = None
+        if prov_cfg.type == "http" and "@" in smoke_model:
+            smoke_model, smoke_effort = smoke_model.split("@", 1)
         res = asyncio.run(
-            run_provider_cli(
+            invoke_provider(
                 prov_cfg,
-                model=role_cfg.model,
                 prompt='Respond ONLY with this exact JSON object: {"status": "ok"}',
-                workdir=repo,
+                model=smoke_model,
+                effort=smoke_effort,
+                cwd=repo,
                 prompt_file=smoke_dir / f"{args.role}.prompt.md",
                 output_file=smoke_dir / f"{args.role}.out.json",
                 default_stall_timeout=60,
                 default_hard_timeout=90,
+                cli_executor=run_provider_cli,
+                pricing_settings=cfg.pricing,
             )
         )
         print(f"  Smoke Result: status={res.status} exit={res.exit_code} duration={res.duration_sec:.2f}s")
-        preview = (res.output_file_text or res.stdout).strip()
+        if res.prompt_tokens + res.completion_tokens > 0:
+            cost_note = f" cost=${res.cost_usd:.4f}" if res.cost_usd is not None else ""
+            print(
+                f"  Usage: prompt={res.prompt_tokens:,} completion={res.completion_tokens:,} "
+                f"cached={res.cached_tokens:,}{cost_note}"
+            )
+        preview = (res.parsed_text or res.output_file_text or res.stdout).strip()
         if res.status == "ok" and preview:
             print(f"  OUTPUT: {preview[:200]}")
         if res.status != "ok":
@@ -289,8 +311,21 @@ def cmd_mcp(args: argparse.Namespace) -> int:
 
 def cmd_promote_seed(args: argparse.Namespace) -> int:
     """Export an immutable snapshot of VibeBaton into a separate runner dir for safe self-hosting."""
-    src_root = _package_root()
+    src_root = _package_root().resolve()
     dest = Path(args.dest).resolve()
+    if (
+        dest == src_root
+        or dest in src_root.parents
+        or dest == Path(dest.anchor)
+        or dest == Path.home().resolve()
+        or (dest / ".git").exists()
+    ):
+        print(
+            f"Refusing to overwrite unsafe promote-seed destination: {dest}. "
+            "Pass a dedicated subdirectory (e.g. .bootstrap-runner).",
+            file=sys.stderr,
+        )
+        return 1
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)

@@ -132,7 +132,20 @@ def _detect_cli_format(
     if usage_blocks and "codex" in hints:
         return "codex"
     if any(isinstance(event.get(key), dict) for event in events for key in ("token_usage", "metrics")) or any(
-        {"prompt_tokens", "completion_tokens", "cached_tokens", "cached_input_tokens"} & usage.keys()
+        {
+            "prompt_tokens",
+            "completion_tokens",
+            "cached_tokens",
+            "cached_input_tokens",
+            "inputTokens",
+            "outputTokens",
+            "promptTokens",
+            "completionTokens",
+            "cachedTokens",
+            "cachedInputTokens",
+            "cacheReadInputTokens",
+        }
+        & usage.keys()
         for usage in usage_blocks
     ):
         return "dsh"
@@ -234,9 +247,17 @@ def _dsh_response_text(event: _JSONEvent) -> str:
 def _parse_dsh_output(events: list[_JSONEvent], file_text: str | None, stdout: str) -> ParsedCLIOutput:
     prompt = completion = cached = 0
     for usage in _usage_blocks(events, *_DSH_USAGE_KEYS):
-        prompt += _token_count(usage, "prompt_tokens", "input_tokens")
-        completion += _token_count(usage, "completion_tokens", "output_tokens")
-        cached += _token_count(usage, "cached_tokens", "cached_input_tokens", "cache_read_input_tokens")
+        prompt += _token_count(usage, "prompt_tokens", "input_tokens", "inputTokens", "promptTokens")
+        completion += _token_count(usage, "completion_tokens", "output_tokens", "outputTokens", "completionTokens")
+        cached += _token_count(
+            usage,
+            "cached_tokens",
+            "cached_input_tokens",
+            "cache_read_input_tokens",
+            "cachedTokens",
+            "cachedInputTokens",
+            "cacheReadInputTokens",
+        )
 
     text = next((text for event in reversed(events) if (text := _dsh_response_text(event))), "")
     return ParsedCLIOutput(text or file_text or stdout, prompt, completion, cached, structured=True)
@@ -585,16 +606,19 @@ async def invoke_provider(
         hard_timeout_sec = kwargs.get("hard_timeout_sec")
         if hard_timeout_sec is None:
             hard_timeout_sec = provider.hard_timeout_sec or kwargs.get("default_hard_timeout")
-        return await http_provider.run_http_provider(
-            provider,
-            prompt=prompt,
-            model=model,
-            effort=effort,
-            output_file=output_file,
-            cwd=cwd,
-            credentials_path=credentials_path,
-            hard_timeout_sec=hard_timeout_sec,
-        )
+        http_kwargs: dict[str, object] = {
+            "prompt": prompt,
+            "model": model,
+            "effort": effort,
+            "output_file": output_file,
+            "cwd": cwd,
+            "credentials_path": credentials_path,
+            "hard_timeout_sec": hard_timeout_sec,
+        }
+        # Legacy transports/mocks receive the original arguments when pricing overrides are absent.
+        if pricing_settings and (pricing_settings.custom or pricing_settings.cache_path or pricing_settings.custom_path):
+            http_kwargs["pricing_settings"] = pricing_settings
+        return await http_provider.run_http_provider(provider, **http_kwargs)
 
     if output_file is None:
         raise ValueError("CLI providers require an output file.")

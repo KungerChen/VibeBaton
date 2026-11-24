@@ -2,9 +2,9 @@
   "mcpServers": {
     "vibebaton": {
       "command": "python",
-      "args": ["-m", "vibebaton", "mcp"],
+      "args": ["-m", "vibebaton", "mcp", "--repo", "<path-to-target-repo>"],
       "env": {
-        "PYTHONPATH": "D:\\Projects\\VibeBaton\\src"
+        "PYTHONPATH": "<path-to-vibebaton>/src"
       }
     }
   }

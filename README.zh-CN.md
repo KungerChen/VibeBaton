@@ -153,7 +153,7 @@ type = "http"
 base_url = "https://api.deepseek.com/v1"
 api_key_env = "DEEPSEEK_API_KEY"
 ```
-注：`baton doctor` 检测 CLI 命令模板（会将纯 HTTP 提供方报为缺少 CLI 命令）；Studio 会单独校验 HTTP 端点。`Retry-After` 按整数秒解析。
+注：`baton doctor` 会直接校检 HTTP 端点与密钥配置（并支持 `--role` 实测）。`Retry-After` 按整数秒解析。
 </details>
 <details>
 <summary>三层 API 定价（<code>baton pricing</code>）</summary>

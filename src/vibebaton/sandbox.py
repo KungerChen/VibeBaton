@@ -89,7 +89,7 @@ def _runtime_archive() -> bytes:
         for path in sorted(package.rglob("*.py")):
             name = path.relative_to(package).as_posix()
             archive.write(path, f"src/vibebaton/{name}")
-        for pattern in ("baton.example.toml", "LICENSE", "prompts/*.md", "presets/*.baton.json"):
+        for pattern in ("baton.example.toml", "LICENSE", "prompts/*.md", "presets/*.baton.json", "presets/*.patch.yml"):
             for path in sorted(root.glob(pattern)):
                 archive.write(path, path.relative_to(root).as_posix())
     return payload.getvalue()
