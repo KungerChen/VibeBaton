@@ -1063,16 +1063,20 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         if not is_dir:
             raise _BadRequest("path must be an existing directory")
         with self.server.config_lock:
-            # Runs live in the workspace's own state DB, so the store follows the repo.
+            explicit = getattr(self.server, "explicit_config_path", None)
             try:
-                store = StateStore(repo / self.server.loader.current.daemon.db_path)
-            except (OSError, sqlite3.Error) as exc:
+                loader = HotReloadConfig(find_config_path(repo, explicit))
+                # Runs live in the workspace's own state DB, so the store and config follow the repo.
+                store = StateStore(repo / loader.current.daemon.db_path)
+            except (FileNotFoundError, OSError, sqlite3.Error, ValueError) as exc:
                 raise _BadRequest(f"Workspace state could not be opened: {exc}") from exc
             self.server.repo_path = repo
+            self.server.loader = loader
             self.server.store = store
         self._send_json(200, _workspace_info(repo))
 
     def _post_workspace_init_git(self) -> None:
+        self._read_json_body(optional=True)
         repo = self.server.repo_path
         info = _workspace_info(repo)
         if info["is_git_repo"]:
@@ -1492,6 +1496,9 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         backup_tag: str | None = None
         try:
             if action == "revise":
+                if run["status"] == RunStatus.COMPLETED.value:
+                    self._send_json(409, {"error": "Completed runs cannot be sent back with revise; use rollback instead"})
+                    return
                 revisions = repo / ".baton" / "runs" / run_id / "revisions.md"
                 revisions.parent.mkdir(parents=True, exist_ok=True)
                 stamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -1650,6 +1657,7 @@ def create_server(
 
     server = _CanvasHTTPServer((host, port))
     server.repo_path = repo_path
+    server.explicit_config_path = config_path.resolve() if config_path is not None else None
     server.loader = loader
     server.store = store
     server.static_dir = static_dir

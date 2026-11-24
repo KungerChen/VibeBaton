@@ -1,7 +1,7 @@
 import './GuidedWorkbench.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNodesState } from '@xyflow/react';
-import type { BatonApiClient, RecommendedLineup } from '../../api/client';
+import type { BatonApiClient, FinalizeAction, RecommendedLineup } from '../../api/client';
 import { graphToFlow } from '../../engine/flowAdapter';
 import { buildLiveRunGraph, projectLiveRunCanvas } from '../../engine/liveRunGraph';
 import { MESSAGES, type Locale } from '../../i18n/messages';
@@ -13,6 +13,7 @@ import { GuidedBrainstormStep } from './GuidedBrainstormStep';
 import { GuidedDecisionModal, optionsFromEvent, type GuidedDecisionOption } from './GuidedDecisionModal';
 import { GuidedSetupStep } from './GuidedSetupStep';
 import { GuidedSignOffPanel, type SignOffSummary } from './GuidedSignOffPanel';
+import { localizeGuidedError } from './guidedErrors';
 import { NodeDetailDrawer } from './NodeDetailDrawer';
 
 export const GUIDED_STEPS = ['setup', 'brainstorm', 'live', 'signoff'] as const;
@@ -74,13 +75,21 @@ export interface WaitingDecision {
 export function waitingDecision(snapshot: LiveRunSnapshot | null): WaitingDecision | null {
   const run = snapshot?.run;
   if (!snapshot || !run || run.status !== 'WAITING_HUMAN') return null;
-  const event = [...snapshot.events].reverse().find((row) => (
-    row.kind === 'human_attention_required' && eventPayload(row)?.category === 'waiting_human'
-  ));
+  let lastDecisionIdx = -1;
+  for (let i = snapshot.events.length - 1; i >= 0; i -= 1) {
+    if (snapshot.events[i]?.kind === 'human_decision') {
+      lastDecisionIdx = i;
+      break;
+    }
+  }
+  const event = snapshot.events
+    .slice(lastDecisionIdx + 1)
+    .reverse()
+    .find((row) => row.kind === 'human_attention_required' && eventPayload(row)?.category === 'waiting_human');
   const waitingTask = snapshot.tasks.find((task) => task.status === 'WAITING_HUMAN');
-  const taskId = typeof event?.task_id === 'string' && event.task_id
-    ? event.task_id
-    : typeof waitingTask?.id === 'string' ? waitingTask.id : '';
+  const taskId = typeof waitingTask?.id === 'string' && waitingTask.id
+    ? waitingTask.id
+    : typeof event?.task_id === 'string' && event.task_id ? event.task_id : '';
   if (!taskId) return null;
   const prompt = typeof run.human_prompt === 'string' ? run.human_prompt.trim() : '';
   const message = typeof event?.message === 'string' ? event.message.trim() : '';
@@ -176,12 +185,37 @@ export function GuidedWorkbench({ locale, client, liveSnapshot, onFollowRun }: G
   const [runId, setRunId] = useState<string | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [resolvedDecisionKey, setResolvedDecisionKey] = useState<string | null>(null);
+  const [lastSignOff, setLastSignOff] = useState<{ runId: string; action: FinalizeAction } | null>(null);
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
 
   const snapshot = runId && runIdOf(liveSnapshot) === runId ? liveSnapshot : null;
   // Once a run exists its status decides between Build and Sign-Off (a revision re-enters Build).
   const shownStep: GuidedStep = runId ? stepFromRun(snapshot?.run?.status) ?? 'live' : step;
   const decision = waitingDecision(snapshot);
   const shownIndex = GUIDED_STEPS.indexOf(shownStep);
+  const pausedBannerText = snapshot?.run?.status === 'PAUSED'
+    ? (lastSignOff?.runId === runId && lastSignOff.action === 'rollback'
+      ? copy.signOff.rolledBackDone
+      : lastSignOff?.runId === runId && lastSignOff.action === 'revise'
+        ? copy.signOff.revisedDone
+        : copy.workbench.pausedBanner)
+    : null;
+
+  async function resumeRun() {
+    if (!runId || resumeBusy) return;
+    setResumeBusy(true);
+    setResumeError(null);
+    try {
+      await client.controlRun(runId, 'resume');
+      setLastSignOff(null);
+      onFollowRun(runId);
+    } catch (failure) {
+      setResumeError(localizeGuidedError(failure, locale));
+    } finally {
+      setResumeBusy(false);
+    }
+  }
 
   return (
     <div className="guided-workbench">
@@ -236,6 +270,35 @@ export function GuidedWorkbench({ locale, client, liveSnapshot, onFollowRun }: G
 
         {shownStep === 'live' && runId && (
           <div className="guided-workbench__live">
+            {pausedBannerText ? (
+              <div className="guided-workbench__paused" role="status">
+                <span>{pausedBannerText}</span>
+                <div className="guided-workbench__paused-actions">
+                  <button
+                    type="button"
+                    className="guided-workbench__button guided-workbench__button--primary"
+                    disabled={resumeBusy}
+                    onClick={() => void resumeRun()}
+                  >
+                    {copy.workbench.resumeRun}
+                  </button>
+                  <button
+                    type="button"
+                    className="guided-workbench__button"
+                    disabled={resumeBusy}
+                    onClick={() => {
+                      setLastSignOff(null);
+                      setResumeError(null);
+                      setRunId(null);
+                      setStep('brainstorm');
+                    }}
+                  >
+                    {copy.workbench.newBlueprint}
+                  </button>
+                </div>
+                {resumeError ? <p className="guided-workbench__error" role="alert">{resumeError}</p> : null}
+              </div>
+            ) : null}
             <p className="guided-workbench__hint">{snapshot ? copy.workbench.nodeHint : copy.workbench.waitingForRun}</p>
             {snapshot && (
               <div className="guided-workbench__canvas">
@@ -253,7 +316,10 @@ export function GuidedWorkbench({ locale, client, liveSnapshot, onFollowRun }: G
               summary={signOffSummaryFromSnapshot(snapshot)}
               locale={locale}
               finalizer={(id, payload) => client.finalizeRun(id, payload)}
-              onFinalized={() => onFollowRun(runId)}
+              onFinalized={(result) => {
+                setLastSignOff({ runId, action: result.action });
+                onFollowRun(runId);
+              }}
             />
           </div>
         )}

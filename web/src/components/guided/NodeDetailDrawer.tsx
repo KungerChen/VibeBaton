@@ -6,6 +6,7 @@ import type { Locale } from '../../i18n/messages';
 import { MESSAGES } from '../../i18n/messages';
 import { formatProviderDisplay } from '../../i18n/presets';
 import { GlossaryTerm, useGlossaryHighlights } from './GlossaryTerm';
+import { localizeGuidedError } from './guidedErrors';
 
 export type NodeDetailFetcher = (runId: string, taskId: string) => Promise<RunTaskDetail>;
 
@@ -115,7 +116,7 @@ export function NodeDetailDrawer({
       },
       (error: unknown) => {
         if (active) {
-          setState({ key, phase: 'error', message: error instanceof Error ? error.message : String(error) });
+          setState({ key, phase: 'error', message: localizeGuidedError(error, locale) });
         }
       },
     );
@@ -123,6 +124,15 @@ export function NodeDetailDrawer({
       active = false;
     };
   }, [runId, taskId, locale]);
+
+  useEffect(() => {
+    if (!taskId || typeof document === 'undefined') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [taskId, onClose]);
 
   const key = taskId ? taskKey(runId, taskId, locale) : null;
   const current = key !== null && state?.key === key ? state : null;

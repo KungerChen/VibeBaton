@@ -11,10 +11,10 @@
 **VibeBaton (`baton`) is a local orchestrator for multi-model AI coding.**
 Write a short RFC, assign Claude, Codex, DSH, or OpenAI-compatible HTTP models by role, isolate every task in a Git worktree, gate changes with real tests, and approve the final merge yourself.
 
-*Every release from `v0.2.0` to `v1.0.4` was built this way on its own repo — orchestrated by VibeBaton with human direction and final sign-off.*
+*Every release from `v0.2.0` to `v1.2.0` was built this way on its own repo — orchestrated by VibeBaton with human direction and final sign-off.*
 
 [![Release](https://img.shields.io/github/v/release/KungerChen/VibeBaton?display_name=tag&style=flat-square&color=2563eb)](https://github.com/KungerChen/VibeBaton/releases)
-[![Tests: 1,068 (536 UI + 532 Py)](https://img.shields.io/badge/tests-1%2C068%20%28536%20UI%20%2B%20532%20Py%29-0e7490?style=flat-square)](#contributing--license)
+[![Tests: 1,378 (674 UI + 704 Py)](https://img.shields.io/badge/tests-1%2C378%20%28674%20UI%20%2B%20704%20Py%29-0e7490?style=flat-square)](#contributing--license)
 [![License](https://img.shields.io/github/license/KungerChen/VibeBaton?style=flat-square&color=6d28d9)](LICENSE)
 [![Python 3.11+ stdlib core](https://img.shields.io/badge/Python%203.11%2B-stdlib%20core-1d4ed8?style=flat-square)](pyproject.toml)
 [![Windows · Linux · Docker](https://img.shields.io/badge/platform-Windows%20%C2%B7%20Linux%20%C2%B7%20Docker-475569?style=flat-square)](#quickstart)
@@ -89,9 +89,9 @@ For open-ended reviews instead of one fixed spec, `00_PANEL` runs first: read-on
 
 *Zero-key preview: launch Studio (`baton ui`) to simulate `happy_path`, `gate_retry`, and `escalate` offline and explore **8 Ready-on-Host Recipe Presets**.*
 
-## Self-Hosting Evolution (`v0.1-seed` → `v1.0.4`)
+## Self-Hosting Evolution (`v0.1-seed` → `v1.2.0`)
 
-VibeBaton built `v0.2.0` through `v1.0.4` by orchestrating Claude, Codex, and DSH on its own codebase under human direction and final sign-off.
+VibeBaton built `v0.2.0` through `v1.2.0` by orchestrating Claude, Codex, and DSH on its own codebase under human direction and final sign-off.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/timeline-dark.svg" />

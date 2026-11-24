@@ -1,3 +1,8 @@
+.guided-app[hidden],
+.app[hidden] {
+  display: none;
+}
+
 /* App-level shell used when Guided Mode replaces the Pro grid layout. */
 .guided-app {
   display: flex;
@@ -108,6 +113,55 @@
   padding: 0.6rem 1rem;
   border-bottom: 1px solid var(--border);
   color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
+.guided-workbench__paused {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--amber) 35%, var(--border));
+  background: var(--amber-soft);
+  color: var(--text-strong);
+  font-size: 0.85rem;
+}
+
+.guided-workbench__paused-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.guided-workbench__button {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--secondary);
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.guided-workbench__button--primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 600;
+}
+
+.guided-workbench__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.guided-workbench__error {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--rose);
   font-size: 0.8rem;
 }
 

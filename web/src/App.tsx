@@ -230,6 +230,7 @@ function AppContent() {
   const [liveViewActive, setLiveViewActive] = useState(false);
   const [startRunOpen, setStartRunOpen] = useState(false);
   const [studioMode, setStudioMode] = useState<StudioMode>(() => loadStudioMode());
+  const [hasOpenedGuided, setHasOpenedGuided] = useState(() => studioMode === 'guided');
   const [glossaryOpen, setGlossaryOpen] = useState(false);
   const lastLiveCanvasRef = useRef<{ runId: string | null; signature: string } | null>(null);
   const availableCaseRunId = mode === 'local' ? selectedRunId ?? runId ?? recentRuns[0]?.id ?? null : null;
@@ -841,7 +842,7 @@ function AppContent() {
   }
 
   const handleGlobalKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    if (liveViewActive || stepCount === 0 || tourState.open) return;
+    if (studioMode !== 'pro' || liveViewActive || stepCount === 0 || tourState.open) return;
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
     if (document.querySelector('dialog[open]')) return;
     const target = event.target instanceof Element ? event.target : null;
@@ -963,6 +964,7 @@ function AppContent() {
 
   function onStudioModeChange(nextMode: StudioMode) {
     setStudioMode(nextMode);
+    if (nextMode === 'guided') setHasOpenedGuided(true);
     saveStudioMode(nextMode);
   }
 
@@ -985,35 +987,32 @@ function AppContent() {
     <GlossaryDrawer open={glossaryOpen} onClose={() => setGlossaryOpen(false)} locale={locale} />
   );
 
-  if (studioMode === 'guided') {
-    return (
-      <div className="guided-app">
-        {headerBar}
-        <GuidedWorkbench
-          locale={locale}
-          client={client}
-          liveSnapshot={liveSnapshot}
-          onFollowRun={(followRunId) => {
-            lastLiveCanvasRef.current = null;
-            setLiveViewActive(true);
-            void onSelectRunId(followRunId);
-          }}
-        />
-        {glossaryDrawer}
-        <ToastHost toasts={toasts} />
-      </div>
-    );
-  }
-
   return (
-    <div
-      className="app"
-      style={{
-        '--sidebar-w': `${paneWidths.sidebar}px`,
-        '--inspector-w': `${paneWidths.inspector}px`,
-      } as CSSProperties}
-    >
-      {headerBar}
+    <>
+      {hasOpenedGuided && (
+        <div className="guided-app" hidden={studioMode !== 'guided'}>
+          {studioMode === 'guided' ? headerBar : null}
+          <GuidedWorkbench
+            locale={locale}
+            client={client}
+            liveSnapshot={liveSnapshot}
+            onFollowRun={(followRunId) => {
+              lastLiveCanvasRef.current = null;
+              setLiveViewActive(true);
+              void onSelectRunId(followRunId);
+            }}
+          />
+        </div>
+      )}
+      <div
+        className="app"
+        hidden={studioMode === 'guided'}
+        style={{
+          '--sidebar-w': `${paneWidths.sidebar}px`,
+          '--inspector-w': `${paneWidths.inspector}px`,
+        } as CSSProperties}
+      >
+        {studioMode === 'pro' ? headerBar : null}
       <AttentionBanner
         key={visibleFingerprint}
         alert={visibleAttentionAlert}
@@ -1220,9 +1219,10 @@ function AppContent() {
           onRequirePane={onRequirePane}
         />
       )}
+      </div>
       {glossaryDrawer}
       <ToastHost toasts={toasts} />
-    </div>
+    </>
   );
 }
 

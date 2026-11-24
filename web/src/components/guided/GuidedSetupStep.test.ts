@@ -85,6 +85,19 @@ describe('install consent guard', () => {
     expect(api.installCli).toHaveBeenCalledTimes(1);
     expect(api.installCli.mock.calls[0]).toEqual([{ cliId: 'dsh', confirmed: true }]);
   });
+
+  test('installWithConsent surfaces installer failure when ok is false', async () => {
+    const api = {
+      installCli: vi.fn().mockResolvedValue({
+        id: 'dsh',
+        ok: false,
+        command: ['npm', 'install'],
+        returncode: 1,
+        output: 'EACCES permission denied',
+      }),
+    };
+    await expect(installWithConsent(api, entry('missing'), true)).rejects.toThrow('EACCES permission denied');
+  });
 });
 
 describe('initGitAndRefresh', () => {

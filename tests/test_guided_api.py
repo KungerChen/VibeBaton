@@ -395,6 +395,21 @@ class TestWorkspaceApi(GuidedApiTestCase):
         self.assertEqual(status, 200, body)
         self.assertIs(body["created"], False)
 
+    def test_select_rebinds_workspace_config_for_budget_updates(self) -> None:
+        target = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        _init_repo(target)
+        example_cfg = (Path(__file__).resolve().parents[1] / "baton.example.toml").read_text(encoding="utf-8")
+        (target / ".baton").mkdir(parents=True, exist_ok=True)
+        (target / ".baton" / "baton.toml").write_text(example_cfg, encoding="utf-8")
+
+        status, body = self._post("/api/workspace/select", {"path": str(target)})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.server.loader.path, (target / ".baton" / "baton.toml").resolve())
+
+        put_status, _, put_body = self.send_json("/api/config/budget", {"budget_profile": "eco"}, method="PUT")
+        self.assertEqual(put_status, 200, put_body)
+        self.assertEqual(put_body["budget_profile"], "eco")
+
     def test_select_rejects_invalid_paths(self) -> None:
         missing = self.repo / "does-not-exist"
         a_file = self.repo / "README.md"
@@ -449,6 +464,14 @@ class TestBrainstormApi(GuidedApiTestCase):
         self.assertEqual(status, 200, body)
         self.assertIn("蓝图", body["reply"])
         self.assertIn("交付一个新功能", body["reply"])
+
+    def test_offline_chat_handles_punctuation_only_cjk_turn(self) -> None:
+        status, body = self._post(
+            "/api/brainstorm/chat",
+            {"messages": [{"role": "user", "content": "？？？"}], "offline": True, "locale": "zh"},
+        )
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body["rfc_markdown"].startswith("# "))
 
     def test_chat_rejects_bad_payloads(self) -> None:
         for payload in (
@@ -751,6 +774,9 @@ class TestRunGuidedApi(GuidedApiTestCase):
         self.assert_error(self._post(f"/api/runs/{run_id}/finalize", {"action": "revise"}), 400)
         self.assert_error(self._post("/api/runs/run-missing/finalize", {"action": "approve"}), 404)
         self.assert_error(self._post(f"/api/runs/{run_id}/finalize", {"action": "rollback"}), 409)
+
+        done_run = self.seed_run(RunStatus.COMPLETED)
+        self.assert_error(self._post(f"/api/runs/{done_run}/finalize", {"action": "revise", "note": "Too late"}), 409)
 
 
 class TestBackupTags(unittest.TestCase):

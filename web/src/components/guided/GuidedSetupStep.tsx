@@ -55,14 +55,17 @@ export function canInstall(entry: Pick<CliScanEntry, 'status'> | undefined, cons
   return consent === true && entry?.status === 'missing';
 }
 
-/** Runs the install recipe only when `canInstall` allows it; returns whether the API was called. */
+/** Runs the install recipe only when `canInstall` allows it; returns whether the API was called and succeeded. */
 export async function installWithConsent(
   api: Pick<GuidedSetupApi, 'installCli'>,
   entry: CliScanEntry | undefined,
   consent: boolean,
 ): Promise<boolean> {
   if (!entry || !canInstall(entry, consent)) return false;
-  await api.installCli({ cliId: entry.id, confirmed: true });
+  const result = await api.installCli({ cliId: entry.id, confirmed: true });
+  if (!result.ok) {
+    throw new Error(result.output.trim() || `Install failed (exit ${result.returncode})`);
+  }
   return true;
 }
 
@@ -176,11 +179,13 @@ export function GuidedSetupStep({ locale, onReady, api: injectedApi }: GuidedSet
     }
   }, [locale]);
 
-  const scan = useCallback((repoPath?: string) => run('scan', async () => {
+  const scanRegistry = useCallback(async (repoPath?: string) => {
     const result = await api.scanCliRegistry(repoPath);
     setEntries(Object.fromEntries(result.scan.drivers.map((entry) => [entry.id, entry])));
     setLineup(result.lineup);
-  }), [api, run]);
+  }, [api]);
+
+  const scan = useCallback((repoPath?: string) => run('scan', () => scanRegistry(repoPath)), [run, scanRegistry]);
 
   useEffect(() => {
     void run('load', async () => {
@@ -188,22 +193,25 @@ export function GuidedSetupStep({ locale, onReady, api: injectedApi }: GuidedSet
       setWorkspace(info);
       setPathInput(info.path);
       setDrivers(registry.drivers);
-    }).then(() => scan());
-  }, [api, run, scan]);
+      await scanRegistry(info.path);
+    });
+  }, [api, run, scanRegistry]);
 
   const selectFolder = () => run('workspace', async () => {
     const info = await api.selectWorkspace(pathInput.trim());
     setWorkspace(info);
     setPathInput(info.path);
-  }).then(() => scan(pathInput.trim()));
+    await scanRegistry(info.path);
+  });
 
   const initGit = () => run('git', async () => setWorkspace(await initGitAndRefresh(api)));
 
   const install = (driver: CliDriver) => run(`install:${driver.id}`, async () => {
     if (await installWithConsent(api, entries[driver.id], consent[driver.id] === true)) {
       setConsent((current) => ({ ...current, [driver.id]: false }));
+      await scanRegistry(workspace?.path);
     }
-  }).then(() => scan(workspace?.path));
+  });
 
   const login = (driver: CliDriver) => run(`login:${driver.id}`, async () => {
     const result = await api.loginCli(driver.id);

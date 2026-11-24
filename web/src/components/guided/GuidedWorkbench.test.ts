@@ -86,6 +86,26 @@ describe('waitingDecision', () => {
     expect(waitingDecision(snapshot(run, { tasks: [{ id: 'M1-T3', status: 'WAITING_HUMAN' }] }))?.taskId).toBe('M1-T3');
     expect(waitingDecision(snapshot(run))).toBeNull();
   });
+
+  test('ignores stale waiting_human events older than the latest human_decision', () => {
+    const stale = {
+      id: 3,
+      kind: 'human_attention_required',
+      task_id: 'M1-T1',
+      message: 'Old question',
+      payload_json: JSON.stringify({ category: 'waiting_human' }),
+    };
+    const resolved = { id: 4, kind: 'human_decision', task_id: 'M1-T1', message: 'Resolved' };
+    const decision = waitingDecision(snapshot(
+      { id: 'r1', status: 'WAITING_HUMAN', human_prompt: 'New milestone issue' },
+      {
+        tasks: [{ id: 'M1-T2', status: 'WAITING_HUMAN' }],
+        events: [stale, resolved],
+      },
+    ));
+    expect(decision?.taskId).toBe('M1-T2');
+    expect(decision?.question).toBe('New milestone issue');
+  });
 });
 
 describe('signOffSummaryFromSnapshot', () => {

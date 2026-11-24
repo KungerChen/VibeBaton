@@ -11,10 +11,10 @@
 **VibeBaton（`baton`）是一个开源的多模型 AI 编程编排器。**
 写一页需求契约（RFC），按角色分工调度 Claude、Codex、DSH 或 OpenAI 兼容 HTTP 模型；每项任务在独立 Git 工作树编码，先过真实测试门禁再送 AI 审校，最后由你终审合入。
 
-*从 `v0.2.0` 到 `v1.0.4`，每个版本都是 VibeBaton 在自身仓库上这样接力构建并由人类把关发布的。*
+*从 `v0.2.0` 到 `v1.2.0`，每个版本都是 VibeBaton 在自身仓库上这样接力构建并由人类把关发布的。*
 
 [![Release](https://img.shields.io/github/v/release/KungerChen/VibeBaton?display_name=tag&style=flat-square&color=2563eb)](https://github.com/KungerChen/VibeBaton/releases)
-[![测试：1,068 项（536 UI + 532 Py）](https://img.shields.io/badge/tests-1%2C068%20%28536%20UI%20%2B%20532%20Py%29-0e7490?style=flat-square)](#参与贡献与许可证)
+[![测试：1,378 项（674 UI + 704 Py）](https://img.shields.io/badge/tests-1%2C378%20%28674%20UI%20%2B%20704%20Py%29-0e7490?style=flat-square)](#参与贡献与许可证)
 [![License](https://img.shields.io/github/license/KungerChen/VibeBaton?style=flat-square&color=6d28d9)](LICENSE)
 [![Python 3.11+ 标准库核心](https://img.shields.io/badge/Python%203.11%2B-stdlib%20core-1d4ed8?style=flat-square)](pyproject.toml)
 [![Windows · Linux · Docker](https://img.shields.io/badge/platform-Windows%20%C2%B7%20Linux%20%C2%B7%20Docker-475569?style=flat-square)](#快速开始)
@@ -89,9 +89,9 @@ flowchart LR
 
 *零密钥预览：直接运行 `baton ui` 启动 Studio，即可离线模拟 `happy_path`、`gate_retry` 与 `escalate`，并浏览 **8 套本机就绪配方预设**。*
 
-## 自举演进时间线（`v0.1-seed` → `v1.0.4`）
+## 自举演进时间线（`v0.1-seed` → `v1.2.0`）
 
-从 `v0.2.0` 到 `v1.0.4`，VibeBaton 在自身仓库调度 Claude、Codex 与 DSH 接力构建，并由人类把控方向与终审签核。
+从 `v0.2.0` 到 `v1.2.0`，VibeBaton 在自身仓库调度 Claude、Codex 与 DSH 接力构建，并由人类把控方向与终审验收。
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/timeline-dark.svg" />

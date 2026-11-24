@@ -189,9 +189,12 @@ def _extract_command(sentence: str) -> str | None:
 
 def _compose_offline_rfc(messages: list[ChatMessage]) -> tuple[str, bool]:
     """Synthesise the RFC from user turns only and report whether user constraints were given."""
-    sentences = [s for m in messages if m["role"] == "user" for s in _sentences(m["content"])]
+    user_turns = [m["content"].strip() for m in messages if m["role"] == "user" and m["content"].strip()]
+    sentences = [s for text in user_turns for s in _sentences(text)]
+    if not sentences:
+        sentences = user_turns or ["Untitled Draft"]
     first, rest = sentences[0], sentences[1:]
-    title = first.rstrip(".!?。！？").strip()
+    title = first.rstrip(".!?。！？").strip() or first
     if len(title) > 80:
         title = title[:77].rstrip() + "…"
 

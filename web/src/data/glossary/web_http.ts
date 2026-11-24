@@ -92,9 +92,9 @@ export const WEB_HTTP_TERMS: GlossaryEntry[] = [
     plainExplain_zh:
       '就像打电话而不是寄信：双方接通后，任何一方都能立刻开口，并且可以一直交流到有人挂断为止。',
     proExplain_en:
-      'An upgrade from HTTP (`Upgrade: websocket`) to a framed, full-duplex TCP connection with a small per-message header. It suits chat and live collaboration; a request/response dashboard such as VibeBaton uses plain HTTP unless a feature genuinely needs push updates.',
+      'An upgrade from HTTP (`Upgrade: websocket`) to a framed, full-duplex TCP connection with a small per-message header. It suits bidirectional chat and live collaboration; VibeBaton uses plain HTTP for commands and SSE on `/api/runs/stream` for one-way live updates.',
     proExplain_zh:
-      '通过 HTTP 升级（`Upgrade: websocket`）得到的带帧全双工 TCP 连接，每条消息只有很小的头部开销。它适合聊天和实时协作；像 VibeBaton 这样以请求/响应为主的看板，除非某个功能确实需要服务端推送，否则仍使用普通 HTTP。',
+      '通过 HTTP 升级（`Upgrade: websocket`）得到的带帧全双工 TCP 连接，每条消息只有很小的头部开销。它适合双向聊天和实时协作；VibeBaton 用普通 HTTP 发送指令，并用 `/api/runs/stream` 上的 SSE 完成单向实时状态推送。',
     related: ['http', 'sse', 'server', 'client', 'latency'],
   },
   {

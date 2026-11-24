@@ -486,6 +486,9 @@ export interface Messages {
       stepsAria: string;
       waitingForRun: string;
       nodeHint: string;
+      pausedBanner: string;
+      resumeRun: string;
+      newBlueprint: string;
     };
     setup: {
       pickFolder: string;
@@ -1243,6 +1246,9 @@ export const MESSAGES: Record<Locale, Messages> = {
         stepsAria: 'Guided steps',
         waitingForRun: 'Starting the build. The task map appears as soon as the plan is ready…',
         nodeHint: 'Click any task on the map to see what happened in plain words.',
+        pausedBanner: 'The run is paused. You can resume where it stopped or start a new blueprint.',
+        resumeRun: 'Resume Run',
+        newBlueprint: 'Start New Blueprint',
       },
       steps: [
         { title: 'Workspace', hint: 'Choose your project folder and confirm the AI coding tools on this computer.' },
@@ -2024,6 +2030,9 @@ export const MESSAGES: Record<Locale, Messages> = {
         stepsAria: '引导步骤',
         waitingForRun: '正在启动施工，计划就绪后这里会显示任务地图……',
         nodeHint: '点击地图上的任意任务，用通俗的话查看发生了什么。',
+        pausedBanner: '运行已暂停，你可以从暂停处继续运行，或重新制定一份蓝图。',
+        resumeRun: '继续运行',
+        newBlueprint: '重新制定蓝图',
       },
       steps: [
         { title: '工作区', hint: '选择项目文件夹，并确认本机已有的 AI 编程工具。' },
