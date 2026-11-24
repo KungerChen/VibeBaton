@@ -20,6 +20,7 @@ from .allocation import compute_step_up_target, parse_model_spec, resolve_task_a
 from .cli_runner import CLIResult, invoke_provider
 from .config import (
     BatonConfig,
+    FallbackTarget,
     HotReloadConfig,
     ModelCapability,
     ProviderConfig,
@@ -44,6 +45,7 @@ from .git_ops import (
     revert_disallowed_files,
 )
 from .notifier import AttentionEvent, AttentionNotifier, ChannelResult, should_notify
+from .panel import STAGE_PANEL, build_default_panel_settings, run_panel_phase
 from .schemas import (
     PlanDAG,
     ReviewVerdict,
@@ -518,10 +520,18 @@ class OrchestrationEngine:
                 )
                 dev_branch = cfg.daemon.dev_branch
 
+                # Stage 0: Specialist panel (panel mode only); its master spec feeds the planner.
+                plan_input = rfc_text
+                if run["mode"] == "panel":
+                    if await self._stop_if_paused(self.store.get_run(run_id)):
+                        return RunStatus.PAUSED
+                    master_spec_text = await self._ensure_panel_spec(run_id, rfc_text)
+                    plan_input = f"{rfc_text}\n\n# Panel Master Spec\n\n{master_spec_text}"
+
                 # Stage 1: Planning (or load pre-supplied / already-registered plan)
                 if await self._stop_if_paused(self.store.get_run(run_id)):
                     return RunStatus.PAUSED
-                plan = await self._ensure_plan(run_id, run, rfc_text, overrides)
+                plan = await self._ensure_plan(run_id, run, plan_input, overrides)
                 current_run = self.store.get_run(run_id)
                 if await self._stop_if_paused(current_run):
                     return RunStatus.PAUSED
@@ -590,6 +600,94 @@ class OrchestrationEngine:
                 run_id, "failed", "error", "Run failed", summary, "Inspect the run events in Studio.",
             )
             return RunStatus.FAILED
+
+    async def _ensure_panel_spec(self, run_id: str, rfc_text: str) -> str:
+        """Run 00_PANEL once and return the master spec; on resume reuse the saved one.
+
+        PanelPhaseError propagates so execute_run fails the run through its normal path.
+        """
+        run_dir = self._runtime_dir(run_id)
+        master_spec = run_dir / "panel" / "master_spec.md"
+        if master_spec.exists():
+            return master_spec.read_text(encoding="utf-8")
+
+        cfg = self.cfg
+        settings = cfg.panel if cfg.panel.members else build_default_panel_settings(cfg)
+        self.store.update_run_status(run_id, RunStatus.PLANNING)
+        started = time.monotonic()
+        result = await run_panel_phase(
+            cfg=cfg,
+            settings=settings,
+            store=self.store,
+            run_id=run_id,
+            repo_path=self.repo_path,
+            rfc_text=rfc_text,
+            invoke_provider=lambda **kwargs: self._invoke_panel_provider(run_id, **kwargs),
+            run_dir=run_dir,
+        )
+        self.store.log_event(
+            run_id, "stage_completed", actor="panel", message=f"Stage {STAGE_PANEL} completed",
+            payload={"stage": STAGE_PANEL, "wall_sec": round(time.monotonic() - started, 3)},
+        )
+        return result.master_spec_text
+
+    async def _invoke_panel_provider(
+        self,
+        run_id: str,
+        *,
+        provider: str,
+        model: str,
+        prompt: str,
+        artifact_key: str,
+        fallback: list[FallbackTarget],
+        cwd: Path,
+    ) -> CLIResult:
+        """panel.InvokeProvider adapter: cooldown waits, concurrency slots and fallback walking."""
+        cfg = self.cfg
+        rt_dir = self._runtime_dir(run_id)
+        targets = [(provider, model)] + [(fb.provider, fb.model) for fb in fallback]
+        res: CLIResult | None = None
+        for name, target_model in targets:
+            if name not in cfg.providers:
+                continue
+            active = cfg.providers[name]
+            cooldown = self.store.get_provider_cooldown(name)
+            if cooldown > 0:
+                await asyncio.sleep(cooldown)
+            transport_model, effort = target_model, None
+            if active.type == "http":
+                transport_model, _, effort_suffix = target_model.partition("@")
+                effort = effort_suffix or None
+            async with self._get_semaphore(active):
+                res = await invoke_provider(
+                    active,
+                    model=transport_model,
+                    effort=effort,
+                    prompt=prompt,
+                    cwd=cwd,
+                    prompt_file=rt_dir / "prompts" / f"{artifact_key}.md",
+                    output_file=rt_dir / "out" / f"{artifact_key}.json",
+                    credentials_path=self.credentials_path,
+                    cli_executor=run_provider_cli,
+                    pricing_settings=cfg.pricing,
+                    default_stall_timeout=cfg.daemon.default_stall_timeout_sec,
+                    default_hard_timeout=cfg.daemon.default_hard_timeout_sec,
+                    extra_env={"VIBEBATON_RUN_ID": run_id, "VIBEBATON_ROLE": artifact_key},
+                )
+            if res.status == "rate_limited":
+                self.store.trigger_provider_cooldown(
+                    name,
+                    backoff_schedule=active.cooldown_backoff_sec,
+                    reason=(res.stderr or res.stdout)[:240],
+                    explicit_wait_sec=res.retry_after_sec,
+                )
+                continue
+            if res.status == "ok":
+                self.store.reset_provider_backoff(name)
+            return res
+        if res is None:
+            raise RuntimeError(f"No configured provider for panel call {artifact_key} ({provider}/{model})")
+        return res
 
     async def _ensure_plan(
         self,

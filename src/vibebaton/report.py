@@ -390,6 +390,31 @@ def compute_run_telemetry(
         None,
     )
     stages: list[dict[str, Any]] = []
+    panel_start_ts = next(
+        (float(e["created_at"]) for e in events if e.get("kind") == "panel_started"), None
+    )
+    panel_synth_ts = next(
+        (float(e["created_at"]) for e in events if e.get("kind") == "panel_synthesized"), None
+    )
+    if panel_start_ts is not None or panel_synth_ts is not None:
+        panel_start = panel_start_ts if panel_start_ts is not None else panel_synth_ts
+        panel_end = panel_synth_ts if panel_synth_ts is not None else end_ts
+        panel_is_active = run_is_active and panel_synth_ts is None
+        stages.append(
+            {
+                "id": "00_PANEL",
+                "kind": "panel",
+                "title": "Panel & Synthesis",
+                "status": "PASSED" if panel_synth_ts is not None else run_status,
+                "wall_sec": round(max(0.0, panel_end - panel_start), 1),
+                "task_sum_sec": 0.0,
+                "passed_tasks": 0,
+                "total_tasks": 0,
+                "started_at": panel_start if panel_is_active else None,
+                "is_active": panel_is_active,
+            }
+        )
+
     if plan_ts is not None or milestones or run_status == "PLANNING":
         plan_end = plan_ts if plan_ts is not None else end_ts
         plan_status = "PASSED" if (plan_ts is not None or milestones) else run_status
@@ -578,6 +603,26 @@ def compute_run_telemetry(
         entry["duration_sec"] += dur
         _record_billing(entry, billing, payload)
 
+    # Panel events report usage as tokens_in/tokens_out; reuse the billing extractors.
+    panel_billing_entry: dict[str, Any] = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "cost_usd": None,
+    }
+    for event in events:
+        if event.get("kind") not in ("panel_member_completed", "panel_synthesized"):
+            continue
+        payload = _parse_json_payload(event.get("payload_json"))
+        _record_billing(
+            panel_billing_entry,
+            billing,
+            {
+                "prompt_tokens": payload.get("tokens_in"),
+                "completion_tokens": payload.get("tokens_out"),
+                "cost_usd": payload.get("cost_usd"),
+            },
+        )
+
     total_model_sec = sum(item["duration_sec"] for item in model_buckets.values())
     models: list[dict[str, Any]] = []
     for bucket_key, item in model_buckets.items():
@@ -701,6 +746,80 @@ def _conflict_section(conflicts: _ConflictTelemetry | None, *, lang: str) -> lis
     ]
 
 
+def _panel_section(events: list[dict[str, Any]], *, lang: str) -> list[str]:
+    panel_events = [
+        event for event in events if str(event.get("kind") or "").startswith("panel_")
+    ]
+    if not panel_events:
+        return []
+
+    members = [
+        _parse_json_payload(event.get("payload_json"))
+        for event in panel_events
+        if event.get("kind") == "panel_member_completed"
+    ]
+    synthesizer = next(
+        (
+            _parse_json_payload(event.get("payload_json"))
+            for event in reversed(panel_events)
+            if event.get("kind") == "panel_synthesized"
+        ),
+        None,
+    )
+
+    if lang == "zh":
+        heading = "## 专家会诊与综合"
+        header = "| 成员 | 视角 | 提供方 / 模型 | 成功 | Token | 美元成本 |"
+        yes_label, no_label = "是", "否"
+        synthesizer_label, master_spec_label = "综合器", "主规格文档"
+        token_suffix = "个 Token"
+        cost_separator = "，"
+    else:
+        heading = "## Panel & Synthesis"
+        header = "| Member | Perspective | Provider / Model | OK | Tokens | Cost USD |"
+        yes_label, no_label = "Yes", "No"
+        synthesizer_label, master_spec_label = "Synthesizer", "Master spec"
+        token_suffix = "tokens"
+        cost_separator = ", "
+
+    lines = ["", heading, ""]
+    if members:
+        lines.extend([header, "| :--- | :--- | :--- | :---: | ---: | ---: |"])
+        for member in members:
+            provider = display_provider_name(str(member.get("provider") or ""), lang)
+            model = _escape_cell(str(member.get("model") or ""))
+            provider_model = f"{provider} / `{model}`" if model else provider
+            tokens = _parse_token_count(member.get("tokens_in")) + _parse_token_count(
+                member.get("tokens_out")
+            )
+            lines.append(
+                f"| `{_escape_cell(str(member.get('member_id') or ''))}` | "
+                f"{_escape_cell(str(member.get('perspective') or ''))} | {provider_model} | "
+                f"{yes_label if member.get('ok') else no_label} | {tokens} | "
+                f"{_format_cost_usd(_parse_cost_usd(member.get('cost_usd')))} |"
+            )
+
+    if synthesizer is not None:
+        provider = display_provider_name(str(synthesizer.get("provider") or ""), lang)
+        model = _escape_cell(str(synthesizer.get("model") or ""))
+        provider_model = f"{provider} / `{model}`" if model else provider
+        tokens = _parse_token_count(synthesizer.get("tokens_in")) + _parse_token_count(
+            synthesizer.get("tokens_out")
+        )
+        cost = _format_cost_usd(_parse_cost_usd(synthesizer.get("cost_usd")))
+        separator = "：" if lang == "zh" else ": "
+        lines.extend(
+            [
+                "",
+                f"- **{synthesizer_label}**{separator}{provider_model} — "
+                f"{tokens} {token_suffix}{cost_separator}{cost}",
+            ]
+        )
+        master_spec_path = _escape_cell(str(synthesizer.get("master_spec_path") or "")) or "—"
+        lines.append(f"- **{master_spec_label}**{separator}`{master_spec_path}`")
+    return lines
+
+
 def generate_battle_report(store: StateStore, run_id: str, lang: str = "en") -> str:
     """Compile structured run telemetry into a shareable Markdown battle report."""
     run = store.get_run(run_id)
@@ -716,6 +835,7 @@ def generate_battle_report(store: StateStore, run_id: str, lang: str = "en") -> 
 
     telemetry = compute_run_telemetry(store, run_id)
     elapsed_sec = telemetry["elapsed_sec"]
+    panel_lines = _panel_section(events, lang=locale)
 
     total_tasks = len(tasks)
     passed_tasks = sum(1 for t in tasks if t["status"] == "PASSED")
@@ -751,6 +871,7 @@ def generate_battle_report(store: StateStore, run_id: str, lang: str = "en") -> 
             escalated_tasks=escalated_tasks,
             cooldown_hits=cooldown_hits,
             telemetry=telemetry,
+            panel_lines=panel_lines,
         )
     else:
         lines = _build_en_report(
@@ -767,6 +888,7 @@ def generate_battle_report(store: StateStore, run_id: str, lang: str = "en") -> 
             escalated_tasks=escalated_tasks,
             cooldown_hits=cooldown_hits,
             telemetry=telemetry,
+            panel_lines=panel_lines,
         )
 
     lines.extend(_smart_allocation_summary(events, lang=locale))
@@ -793,6 +915,7 @@ def _build_en_report(
     escalated_tasks: int,
     cooldown_hits: int,
     telemetry: dict[str, Any],
+    panel_lines: list[str],
 ) -> list[str]:
     lines: list[str] = [
         f"# VibeBaton Run Report — `{run_id}`",
@@ -813,6 +936,7 @@ def _build_en_report(
         f"| Circuit-Breaker Escalations | **{escalated_tasks}** | Tough tasks automatically handed off to Specialist tier |",
         f"| Subscription Cooldowns Handled | **{cooldown_hits}** | Rate-limit windows survived automatically without failing the run |",
     ]
+    lines.extend(panel_lines)
 
     if telemetry["stages"]:
         lines.extend(
@@ -886,6 +1010,7 @@ def _build_zh_report(
     escalated_tasks: int,
     cooldown_hits: int,
     telemetry: dict[str, Any],
+    panel_lines: list[str],
 ) -> list[str]:
     mode_zh = "通宵无人值守" if run["mode"] == "overnight" else "交互式"
     status_zh = _STATUS_ZH.get(str(run["status"]), str(run["status"]))
@@ -909,6 +1034,7 @@ def _build_zh_report(
         f"| 熔断自动升级次数 | **{escalated_tasks}** | 连续返修受阻的棘手任务自动接力交给 L2 专家接管完成 |",
         f"| 限流冷却自动续跑 | **{cooldown_hits}** | 遭遇 429 配额窗口后自动退避等待并无缝续跑 |",
     ]
+    lines.extend(panel_lines)
 
     if telemetry["stages"]:
         lines.extend(

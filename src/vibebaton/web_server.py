@@ -984,8 +984,8 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
     def _post_run_start(self) -> None:
         payload = self._read_json_body()
         mode = payload.get("mode", "overnight")
-        if mode not in ("overnight", "interactive"):
-            raise _BadRequest("mode must be overnight or interactive")
+        if mode not in ("overnight", "interactive", "panel"):
+            raise _BadRequest("mode must be overnight, interactive or panel")
         overrides = payload.get("model_overrides", {})
         if not isinstance(overrides, dict) or any(
             not isinstance(value, str) for value in overrides.values()

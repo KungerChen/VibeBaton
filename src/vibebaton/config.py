@@ -19,7 +19,7 @@ CostTier = Literal["eco", "standard", "flagship"]
 
 # Match whole tokens in the base model name, in table order. Other models are standard.
 _MODEL_COST_TIERS: tuple[tuple[CostTier, tuple[str, ...]], ...] = (
-    ("eco", ("flash", "haiku", "lite", "mini", "nano")),
+    ("eco", ("flash", "haiku", "lite", "mini", "nano", "hydrogen")),
     ("flagship", ("astra", "fable", "flagship", "opus", "pro")),
 )
 
@@ -132,6 +132,31 @@ class RoleConfig:
 
 
 @dataclass
+class PanelMemberConfig:
+    """One read-only specialist consulted during the 00_PANEL phase."""
+
+    id: str
+    perspective: str
+    provider: str
+    model: str
+    prompt_file: str = "prompts/panel_specialist.md"
+    fallback: list[FallbackTarget] = field(default_factory=list)
+
+
+@dataclass
+class PanelSettings:
+    """Optional [panel] section. Omitted means a disabled panel with no members."""
+
+    enabled: bool = False
+    max_concurrency: int = 3
+    synthesizer_provider: str = "claude_sub"
+    synthesizer_model: str = "sonnet@high"
+    synthesizer_prompt_file: str = "prompts/panel_synthesizer.md"
+    arbitration_rules: list[str] = field(default_factory=list)
+    members: list[PanelMemberConfig] = field(default_factory=list)
+
+
+@dataclass
 class BatonConfig:
     daemon: DaemonSettings
     policies: PolicySettings
@@ -140,6 +165,7 @@ class BatonConfig:
     source_path: Path | None = None
     notifications: NotificationSettings = field(default_factory=NotificationSettings)
     pricing: PricingSettings = field(default_factory=PricingSettings)
+    panel: PanelSettings = field(default_factory=PanelSettings)
 
     def resolve_role_name(self, preferred: str, *fallbacks: str) -> str:
         """Return the first configured role in preference order."""
@@ -264,6 +290,64 @@ def _load_raw_mapping(path: Path) -> dict[str, Any]:
     raise ValueError(f"Unsupported config format '{suffix}' for {path}")
 
 
+def _parse_fallback_targets(items: object) -> list[FallbackTarget]:
+    """Keep only well-formed {provider, model} entries, in order."""
+    return [
+        FallbackTarget(provider=str(fb["provider"]), model=str(fb["model"]))
+        for fb in (items or [])
+        if isinstance(fb, dict) and "provider" in fb and "model" in fb
+    ]
+
+
+def _parse_panel(raw: object, providers: Mapping[str, ProviderConfig]) -> PanelSettings:
+    if raw is None:
+        return PanelSettings()
+    if not isinstance(raw, Mapping):
+        raise ValueError("Invalid panel. Expected a table.")
+    members_raw = raw.get("members", [])
+    if not isinstance(members_raw, list) or any(not isinstance(m, Mapping) for m in members_raw):
+        raise ValueError("Invalid panel.members. Expected an array of tables.")
+
+    members: list[PanelMemberConfig] = []
+    seen: set[str] = set()
+    for index, item in enumerate(members_raw):
+        member_id = str(item.get("id", "")).strip()
+        if not member_id:
+            raise ValueError(f"Invalid panel.members[{index}].id. Expected a non-empty string.")
+        if member_id in seen:
+            raise ValueError(f"Duplicate panel member id {member_id!r}.")
+        seen.add(member_id)
+        perspective = str(item.get("perspective", "")).strip()
+        if not perspective:
+            raise ValueError(f"Panel member {member_id!r} needs a non-empty perspective.")
+        provider = str(item.get("provider", ""))
+        if provider not in providers:
+            raise ValueError(
+                f"Panel member {member_id!r} references unknown provider {provider!r}. "
+                f"Available providers: {sorted(providers)}"
+            )
+        members.append(PanelMemberConfig(
+            id=member_id,
+            perspective=perspective,
+            provider=provider,
+            model=str(item.get("model", "")),
+            prompt_file=str(item.get("prompt_file") or PanelMemberConfig.prompt_file),
+            fallback=_parse_fallback_targets(item.get("fallback")),
+        ))
+
+    return PanelSettings(
+        enabled=bool(raw.get("enabled", PanelSettings.enabled)),
+        max_concurrency=max(1, int(raw.get("max_concurrency", PanelSettings.max_concurrency))),
+        synthesizer_provider=str(raw.get("synthesizer_provider", PanelSettings.synthesizer_provider)),
+        synthesizer_model=str(raw.get("synthesizer_model", PanelSettings.synthesizer_model)),
+        synthesizer_prompt_file=str(
+            raw.get("synthesizer_prompt_file", PanelSettings.synthesizer_prompt_file)
+        ),
+        arbitration_rules=[str(rule) for rule in raw.get("arbitration_rules", [])],
+        members=members,
+    )
+
+
 def parse_config_dict(raw: dict[str, Any], source_path: Path | None = None) -> BatonConfig:
     d_raw = raw.get("daemon", {})
     daemon = DaemonSettings(
@@ -375,11 +459,7 @@ def parse_config_dict(raw: dict[str, Any], source_path: Path | None = None) -> B
 
     roles: dict[str, RoleConfig] = {}
     for name, item in raw.get("roles", {}).items():
-        fallbacks = [
-            FallbackTarget(provider=str(fb["provider"]), model=str(fb["model"]))
-            for fb in item.get("fallback", [])
-            if isinstance(fb, dict) and "provider" in fb and "model" in fb
-        ]
+        fallbacks = _parse_fallback_targets(item.get("fallback", []))
         roles[name] = RoleConfig(
             name=name,
             provider=str(item["provider"]),
@@ -396,6 +476,7 @@ def parse_config_dict(raw: dict[str, Any], source_path: Path | None = None) -> B
         source_path=source_path,
         notifications=notifications,
         pricing=pricing,
+        panel=_parse_panel(raw.get("panel"), providers),
     )
 
 

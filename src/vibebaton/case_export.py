@@ -30,6 +30,8 @@ _FINAL_GATE_ID = "l0_final_gate"
 _COLUMN_WIDTH = 260
 _ROW_HEIGHT = 120
 _DSH_REFERENCE_RE = re.compile(r"(?:dsh_)?opencode|\bdsh_deepseek\b", re.IGNORECASE)
+_PANEL_STAGE = "00_PANEL"
+_PANEL_KINDS = frozenset(("panel_started", "panel_member_completed", "panel_synthesized"))
 
 _REDACTED = "[REDACTED]"
 _REDACTED_RE = re.escape(_REDACTED)
@@ -459,6 +461,99 @@ def _trace_history(run: _Row, events: list[_Row], milestones: list[_Row], tasks:
     return sorted(history, key=lambda row: row["created_at"])
 
 
+def _panel_payload(event: _Row) -> dict[str, Any]:
+    return _parse_json_payload(event.get("payload_json"))
+
+
+def _panel_text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _panel_count(value: Any) -> int | None:
+    return value if type(value) is int and value >= 0 else None
+
+
+def _panel_elapsed(value: Any) -> float | None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    return round(max(0.0, float(value)), 1)
+
+
+def _panel_member_label(payload: dict[str, Any]) -> str:
+    member = _panel_text(payload.get("member_id")) or "panel member"
+    perspective = _panel_text(payload.get("perspective"))
+    return f"{member} ({perspective})" if perspective else member
+
+
+def _panel_transition(event_kind: str, payload: dict[str, Any]) -> _TraceTransition:
+    if event_kind == "panel_started":
+        return "node_started", "info"
+    if event_kind == "panel_synthesized":
+        return "node_completed", "passed"
+    ok = payload.get("ok", not payload.get("error"))
+    return "node_completed", "passed" if ok else "failed"
+
+
+def _panel_trace_message(event_kind: str, payload: dict[str, Any], fallback: str) -> str:
+    message = "" if fallback == event_kind else fallback
+    if event_kind == "panel_started":
+        count = _panel_count(payload.get("member_count"))
+        head = f"Panel started with {count} specialist(s)" if count is not None else "Panel started"
+        detail = message
+    elif event_kind == "panel_member_completed":
+        ok = payload.get("ok", not payload.get("error"))
+        route = "/".join(
+            part for part in (_panel_text(payload.get("provider")), _panel_text(payload.get("model"))) if part
+        )
+        head = f"{_panel_member_label(payload)} {'completed' if ok else 'failed'}"
+        if route:
+            head += f" via {route}"
+        detail = _panel_text(payload.get("preview" if ok else "error")) or message
+    else:
+        member_count = _panel_count(payload.get("member_count"))
+        succeeded_count = _panel_count(payload.get("succeeded_count"))
+        head = "Synthesized"
+        if member_count is not None and succeeded_count is not None:
+            head += f" {succeeded_count}/{member_count} specialist report(s)"
+        elapsed_sec = _panel_elapsed(payload.get("elapsed_sec"))
+        if elapsed_sec is not None:
+            head += f" in {elapsed_sec:g}s"
+        detail = (
+            _panel_text(payload.get("preview"))
+            or _panel_text(payload.get("master_spec_path"))
+            or message
+        )
+    return f"{head}: {detail}" if detail and detail not in head else head
+
+
+def _panel_summary(panel_events: list[_Row]) -> dict[str, Any] | None:
+    if not panel_events:
+        return None
+    started = next((_panel_payload(event) for event in panel_events if event["kind"] == "panel_started"), {})
+    synthesized = next(
+        (_panel_payload(event) for event in reversed(panel_events) if event["kind"] == "panel_synthesized"), {},
+    )
+    members = [
+        _panel_payload(event) for event in panel_events if event["kind"] == "panel_member_completed"
+    ]
+    member_count = _panel_count(synthesized.get("member_count"))
+    if member_count is None:
+        member_count = _panel_count(started.get("member_count"))
+    if member_count is None:
+        member_count = len(members)
+    succeeded_count = _panel_count(synthesized.get("succeeded_count"))
+    if succeeded_count is None:
+        succeeded_count = sum(1 for payload in members if payload.get("ok", not payload.get("error")))
+    elapsed_sec = _panel_elapsed(synthesized.get("elapsed_sec"))
+    if elapsed_sec is None:
+        elapsed_sec = round(max(0.0, panel_events[-1]["created_at"] - panel_events[0]["created_at"]), 1)
+    return {
+        "member_count": member_count,
+        "succeeded_count": succeeded_count,
+        "elapsed_sec": elapsed_sec,
+    }
+
+
 def build_case_trace(
     run: _Row, events: list[_Row], milestones: list[_Row], tasks: list[_Row],
     ctx: _RedactionContext,
@@ -486,6 +581,12 @@ def build_case_trace(
 
     for event in _trace_history(run, events, milestones, tasks):
         event_kind = event["kind"]
+        if event_kind in _PANEL_KINDS:
+            payload = _panel_payload(event)
+            kind, outcome = _panel_transition(event_kind, payload)
+            message = _panel_trace_message(event_kind, payload, event.get("message") or event_kind)
+            emit(kind, _PANEL_STAGE, outcome, event["created_at"], sanitize_text(message, ctx))
+            continue
         transition = _STATUS_ALIASES.get(event_kind, event_kind)
         kind, outcome = _TRACE_TRANSITIONS.get(transition, ("node_completed", "info"))
         if event_kind in ("ready_for_final_gate", "run_completed"):
@@ -612,7 +713,7 @@ def build_case_meta(
     escalated_tasks.update(
         event["task_id"] for event in events if event["kind"] == "task_escalated" and event.get("task_id")
     )
-    return {
+    meta: _Row = {
         "source_run_id": (
             _case_id(run["id"], anonymized=True) if ctx.source_run_id else sanitize_text(run["id"], ctx)
         ),
@@ -629,6 +730,14 @@ def build_case_meta(
         "stages": _milestone_stages(run, milestones, tasks, events, ended_at, ctx),
         "billing": billing,
     }
+    panel_events = sorted(
+        (event for event in events if event["kind"] in _PANEL_KINDS),
+        key=lambda event: event["created_at"],
+    )
+    panel = _panel_summary(panel_events)
+    if panel is not None:
+        meta["panel"] = panel
+    return meta
 
 
 def audit_serialized(bundle_json: str) -> bool:

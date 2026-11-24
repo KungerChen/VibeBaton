@@ -654,7 +654,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--config", default=None)
     p_run.add_argument("--rfc", required=True, help="Path to Master RFC markdown file")
     p_run.add_argument("--plan", default=None, help="Optional pre-generated 01_PLAN.dag.json")
-    p_run.add_argument("--mode", choices=["interactive", "overnight"], default="overnight")
+    p_run.add_argument("--mode", choices=["interactive", "overnight", "panel"], default="overnight")
     p_run.add_argument("--override", action="append", help="Override role model: role=model or role=provider:model")
     p_run.add_argument("--detach", action="store_true", help="Run asynchronously in a detached background daemon")
     p_run.set_defaults(func=cmd_run)
