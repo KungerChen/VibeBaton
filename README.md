@@ -70,6 +70,15 @@ For open-ended reviews instead of one fixed spec, `00_PANEL` runs first: read-on
 - **Try the preset:** `specialist_panel` is the 8th Recipe Plaza preset — three specialists (UX & Copy, Visual & Structure, Source & Safety) feed a Synthesizer, then isolated workers, a mechanical gate, AI review, and human sign-off.
 - **Cost-balanced defaults:** upper-mid models cover thinking and review while `eco` models synthesize and execute bulk work; set `[policies].budget_profile = "max_quality"` to escalate toward flagship. Configure lineups under `[panel]` / `[[panel.members]]` (see [baton.example.toml](baton.example.toml)).
 
+## Guided Mode & CLI Registry (v1.2.0)
+
+`v1.2.0` turns Studio into a single guided path from an empty folder to a signed-off run, scans the coding CLIs already on your machine, and explains each term in place.
+
+- **Guided Mode:** a four-step closed loop — **Workspace** (pick a project folder and initialize Git if needed), **Brainstorm** (chat about the idea until VibeBaton produces a Blueprint Card, then confirm it), **Run** (follow the canvas, open each task in the detail drawer, and answer decisions in the app), and **Sign-off** (approve, revise, or roll back). Rollback reverts only this run's approved merge (while it is still the base head) to the base commit recorded at approval; the `baton-backup/<run_id>` tag stays as a manual recovery point.
+- **Universal CLI Registry:** `presets/cli_registry.json` describes 8 coding-CLI drivers (`claude`, `codex`, `dsh`, `gemini`, `opencode`, `aider`, `qwen`, `copilot`). Studio scans which CLIs are installed and usable, recommends a lineup, and only installs a CLI or starts its login flow after you authorize it.
+- **Tech Glossary:** 220+ `EN | 中文` terms across AI, engineering, errors, Git, web/HTTP, and VibeBaton concepts, shown as inline term hints and in a searchable glossary drawer.
+- **New REST endpoints:** `GET /api/cli-registry`, `POST /api/cli-registry/scan`, `POST /api/cli-registry/install`, `POST /api/cli-registry/login`, `GET /api/workspace/info`, `POST /api/workspace/select`, `POST /api/workspace/init-git`, `POST /api/brainstorm/chat`, `POST /api/brainstorm/confirm`, `GET /api/runs/{id}/tasks/{task_id}`, and `POST /api/runs/{id}/finalize`.
+
 ## Right Tool for the Job
 
 | Use Single Chat / IDE Agent When... | Use VibeBaton When... |
@@ -192,7 +201,7 @@ Expose all 9 MCP control-plane tools (`baton_health`, `baton_start`, `baton_stat
 
 ## Releases & Docs
 
-`v1.0.0` introduced native HTTP providers, Auto-Conflict-Resolver, container scaffolding, and the Windows installer, followed by `v1.0.1`–`v1.0.4` adding resizable panes, overnight alerts, 3-tier pricing, and sanitized case replay.  
+`v1.0.0` introduced native HTTP providers, Auto-Conflict-Resolver, container scaffolding, and the Windows installer, followed by `v1.0.1`–`v1.0.4` adding resizable panes, overnight alerts, 3-tier pricing, and sanitized case replay. `v1.1.0` added Specialist Panel mode, and `v1.2.0` adds Guided Mode, the Universal CLI Registry, and the bilingual tech glossary.  
 [GitHub Releases](https://github.com/KungerChen/VibeBaton/releases) · [CHANGELOG](CHANGELOG.md) · [v1.0 Launch Notes](docs/RELEASE_NOTES_v1.0.md) · [Tutorial](docs/TUTORIAL.md) · [Roadmap](docs/ROADMAP.md) · [Security](docs/SECURITY.md)
 
 ## Contributing & License

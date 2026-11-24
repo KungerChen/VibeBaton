@@ -13,7 +13,7 @@ from pathlib import Path
 from vibebaton import __version__
 
 REPO = Path(__file__).resolve().parents[1]
-RELEASE_VERSION = "1.1.0"
+RELEASE_VERSION = "1.2.0"
 
 
 class TestVersionConsistency(unittest.TestCase):
