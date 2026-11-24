@@ -4,7 +4,7 @@ import { useId, useState, type CSSProperties } from 'react';
 import { Activity, ChevronDown, Coins, FileArchive, FileJson, Upload } from 'lucide-react';
 import { computeLiveSeconds, formatDurationSec, isRunStatusActive } from '../engine/liveClock';
 import { useI18n } from '../i18n';
-import { translatePresetText } from '../i18n/presets';
+import { formatProviderDisplay, translatePresetText } from '../i18n/presets';
 import { cn } from '../lib/utils';
 import {
   NODE_TYPES,
@@ -207,7 +207,7 @@ export function LeftSidebar({
             const presetName = translatePresetText(preset.name, locale);
             const { readiness, cost } = getPresetBadges(preset);
             const missingProviders = readiness?.missingProviders.length
-              ? providerList.format(readiness.missingProviders)
+              ? providerList.format([...new Set(readiness.missingProviders.map(formatProviderDisplay))])
               : undefined;
 
             return (

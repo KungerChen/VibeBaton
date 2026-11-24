@@ -38,6 +38,11 @@
   white-space: nowrap;
 }
 
+[data-theme='light'] .baton-node__tier,
+[data-theme='light'] .baton-node__squircle {
+  color: color-mix(in srgb, var(--tier-color) 58%, var(--text-strong));
+}
+
 .baton-node__readiness {
   flex: 0 0 7px;
   width: 7px;

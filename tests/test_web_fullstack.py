@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import threading
@@ -90,6 +91,21 @@ class WebFullStackTests(unittest.TestCase):
             index = response.read()
         self.assertEqual(index, built_index.read_bytes())
         self.assertIn(b'id="root"', index)
+        self.assertIn(b'href="./favicon.svg"', index)
+        self.assertIn(b'href="./favicon.ico"', index)
+
+        with urlopen(urljoin(base, "./favicon.svg"), timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), "image/svg+xml")
+            svg_bytes = response.read()
+        self.assertIn(b"<svg", svg_bytes)
+
+        with urlopen(urljoin(base, "./favicon.ico"), timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), "image/x-icon")
+            ico_bytes = response.read()
+        reserved, icon_type, count = struct.unpack("<HHH", ico_bytes[:6])
+        self.assertEqual((reserved, icon_type, count), (0, 1, 3))
 
         script = re.search(r"""<script\b[^>]*\bsrc=["'](\./assets/[^"']+\.js)["']""", index.decode("utf-8"))
         if script is None:

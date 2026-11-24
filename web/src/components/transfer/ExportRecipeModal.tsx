@@ -1,5 +1,5 @@
-import { ShieldCheck } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { Check, ShieldCheck } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../../i18n';
 import type { WorkflowGraph } from '../../types/graph';
 import { Badge } from '../ui/badge';
@@ -49,18 +49,22 @@ export function ExportRecipeModal({ open, onClose, ...props }: ExportRecipeModal
 type ExportRecipeContentProps = Omit<ExportRecipeModalProps, 'open' | 'onClose'>;
 
 function ExportRecipeContent({ graph, liveViewActive, onSwitchToCaseExport, buildShareUrl, onToast }: ExportRecipeContentProps) {
-  const { locale, messages } = useI18n();
+  const { messages } = useI18n();
   const labels = messages.transfer.exportRecipeModal;
   const contentRef = useRef<HTMLDivElement>(null);
+  const copyTimerRef = useRef<number | undefined>(undefined);
+  const [copiedKind, setCopiedKind] = useState<'json' | 'link' | null>(null);
   const [feedback, setFeedback] = useState<{
     message: string;
     manualCopy?: { label: string; text: string };
   } | null>(null);
   const { name, nodeCount, edgeCount } = recipeStats(graph);
   const json = serializeRecipe(graph);
-  const counts = locale === 'zh'
-    ? `${nodeCount} 个节点 · ${edgeCount} 条连线`
-    : `${nodeCount} ${nodeCount === 1 ? 'node' : 'nodes'} · ${edgeCount} ${edgeCount === 1 ? 'edge' : 'edges'}`;
+  const counts = labels.counts(nodeCount, edgeCount);
+
+  useEffect(() => () => {
+    if (copyTimerRef.current !== undefined) globalThis.clearTimeout(copyTimerRef.current);
+  }, []);
 
   function download() {
     const blob = new Blob([json], { type: 'application/json' });
@@ -77,7 +81,7 @@ function ExportRecipeContent({ graph, liveViewActive, onSwitchToCaseExport, buil
     }
   }
 
-  async function copy(getText: () => string, label: string) {
+  async function copy(kind: 'json' | 'link', getText: () => string, label: string) {
     let text: string;
     try {
       text = getText();
@@ -99,11 +103,14 @@ function ExportRecipeContent({ graph, liveViewActive, onSwitchToCaseExport, buil
     const container = contentRef.current;
     if (!copied && container) copied = copyWithSelection(text, container);
     if (copied) {
+      setCopiedKind(kind);
+      if (copyTimerRef.current !== undefined) globalThis.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = globalThis.setTimeout(() => setCopiedKind(null), 2000);
       setFeedback({ message: labels.copied });
       onToast?.(labels.copied);
     } else {
       setFeedback({
-        message: locale === 'zh' ? '请手动复制下方内容。' : 'Copy the selected text below.',
+        message: labels.manualCopyHint,
         manualCopy: { label, text },
       });
     }
@@ -141,11 +148,29 @@ function ExportRecipeContent({ graph, liveViewActive, onSwitchToCaseExport, buil
           <Button className="transfer-export-recipe-action" variant="default" onClick={download}>
             {labels.download}
           </Button>
-          <Button className="transfer-export-recipe-action" onClick={() => copy(() => json, labels.copyJson)}>
-            {labels.copyJson}
+          <Button
+            className="transfer-export-recipe-action"
+            aria-live="polite"
+            onClick={() => copy('json', () => json, labels.copyJson)}
+          >
+            {copiedKind === 'json' ? (
+              <>
+                <Check size={14} aria-hidden="true" />
+                <span>{messages.inspector.copiedInline}</span>
+              </>
+            ) : labels.copyJson}
           </Button>
-          <Button className="transfer-export-recipe-action" onClick={() => copy(() => buildShareUrl(graph), labels.copyLink)}>
-            {labels.copyLink}
+          <Button
+            className="transfer-export-recipe-action"
+            aria-live="polite"
+            onClick={() => copy('link', () => buildShareUrl(graph), labels.copyLink)}
+          >
+            {copiedKind === 'link' ? (
+              <>
+                <Check size={14} aria-hidden="true" />
+                <span>{messages.inspector.copiedInline}</span>
+              </>
+            ) : labels.copyLink}
           </Button>
         </div>
         <div className="transfer-export-recipe-status" role="status">{feedback?.message}</div>

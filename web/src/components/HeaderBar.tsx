@@ -1,6 +1,6 @@
 import './HeaderBar.css';
 import './ui/ui.css';
-import { BookOpen, Moon, Sun, Volume2, VolumeX, Workflow } from 'lucide-react';
+import { BookOpen, Moon, Sun, Volume2, VolumeX } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../i18n';
 import { translatePresetText } from '../i18n/presets';
@@ -8,10 +8,19 @@ import { cn } from '../lib/utils';
 import { useTheme } from '../theme';
 import type { HeaderBarProps } from './types';
 import { Badge } from './ui/badge';
+import { BrandMark } from './ui/BrandMark';
 import { Button } from './ui/button';
 import { Switch } from './ui/switch';
 
-export function HeaderBar({ mode, version, graphName, onOpenGuide }: HeaderBarProps) {
+export function HeaderBar({
+  mode,
+  version,
+  graphName,
+  replayActive = false,
+  liveViewActive = false,
+  onOpenStartRun,
+  onOpenGuide,
+}: HeaderBarProps) {
   const { locale, setLocale, messages } = useI18n();
   const {
     theme,
@@ -50,8 +59,8 @@ export function HeaderBar({ mode, version, graphName, onOpenGuide }: HeaderBarPr
   return (
     <header className="header-bar border-b border-border bg-card">
       <div className="header-bar__brand flex shrink-0 items-center gap-2 text-text-strong">
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-xs">
-          <Workflow size={15} aria-hidden="true" />
+        <span className="header-bar__logo flex h-7 w-7 shrink-0 items-center justify-center rounded-lg shadow-xs">
+          <BrandMark size={28} />
         </span>
         <span className="text-[14.5px] font-bold tracking-tight">VibeBaton</span>
       </div>
@@ -67,7 +76,29 @@ export function HeaderBar({ mode, version, graphName, onOpenGuide }: HeaderBarPr
         {localizedGraphName}
       </span>
 
+      {(liveViewActive || replayActive) && (
+        <Badge
+          variant={liveViewActive ? 'info' : 'violet'}
+          className="header-bar__mode shrink-0 px-2 py-0.5 text-[10.5px]"
+        >
+          {liveViewActive ? messages.header.modeLive : messages.header.modeReplay}
+        </Badge>
+      )}
+
       <div className="header-bar__right" data-tour-id="header-controls">
+        {connected && onOpenStartRun && (
+          <>
+            <Button
+              variant="default"
+              size="sm"
+              className="header-bar__start-btn shrink-0"
+              onClick={onOpenStartRun}
+            >
+              {messages.inspector.startRealRun}
+            </Button>
+            <span className="header-bar__divider" aria-hidden="true" />
+          </>
+        )}
         {onOpenGuide && (
           <>
             <Button

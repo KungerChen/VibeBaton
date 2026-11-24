@@ -169,8 +169,9 @@ export function CanvasWorkspace({
           nodeTypes={NODE_TYPES_MAP}
           edgeTypes={EDGE_TYPES_MAP}
           colorMode={theme}
+          minZoom={0.2}
           fitView
-          fitViewOptions={{ padding: 0.22 }}
+          fitViewOptions={{ padding: 0.22, minZoom: 0.2 }}
           deleteKeyCode={['Backspace', 'Delete']}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}

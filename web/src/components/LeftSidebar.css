@@ -70,6 +70,10 @@
   cursor: grabbing;
 }
 
+.left-sidebar__node:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
 .left-sidebar__node-squircle {
   background: color-mix(in srgb, var(--node-accent) 14%, var(--muted));
   color: color-mix(in srgb, var(--node-accent) 88%, var(--text-strong));

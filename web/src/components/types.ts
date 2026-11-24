@@ -38,6 +38,10 @@ export interface PlaybackBarProps {
   onScenarioChange(s: Scenario): void;
   replayActive?: boolean;
   onToggleReplay?: () => void;
+  onExitReplay?: () => void;
+  liveViewActive?: boolean;
+  liveRunId?: string | null;
+  onExitLiveView?: () => void;
   activeCaseId: string;
   activeCaseTitle: string;
   isCustomCaseActive: boolean;
@@ -49,6 +53,7 @@ export interface PlaybackBarProps {
   onResetTutorialCase(): void;
   playing: boolean;
   onPlayPause(): void;
+  onStepBack?(): void;
   onStep(): void;
   onReset(): void;
   speed: number;
@@ -90,9 +95,12 @@ export interface RightInspectorProps {
   liveNowSec?: number;
   recentRuns?: RunListItem[];
   selectedRunId?: string | null;
+  runSynced?: boolean;
+  runSyncStatus?: 'synced' | 'loading' | 'error';
   liveReconnecting?: boolean;
   onSelectRunId?: (runId: string) => void;
   onRefreshLiveRun?: () => Promise<void> | void;
+  onOpenStartRun?: () => void;
   openBattleReportToken?: number;
 }
 
@@ -105,6 +113,9 @@ export interface HeaderBarProps {
   mode: ApiMode;
   version?: string;
   graphName: string;
+  replayActive?: boolean;
+  liveViewActive?: boolean;
+  onOpenStartRun?: () => void;
   onOpenGuide?: () => void;
 }
 

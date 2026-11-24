@@ -123,22 +123,27 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const themeRef = useRef<Theme>(theme);
   themeRef.current = theme;
+  const soundEnabledRef = useRef<boolean>(soundEnabled);
+  soundEnabledRef.current = soundEnabled;
+  const soundVolumeRef = useRef<number>(soundVolume);
+  soundVolumeRef.current = soundVolume;
   const pendingThemeRef = useRef<Theme | null>(null);
   const audioRef = useRef<LiquidWebAudioEngine | null>(null);
   const controllerRef = useRef<LiquidThemeController | null>(null);
 
-  if (!audioRef.current) {
-    audioRef.current = new LiquidWebAudioEngine({
-      enabled: soundEnabled,
-      volume: soundVolume,
-    });
-  }
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
-  if (!controllerRef.current) {
-    controllerRef.current = createLiquidThemeController({
+  useEffect(() => {
+    const audio = new LiquidWebAudioEngine({
+      enabled: soundEnabledRef.current,
+      volume: soundVolumeRef.current,
+    });
+    const controller = createLiquidThemeController({
       durationMs: 1150,
       respectReducedMotion: shouldRespectReducedMotion(),
-      audio: audioRef.current,
+      audio,
       getSourceRoot: () => document.getElementById('root') ?? document.body,
       prepareClone: (cloneRoot, targetTheme) => {
         cloneRoot.querySelectorAll('.react-flow').forEach((el) => {
@@ -154,16 +159,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setIsTransitioning(false);
       },
     });
-  }
+    audioRef.current = audio;
+    controllerRef.current = controller;
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
-
-  useEffect(() => {
     const onHidden = () => {
       if (document.visibilityState === 'hidden') {
-        audioRef.current?.onInterrupt();
+        audio.onInterrupt();
         setIsTransitioning(false);
       }
     };
@@ -174,7 +175,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (typeof document !== 'undefined') {
         delete document.documentElement.dataset.themeSwitching;
       }
-      controllerRef.current?.dispose();
+      controller.dispose();
+      if (controllerRef.current === controller) controllerRef.current = null;
+      if (audioRef.current === audio) audioRef.current = null;
     };
   }, []);
 

@@ -1,4 +1,4 @@
-import { ChevronRight } from 'lucide-react';
+import { Check, ChevronRight } from 'lucide-react';
 import { createContext, useContext, useEffect, useEffectEvent, useId, useRef, useState } from 'react';
 import { computeLiveSeconds, formatDurationSec, isRunStatusActive } from '../../engine/liveClock';
 import { useI18n } from '../../i18n';
@@ -102,9 +102,12 @@ type LiveRunPanelProps = Pick<
   | 'liveSnapshot'
   | 'recentRuns'
   | 'selectedRunId'
+  | 'runSynced'
+  | 'runSyncStatus'
   | 'liveReconnecting'
   | 'onSelectRunId'
   | 'onRefreshLiveRun'
+  | 'onOpenStartRun'
   | 'openBattleReportToken'
 > & {
   visible: boolean;
@@ -157,9 +160,12 @@ export function LiveRunPanel({
   liveSnapshot,
   recentRuns,
   selectedRunId,
+  runSynced = true,
+  runSyncStatus = 'synced',
   liveReconnecting,
   onSelectRunId,
   onRefreshLiveRun,
+  onOpenStartRun,
   liveNowSec,
   openBattleReportToken,
   onOpenCaseExport: openCaseExport,
@@ -173,10 +179,12 @@ export function LiveRunPanel({
   const [pricingOpen, setPricingOpen] = useState(false);
   const [report, setReport] = useState<{ runId: string; lang: Locale; markdown: string } | null>(null);
   const [reportRawMode, setReportRawMode] = useState(false);
+  const [reportCopied, setReportCopied] = useState(false);
   const [loadingReport, setLoadingReport] = useState(false);
   const [note, setNote] = useState<{ runId: string; text: string } | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const eventLog = useRef<HTMLDivElement>(null);
+  const reportCopyTimer = useRef<number | undefined>(undefined);
   const snapshotRevision = useRef(0);
   const lastReportTokenRef = useRef(0);
 
@@ -184,6 +192,7 @@ export function LiveRunPanel({
   const reconnecting = hasLiftedState ? Boolean(liveReconnecting) : localReconnecting;
   const runsList: RunListItem[] = recentRuns ?? [];
   const runId = typeof snapshot.run?.id === 'string' ? snapshot.run.id : undefined;
+  const isRunSynced = !hasLiftedState || (runSynced && (!selectedRunId || !runId || selectedRunId === runId));
   // The selected run changes immediately; its snapshot arrives later, so share the selected id.
   const caseRunId = selectedRunId ?? runId;
   const status = display(snapshot.run?.status, 'UNKNOWN');
@@ -335,10 +344,23 @@ export function LiveRunPanel({
     }
   }, [openBattleReportToken]);
 
+  useEffect(() => () => {
+    if (reportCopyTimer.current !== undefined && typeof window !== 'undefined') {
+      window.clearTimeout(reportCopyTimer.current);
+    }
+  }, []);
+
   async function copyReportMarkdown() {
     if (!report) return;
     try {
       await navigator.clipboard?.writeText(report.markdown);
+      setReportCopied(true);
+      if (reportCopyTimer.current !== undefined && typeof window !== 'undefined') {
+        window.clearTimeout(reportCopyTimer.current);
+      }
+      if (typeof window !== 'undefined') {
+        reportCopyTimer.current = window.setTimeout(() => setReportCopied(false), 2000);
+      }
       onToast(messages.toasts.reportCopied, 'ok');
     } catch (error) {
       onToast(error instanceof Error ? error.message : String(error), 'err');
@@ -346,7 +368,7 @@ export function LiveRunPanel({
   }
 
   async function changeRun(action: RunAction) {
-    if (!runId) return;
+    if (!runId || !isRunSynced) return;
     const changed = await submitRunAction(runId, action, note?.runId === runId ? note.text : '');
     if (changed && (action === 'approve' || action === 'reject')) {
       setNote((current) => current?.runId === runId ? null : current);
@@ -405,11 +427,16 @@ export function LiveRunPanel({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="default" size="sm" onClick={() => setStartOpen(true)} data-tour-id="start-real-run-btn">
+        <Button
+          variant="default"
+          size="sm"
+          onClick={() => (onOpenStartRun ? onOpenStartRun() : setStartOpen(true))}
+          data-tour-id="start-real-run-btn"
+        >
           {messages.inspector.startRealRun}
         </Button>
         {runId && (
-          <Button variant="outline" size="sm" onClick={() => void showReport()} disabled={loadingReport}>
+          <Button variant="outline" size="sm" onClick={() => void showReport()} disabled={loadingReport || !isRunSynced}>
             {messages.inspector.battleReport}
           </Button>
         )}
@@ -420,6 +447,12 @@ export function LiveRunPanel({
         )}
         {!hasModelRuntime && pricingButton}
       </div>
+
+      {!isRunSynced && (
+        <Badge variant={runSyncStatus === 'error' ? 'destructive' : 'warning'} role="status">
+          {runSyncStatus === 'error' ? messages.inspector.runSyncFailed : messages.inspector.runSyncing}
+        </Badge>
+      )}
 
       {runId ? (
         <>
@@ -443,7 +476,7 @@ export function LiveRunPanel({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={controlling}
+                disabled={controlling || !isRunSynced}
                 onClick={() => void changeRun(status === 'RUNNING' ? 'pause' : 'resume')}
               >
                 {status === 'RUNNING' ? messages.inspector.pauseRun : messages.inspector.resumeRun}
@@ -457,15 +490,15 @@ export function LiveRunPanel({
                 <Label className="pointer-events-none">{messages.inspector.decisionNote}</Label>
                 <Input
                   value={note?.runId === runId ? note.text : ''}
-                  disabled={controlling}
+                  disabled={controlling || !isRunSynced}
                   onChange={(event) => setNote({ runId, text: event.currentTarget.value })}
                 />
               </label>
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="default" size="sm" disabled={controlling} onClick={() => void changeRun('approve')}>
+                <Button variant="default" size="sm" disabled={controlling || !isRunSynced} onClick={() => void changeRun('approve')}>
                   {messages.inspector.approve}
                 </Button>
-                <Button variant="destructive" size="sm" disabled={controlling} onClick={() => void changeRun('reject')}>
+                <Button variant="destructive" size="sm" disabled={controlling || !isRunSynced} onClick={() => void changeRun('reject')}>
                   {messages.inspector.reject}
                 </Button>
               </div>
@@ -485,7 +518,7 @@ export function LiveRunPanel({
               <div className="grid min-w-0 grid-cols-1 gap-1.5">
                 {telemetry.stages.map((stage) => {
                   const stageLabel = stage.kind === 'planning'
-                    ? (locale === 'en' ? '01_PLAN' : '01_PLAN · 规划')
+                    ? messages.inspector.planningStageLabel
                     : `${stage.id} · ${stage.title}`;
                   const stageStatus = messages.inspector.runStatuses[stage.status] ?? stage.status;
                   const stageActive = isActive && stage.is_active === true;
@@ -794,8 +827,13 @@ export function LiveRunPanel({
               >
                 {messages.inspector.reportRaw}
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => void copyReportMarkdown()}>
-                {messages.inspector.reportCopy}
+              <Button variant="secondary" size="sm" aria-live="polite" onClick={() => void copyReportMarkdown()}>
+                {reportCopied ? (
+                  <>
+                    <Check size={14} aria-hidden="true" />
+                    <span>{messages.inspector.copiedInline}</span>
+                  </>
+                ) : messages.inspector.reportCopy}
               </Button>
             </div>
           </div>

@@ -348,3 +348,78 @@ test('forwards the newly selected run id while the previous snapshot is still di
     }
   }
 });
+
+test('disables approval and control actions and fires zero requests while switching runs', async () => {
+  const fetchImpl = vi.fn<typeof fetch>();
+  const client = new BatonApiClient('', fetchImpl);
+  vi.spyOn(client, 'controlRun');
+  vi.spyOn(client, 'resolveRun');
+  const waitingSnapshot: LiveRunSnapshot = {
+    run: { id: 'run-A', status: 'WAITING_HUMAN' },
+    milestones: [],
+    tasks: [],
+    events: [],
+    quotas: [],
+  };
+  const { container, click } = createPanelContainer();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('window', {
+    HTMLIFrameElement: class HTMLIFrameElement {},
+    localStorage: { getItem: () => 'en' },
+  });
+  const root = createRoot(container as unknown as HTMLElement);
+
+  try {
+    await act(async () => root.render(createElement(I18nProvider, {
+      children: createElement(LiveRunPanel, {
+        client,
+        visible: true,
+        liveSnapshot: waitingSnapshot,
+        selectedRunId: 'run-B',
+        runSynced: false,
+        runSyncStatus: 'loading',
+        onSelectRunId: () => {},
+        onToast: () => {},
+      }),
+    })));
+
+    expect(container.text).toContain('Loading selected run');
+    const approveBtn = container.find('button', 'Approve') as unknown as { disabled?: boolean } | undefined;
+    const rejectBtn = container.find('button', 'Reject') as unknown as { disabled?: boolean } | undefined;
+    expect(approveBtn).toBeDefined();
+    expect(rejectBtn).toBeDefined();
+    if (approveBtn) await act(async () => click(approveBtn as never));
+    if (rejectBtn) await act(async () => click(rejectBtn as never));
+    expect(client.resolveRun).not.toHaveBeenCalled();
+    expect(client.controlRun).not.toHaveBeenCalled();
+  } finally {
+    try {
+      act(() => root.unmount());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+});
+
+test('localizes GATE_CHECKING and COOLDOWN statuses in both EN and ZH without raw opencode text', () => {
+  const snapshot: LiveRunSnapshot = {
+    run: { id: 'run-1', status: 'RUNNING' },
+    milestones: [],
+    tasks: [
+      { id: 'T1', title: 'Gate check', status: 'GATE_CHECKING' },
+      { id: 'T2', title: 'Quota wait', status: 'COOLDOWN' },
+    ],
+    events: [],
+    quotas: [],
+  };
+  const enPanel = renderToStaticMarkup(createElement(LiveRunPanel, {
+    client: new BatonApiClient(),
+    visible: true,
+    liveSnapshot: snapshot,
+    onSelectRunId: () => {},
+    onToast: () => {},
+  }));
+  expect(enPanel).toContain('Gate Checking');
+  expect(enPanel).toContain('Quota Cooldown');
+  expect(enPanel).toContain('Running');
+});

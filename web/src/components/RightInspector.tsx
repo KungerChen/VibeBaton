@@ -2,6 +2,7 @@ import './RightInspector.css';
 import './ui/ui.css';
 import { useEffect, useEffectEvent, useId, useRef, useState } from 'react';
 import { DEMO_ROLES_CONFIG } from '../data/demoConfig';
+import { isRunStatusActive } from '../engine/liveClock';
 import { useI18n } from '../i18n';
 import { translateHandle, translatePresetText } from '../i18n/presets';
 import { cn } from '../lib/utils';
@@ -12,6 +13,7 @@ import { LaunchGraphContext } from './inspector/wizard/PreflightStep';
 import { getPresetProviderHealth } from './nodes/readiness';
 import type { NodeDoctorProps, RightInspectorProps } from './types';
 import { Badge, type BadgeProps } from './ui/badge';
+import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 
 type InspectorTab = 'inspector' | 'trace';
@@ -24,7 +26,16 @@ const DIFFICULTY_BADGE: Record<string, BadgeProps['variant']> = {
   live: 'info',
 };
 
-function GraphDetails({ graph }: Pick<RightInspectorProps, 'graph'>) {
+function GraphDetails({
+  graph,
+  mode,
+  liveRunning,
+  onOpenTrace,
+  onOpenStartRun,
+}: Pick<RightInspectorProps, 'graph' | 'mode' | 'onOpenStartRun'> & {
+  liveRunning: boolean;
+  onOpenTrace(): void;
+}) {
   const { locale, messages } = useI18n();
   const difficultyLabel = graph.difficulty
     ? messages.sidebar.difficulty[graph.difficulty] ?? graph.difficulty
@@ -75,6 +86,25 @@ function GraphDetails({ graph }: Pick<RightInspectorProps, 'graph'>) {
           </div>
         </div>
       </div>
+
+      <div className="grid gap-2.5 rounded-xl border border-dashed border-border bg-muted/30 p-3">
+        <p className="m-0 text-xs leading-relaxed text-muted-foreground">
+          {messages.inspector.emptyHint}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onOpenTrace}>
+            {liveRunning && (
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--emerald)] animate-pulse" aria-hidden="true" />
+            )}
+            <span>{messages.inspector.openTraceLive}</span>
+          </Button>
+          {mode === 'local' && onOpenStartRun && (
+            <Button variant="default" size="sm" onClick={onOpenStartRun}>
+              {messages.inspector.startRealRun}
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -82,7 +112,8 @@ function GraphDetails({ graph }: Pick<RightInspectorProps, 'graph'>) {
 export function RightInspector({
   mode, client, graph, selectedNodeId, selectedEdgeId, onUpdateNode, onUpdateEdge,
   trace, stepIndex, onJumpToStep, onToast,
-  liveSnapshot, recentRuns, selectedRunId, liveReconnecting, onSelectRunId, onRefreshLiveRun,
+  liveSnapshot, recentRuns, selectedRunId, runSynced = true, runSyncStatus = 'synced',
+  liveReconnecting, onSelectRunId, onRefreshLiveRun, onOpenStartRun,
   liveNowSec, openBattleReportToken,
 }: RightInspectorProps) {
   const { locale, messages } = useI18n();
@@ -91,6 +122,21 @@ export function RightInspector({
     { id: 'trace', label: messages.inspector.tabTrace },
   ];
   const [tab, setTab] = useState<InspectorTab>('inspector');
+  const prevSelectionRef = useRef<{ nodeId: string | null; edgeId: string | null }>({
+    nodeId: selectedNodeId,
+    edgeId: selectedEdgeId,
+  });
+
+  useEffect(() => {
+    const prev = prevSelectionRef.current;
+    prevSelectionRef.current = { nodeId: selectedNodeId, edgeId: selectedEdgeId };
+    if (
+      (selectedNodeId !== null || selectedEdgeId !== null)
+      && (selectedNodeId !== prev.nodeId || selectedEdgeId !== prev.edgeId)
+    ) {
+      setTab('inspector');
+    }
+  }, [selectedNodeId, selectedEdgeId]);
   const { doctorTargets } = useWorkspaceReadiness();
   const providers = Object.keys(doctorTargets?.providers ?? {}).sort();
   const activeWorkspace = useRef<(Pick<RightInspectorProps, 'client' | 'mode'> & {
@@ -271,7 +317,13 @@ export function RightInspector({
         ) : edge ? (
           <EdgeEditor key={`${graph.id}:${edge.id}`} edge={edge} onUpdateEdge={onUpdateEdge} />
         ) : (
-          <GraphDetails graph={graph} />
+          <GraphDetails
+            graph={graph}
+            mode={mode}
+            liveRunning={isRunStatusActive(liveSnapshot?.run?.status)}
+            onOpenTrace={() => setTab('trace')}
+            onOpenStartRun={onOpenStartRun}
+          />
         )}
       </section>
 
@@ -347,9 +399,12 @@ export function RightInspector({
               liveSnapshot={liveSnapshot}
               recentRuns={recentRuns}
               selectedRunId={selectedRunId}
+              runSynced={runSynced}
+              runSyncStatus={runSyncStatus}
               liveReconnecting={liveReconnecting}
               onSelectRunId={onSelectRunId}
               onRefreshLiveRun={onRefreshLiveRun}
+              onOpenStartRun={onOpenStartRun}
               liveNowSec={liveNowSec}
               openBattleReportToken={openBattleReportToken}
             />

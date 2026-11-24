@@ -57,6 +57,7 @@ type WirePricingSyncResponse = Omit<PricingSyncResponse, 'catalog'> & {
 type RunDecision = 'approve' | 'reject';
 
 const DEMO_DOCTOR_LATENCY_MS = 5000;
+export const DEFAULT_START_RUN_TIMEOUT_MS = 15_000;
 const CREDENTIAL_KEYS = ['DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'OPENCODE_API_KEY', 'ANTHROPIC_API_KEY'] as const;
 
 // Representative rows from the server's built-in catalog.
@@ -362,13 +363,34 @@ export class BatonApiClient {
     return result.bundle;
   }
 
-  startRun(payload: {
-    rfc_path?: string;
-    rfc_markdown?: string;
-    mode?: 'overnight' | 'interactive';
-    model_overrides?: Record<string, string>;
-  }): Promise<{ run_id: string; daemon_pid: number; status: string }> {
-    return this.requestJson('/api/runs/start', { method: 'POST', body: payload });
+  async startRun(
+    payload: {
+      rfc_path?: string;
+      rfc_markdown?: string;
+      mode?: 'overnight' | 'interactive';
+      model_overrides?: Record<string, string>;
+    },
+    timeoutMs = DEFAULT_START_RUN_TIMEOUT_MS,
+  ): Promise<{ run_id: string; daemon_pid: number; status: string }> {
+    if (this.mode === 'demo') throw new ApiError(0, 'Not available in standalone demo');
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, timeoutMs)
+      : undefined;
+    try {
+      return await this.requestJson('/api/runs/start', { method: 'POST', body: payload }, controller.signal);
+    } catch (error) {
+      if (timedOut || (error instanceof Error && error.name === 'AbortError')) {
+        throw new ApiError(408, 'Request timed out');
+      }
+      throw error;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   controlRun(id: string, action: 'pause' | 'resume'): Promise<{
@@ -398,14 +420,19 @@ export class BatonApiClient {
     return isRecord(health) && health.status === 'ok' ? health : null;
   }
 
-  private async requestJson<T>(path: string, write?: { method: 'POST' | 'PUT'; body: object }): Promise<T> {
+  private async requestJson<T>(
+    path: string,
+    write?: { method: 'POST' | 'PUT'; body: object },
+    signal?: AbortSignal,
+  ): Promise<T> {
     if (this.mode === 'demo') throw new ApiError(0, 'Not available in standalone demo');
 
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, write ? {
       method: write.method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(write.body),
-    } : { method: 'GET' });
+      ...(signal ? { signal } : {}),
+    } : { method: 'GET', ...(signal ? { signal } : {}) });
 
     if (!response.ok) {
       const body: unknown = await response.json().catch(() => null);

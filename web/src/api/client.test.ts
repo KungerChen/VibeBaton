@@ -437,8 +437,9 @@ test('simulates a five-second Doctor with deterministic readiness and install hi
       provider: 'host_native', ok: true, detail: 'Ready in standalone demo.', latency_ms: 5000, install_hint: '',
     });
     await expect(byRole).resolves.toMatchObject({
-      provider: 'dsh_opencode', ok: false, latency_ms: 5000, install_hint: expect.stringContaining('OPENCODE_API_KEY'),
+      provider: 'dsh_opencode', ok: false, latency_ms: 5000, install_hint: expect.stringContaining('DSH'),
     });
+    expect((await byRole).install_hint).not.toMatch(/opencode/i);
     await expect(byModel).resolves.toMatchObject({
       provider: 'codex_sub', ok: false, latency_ms: 5000, install_hint: expect.stringContaining('codex login'),
     });
@@ -545,7 +546,7 @@ test('loads run data and submits run commands to the local server', async () => 
     [`/api/runs/${runId}`, { method: 'GET' }],
     [`/api/runs/${runId}/report`, { method: 'GET' }],
     [`/api/runs/${runId}/report?lang=zh`, { method: 'GET' }],
-    ['/api/runs/start', jsonRequest('POST', payload)],
+    ['/api/runs/start', { ...jsonRequest('POST', payload), signal: expect.any(AbortSignal) }],
     [`/api/runs/${runId}/control`, jsonRequest('POST', { action: 'resume' })],
     [`/api/runs/${runId}/resolve`, jsonRequest('POST', { decision: 'reject' })],
   ]);
@@ -628,4 +629,30 @@ test('returns empty live data and rejects backend-only run operations in demo mo
     name: 'ApiError', status: 0, message: 'Not available in standalone demo',
   })));
   expect(fetchImpl).not.toHaveBeenCalled();
+});
+
+test('aborts a hanging startRun request after timeoutMs and rejects with status 408', async () => {
+  vi.useFakeTimers();
+  try {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(health))
+      .mockImplementationOnce((_url, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        });
+      }));
+    const client = new BatonApiClient('', fetchImpl);
+    await client.init();
+
+    const starting = client.startRun({ rfc_markdown: '# RFC' }, 15000);
+    const rejection = expect(starting).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 408,
+    });
+    await vi.advanceTimersByTimeAsync(15000);
+    await rejection;
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
 });

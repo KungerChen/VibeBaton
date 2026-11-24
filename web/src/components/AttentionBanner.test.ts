@@ -1,6 +1,7 @@
-import { createElement } from 'react';
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { MESSAGES } from '../i18n/messages';
 import type { AttentionCategory, RunAttentionState } from '../types/graph';
 import {
@@ -189,5 +190,119 @@ describe('AttentionBanner', () => {
     const markup = render({ runId: null });
 
     expect(markup).not.toContain('attention-banner__run');
+  });
+
+  test('disables approve, reject, and resume actions when controlsDisabled is true', () => {
+    const waitingMarkup = render({ controlsDisabled: true });
+    expect(waitingMarkup).toMatch(/<button[^>]*disabled=""[^>]*>Approve<\/button>/);
+    expect(waitingMarkup).toMatch(/<button[^>]*disabled=""[^>]*>Reject<\/button>/);
+
+    const pausedMarkup = render({ alert: alertFor('paused', 'warning'), controlsDisabled: true });
+    expect(pausedMarkup).toMatch(/<button[^>]*disabled=""[^>]*>Resume<\/button>/);
+  });
+
+  test('supports reversible Reject form with Cancel, Escape collapse, and Enter submit', async () => {
+    type Listener = (event: Record<string, unknown>) => void;
+    const listeners = new Map<string, Listener>();
+    const documentObj = {
+      createElement: (tag: string) => new TestNode(tag),
+      createElementNS: (_ns: string, tag: string) => new TestNode(tag),
+      createTextNode: (text: string) => new TestNode('#text', text),
+      addEventListener() {},
+    };
+    class TestNode {
+      readonly nodeType: number;
+      readonly ownerDocument = documentObj;
+      readonly children: TestNode[] = [];
+      readonly style = {};
+      parentNode: TestNode | null = null;
+      value = '';
+      constructor(readonly tagName: string, public textContent = '') {
+        this.nodeType = tagName === '#text' ? 3 : 1;
+      }
+      addEventListener(type: string, cb: Listener, capture: boolean) {
+        if (!capture) listeners.set(type, cb);
+      }
+      setAttribute() {}
+      removeAttribute() {}
+      focus() {}
+      appendChild(c: TestNode) { this.insertBefore(c, null); }
+      insertBefore(c: TestNode, s: TestNode | null) {
+        const idx = s ? this.children.indexOf(s) : this.children.length;
+        this.children.splice(idx, 0, c);
+        c.parentNode = this;
+      }
+      removeChild(c: TestNode) {
+        this.children.splice(this.children.indexOf(c), 1);
+        c.parentNode = null;
+      }
+      get text(): string { return this.textContent + this.children.map((c) => c.text).join(''); }
+      find(tag: string, pred?: (n: TestNode) => boolean): TestNode | undefined {
+        if (this.tagName === tag && (!pred || pred(this))) return this;
+        for (const c of this.children) {
+          const m = c.find(tag, pred);
+          if (m) return m;
+        }
+        return undefined;
+      }
+    }
+
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('window', { HTMLIFrameElement: class HTMLIFrameElement {} });
+    const onReject = vi.fn();
+    const container = new TestNode('DIV');
+    const root = createRoot(container as unknown as HTMLElement);
+    try {
+      await act(async () => {
+        root.render(createElement(AttentionBanner, {
+          alert: baseAlert,
+          runId: RUN_ID,
+          locale: 'en',
+          notificationPermission: 'default',
+          onApprove: noop,
+          onReject,
+          onResume: noop,
+          onOpenBattleReport: noop,
+          onEnableNotifications: noop,
+          onDismiss: noop,
+        }));
+      });
+
+      // Open reject form
+      const rejectTrigger = container.find('button', (n) => n.text === 'Reject');
+      expect(rejectTrigger).toBeDefined();
+      await act(async () => listeners.get('click')?.({ type: 'click', target: rejectTrigger, button: 0 }));
+      expect(container.find('form')).toBeDefined();
+      expect(container.find('button', (n) => n.text === 'Cancel')).toBeDefined();
+
+      // Cancel collapses form without calling onReject
+      const cancelBtn = container.find('button', (n) => n.text === 'Cancel');
+      await act(async () => listeners.get('click')?.({ type: 'click', target: cancelBtn, button: 0 }));
+      expect(container.find('form')).toBeUndefined();
+      expect(onReject).not.toHaveBeenCalled();
+
+      // Reopen and press Escape on input -> collapses without calling onReject
+      const rejectTrigger2 = container.find('button', (n) => n.text === 'Reject');
+      await act(async () => listeners.get('click')?.({ type: 'click', target: rejectTrigger2, button: 0 }));
+      const inputEl = container.find('input');
+      expect(inputEl).toBeDefined();
+      await act(async () => listeners.get('keydown')?.({ type: 'keydown', target: inputEl, key: 'Escape', preventDefault: noop }));
+      expect(container.find('form')).toBeUndefined();
+      expect(onReject).not.toHaveBeenCalled();
+
+      // Reopen and submit form -> calls onReject
+      const rejectTrigger3 = container.find('button', (n) => n.text === 'Reject');
+      await act(async () => listeners.get('click')?.({ type: 'click', target: rejectTrigger3, button: 0 }));
+      const formEl = container.find('form');
+      expect(formEl).toBeDefined();
+      await act(async () => listeners.get('submit')?.({ type: 'submit', target: formEl, preventDefault: noop }));
+      expect(onReject).toHaveBeenCalledOnce();
+    } finally {
+      try {
+        act(() => root.unmount());
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
   });
 });

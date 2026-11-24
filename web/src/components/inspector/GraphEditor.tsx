@@ -1,7 +1,8 @@
 import { LoaderCircle } from 'lucide-react';
-import { useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import type { BatonApiClient } from '../../api/client';
 import { useI18n } from '../../i18n';
+import { MESSAGES } from '../../i18n/messages';
 import type { DoctorRoleRequest, DoctorRoleResult, WorkflowEdge, WorkflowNode } from '../../types/graph';
 import { resolveDoctorTarget, serializeModelPin } from '../nodes/readiness';
 import type { NodeDoctorProps, RightInspectorProps } from '../types';
@@ -80,14 +81,30 @@ type DoctorFeedback =
   | { state: 'error'; detail: string }
   | { state: 'result'; result: DoctorRoleResult };
 
+function formatDoctorInstallHint(result: DoctorRoleResult, dshHint: string): string {
+  if (result.provider === 'dsh_opencode' && (
+    /opencode/i.test(result.install_hint)
+    || result.install_hint === MESSAGES.en.nodeReadiness.dshInstallHint
+    || result.install_hint === MESSAGES.zh.nodeReadiness.dshInstallHint
+  )) {
+    return dshHint;
+  }
+  return result.install_hint;
+}
+
 function DoctorControl({ client, request, onDoctorResult }: Pick<NodeDoctorProps, 'onDoctorResult'> & {
   client: BatonApiClient;
   request: DoctorRoleRequest;
 }) {
-  const { locale, messages: { nodeReadiness } } = useI18n();
+  const { messages: { nodeReadiness } } = useI18n();
   const [feedback, setFeedback] = useState<DoctorFeedback | null>(null);
   const pending = feedback?.state === 'pending';
   const result = feedback?.state === 'result' ? feedback.result : null;
+  const visibleInstallHint = result ? formatDoctorInstallHint(result, nodeReadiness.dshInstallHint) : '';
+
+  useEffect(() => {
+    setFeedback(null);
+  }, [client, request.provider, request.role, request.model]);
 
   async function runDoctor() {
     const sequence = ++doctorSequence;
@@ -122,16 +139,16 @@ function DoctorControl({ client, request, onDoctorResult }: Pick<NodeDoctorProps
       <div role="status" className="grid gap-1 break-words text-xs text-muted-foreground empty:hidden">
         {result && (
           <>
-            {(result.ok || !result.install_hint) && (
+            {(result.ok || !visibleInstallHint) && (
               <strong className="text-foreground">{nodeReadiness.latency(result.latency_ms)}</strong>
             )}
             {result.detail && <span>{result.detail}</span>}
-            {!result.ok && result.install_hint && (
-              <span><strong className="text-foreground">{nodeReadiness.installHint}</strong> · {result.install_hint}</span>
+            {!result.ok && visibleInstallHint && (
+              <span><strong className="text-foreground">{nodeReadiness.installHint}</strong> · {visibleInstallHint}</span>
             )}
           </>
         )}
-        {feedback?.state === 'timeout' && (locale === 'zh' ? '探测在 5 秒后超时。' : 'Probe timed out after 5 seconds.')}
+        {feedback?.state === 'timeout' && nodeReadiness.doctorTimeout}
         {feedback?.state === 'error' && feedback.detail}
       </div>
     </div>
@@ -249,7 +266,6 @@ export function NodeEditor({
             />
           </div>
           <DoctorControl
-            key={JSON.stringify([mode, request.provider, request.role, request.model])}
             client={client}
             request={request}
             onDoctorResult={onDoctorResult}
@@ -263,8 +279,12 @@ export function NodeEditor({
               onCommit={(value) => onUpdateNode(id, { max_loops: value })}
             />
           )}
+          <p className="m-0 text-[11px] leading-snug text-muted-foreground">
+            {messages.inspector.canvasImmediateNote}
+          </p>
           {mode === 'local' && role && (
-            <Button variant="default" size="default" type="submit" disabled={saving} className="mt-1">
+            <Button variant="default" size="default" type="submit" disabled={saving} aria-busy={saving} className="mt-1">
+              {saving && <LoaderCircle size={14} className="motion-safe:animate-spin" aria-hidden="true" />}
               {messages.inspector.saveHotReload}
             </Button>
           )}

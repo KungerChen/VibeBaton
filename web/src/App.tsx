@@ -5,6 +5,8 @@ import { AttentionBanner } from './components/AttentionBanner';
 import { CanvasWorkspace, updateWorkspaceReadiness } from './components/CanvasWorkspace';
 import { HeaderBar } from './components/HeaderBar';
 import { isLiveSnapshot, RunControlsContext, useRunControls } from './components/inspector/LiveRunPanel';
+import { StartRunModal } from './components/inspector/StartRunModal';
+import { LaunchGraphContext } from './components/inspector/wizard/PreflightStep';
 import { LeftSidebar } from './components/LeftSidebar';
 import { PlaybackBar } from './components/PlaybackBar';
 import { QuickStartModal, type QuickStartStepId } from './components/QuickStartModal';
@@ -216,6 +218,7 @@ function AppContent() {
   const liveNowSec = useLiveClock(isSelectedRunActive, liveSnapshot?.telemetry?.server_now);
   const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [runSyncStatus, setRunSyncStatus] = useState<'synced' | 'loading' | 'error'>('synced');
   const selectedRunIdRef = useRef<string | null>(null);
   selectedRunIdRef.current = selectedRunId;
   const latestRunIdRef = useRef<string | null>(null);
@@ -223,8 +226,11 @@ function AppContent() {
   const liveRequestSeq = useRef(0);
   const [liveReconnecting, setLiveReconnecting] = useState(false);
   const [liveViewActive, setLiveViewActive] = useState(false);
+  const [startRunOpen, setStartRunOpen] = useState(false);
   const lastLiveCanvasRef = useRef<{ runId: string | null; signature: string } | null>(null);
   const availableCaseRunId = mode === 'local' ? selectedRunId ?? runId ?? recentRuns[0]?.id ?? null : null;
+  const snapshotRunId = typeof liveSnapshot?.run?.id === 'string' ? liveSnapshot.run.id : null;
+  const runSynced = runSyncStatus === 'synced' && (!selectedRunId || selectedRunId === snapshotRunId);
   const { toasts, push } = useToasts();
   const runControls = useRunControls(client, onRefreshLiveRun, push);
 
@@ -349,8 +355,10 @@ function AppContent() {
       setLiveSnapshot(null);
       setRecentRuns([]);
       setSelectedRunId(null);
+      setRunSyncStatus('synced');
       setLiveReconnecting(false);
       setLiveViewActive(false);
+      setStartRunOpen(false);
       latestRunIdRef.current = null;
       latestStatusRef.current = null;
       return;
@@ -396,6 +404,7 @@ function AppContent() {
         if (!selectedRunIdRef.current || selectedRunIdRef.current === prevLatestRunId || selectedRunIdRef.current === streamRunId) {
           setSelectedRunId(streamRunId);
           setLiveSnapshot(trimmed);
+          setRunSyncStatus('synced');
           syncQuotaReadiness(trimmed.quotas);
         }
         if (streamRunId !== prevLatestRunId || streamStatus !== prevLatestStatus) {
@@ -651,6 +660,10 @@ function AppContent() {
 
   function onSelectLiveRun() {
     if (!liveSnapshot?.run) return;
+    if (liveViewActive) {
+      setLiveViewActive(false);
+      return;
+    }
     latestPresetRequest.current += 1;
     leaveReplay();
     lastLiveCanvasRef.current = null;
@@ -661,17 +674,22 @@ function AppContent() {
     if (!nextRunId) return;
     const req = ++liveRequestSeq.current;
     setSelectedRunId(nextRunId);
+    setRunSyncStatus('loading');
     try {
       const snap = await client.getRun(nextRunId);
       if (req !== liveRequestSeq.current) return;
       const trimmed: LiveRunSnapshot = { ...snap, events: snap.events.slice(-LIVE_EVENT_LIMIT) };
       setLiveSnapshot(trimmed);
+      setRunSyncStatus('synced');
       syncQuotaReadiness(trimmed.quotas);
       void client.listRuns().then((runs) => {
         if (req === liveRequestSeq.current) setRecentRuns(runs);
       }, () => {});
     } catch (error) {
-      if (req === liveRequestSeq.current) push(errorMessage(error), 'err');
+      if (req === liveRequestSeq.current) {
+        setRunSyncStatus('error');
+        push(errorMessage(error), 'err');
+      }
     }
   }
 
@@ -687,17 +705,24 @@ function AppContent() {
       const resolvedId = typeof trimmed.run?.id === 'string' ? trimmed.run.id : null;
       if (!targetId) setSelectedRunId(resolvedId);
       setLiveSnapshot(trimmed);
+      setRunSyncStatus('synced');
       syncQuotaReadiness(trimmed.quotas);
       void client.listRuns().then((runs) => {
         if (req === liveRequestSeq.current) setRecentRuns(runs);
       }, () => {});
     } catch (error) {
-      if (req === liveRequestSeq.current) push(errorMessage(error), 'err');
+      if (req === liveRequestSeq.current) {
+        if (selectedRunIdRef.current && selectedRunIdRef.current !== snapshotRunId) {
+          setRunSyncStatus('error');
+        }
+        push(errorMessage(error), 'err');
+      }
     }
   }
 
   function onAttentionRunAction(action: 'approve' | 'reject' | 'resume', note?: string) {
-    if (runId) void runControls.changeRun(runId, action, note);
+    if (!runSynced || !runId) return;
+    void runControls.changeRun(runId, action, note);
   }
 
   async function onEnableNotifications() {
@@ -811,6 +836,37 @@ function AppContent() {
     setPlaybackRunning(false);
   }
 
+  const handleGlobalKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (liveViewActive || stepCount === 0 || tourState.open) return;
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (document.querySelector('dialog[open]')) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+
+    if (event.key === ' ') {
+      if (target?.closest('button, a, [role="button"], [role="tab"], [role="switch"]')) return;
+      event.preventDefault();
+      onPlayPause();
+    } else if (event.key === 'ArrowRight') {
+      if (target?.closest('[role="tablist"], .react-flow__node.selected')) return;
+      if (stepIndex < stepCount) {
+        event.preventDefault();
+        onJumpToStep(stepIndex + 1);
+      }
+    } else if (event.key === 'ArrowLeft') {
+      if (target?.closest('[role="tablist"], .react-flow__node.selected')) return;
+      if (stepIndex > 0) {
+        event.preventDefault();
+        onJumpToStep(stepIndex - 1);
+      }
+    }
+  });
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
+
   function onDontShowGuideChange(next: boolean) {
     setDontShowGuide(next);
     if (typeof window !== 'undefined') {
@@ -912,6 +968,9 @@ function AppContent() {
         mode={mode ?? 'demo'}
         version={typeof version === 'string' ? version : undefined}
         graphName={graph.name}
+        replayActive={replayActive}
+        liveViewActive={liveViewActive}
+        onOpenStartRun={mode === 'local' ? () => setStartRunOpen(true) : undefined}
         onOpenGuide={() => setGuideOpen(true)}
       />
       <AttentionBanner
@@ -921,6 +980,7 @@ function AppContent() {
         locale={locale}
         notificationPermission={notificationPermission}
         busy={runControls.busy}
+        controlsDisabled={!runSynced}
         onApprove={() => onAttentionRunAction('approve')}
         onReject={(note) => onAttentionRunAction('reject', note)}
         onResume={() => onAttentionRunAction('resume')}
@@ -991,17 +1051,22 @@ function AppContent() {
             onScenarioChange={onScenarioSelect}
             replayActive={replayActive}
             onToggleReplay={onToggleReplay}
+            onExitReplay={() => leaveReplay()}
+            liveViewActive={liveViewActive}
+            liveRunId={runId}
+            onExitLiveView={() => setLiveViewActive(false)}
             activeCaseId={activeCaseId}
             activeCaseTitle={activeCase.title}
             isCustomCaseActive={isCustomCaseActive}
             replayCaseLabel={replayCaseLabel}
             savedCases={savedCases.map(({ case_id, title }) => ({ case_id, title }))}
-            summaryPill={summaryPill}
+            summaryPill={replayActive ? summaryPill : null}
             onSelectReplayCase={handleSelectReplayCase}
             onImportCaseRequest={() => handleOpenTransfer('import')}
             onResetTutorialCase={handleResetTutorialCase}
             playing={playing}
             onPlayPause={onPlayPause}
+            onStepBack={() => onJumpToStep(stepIndex - 1)}
             onStep={() => onJumpToStep(stepIndex + 1)}
             onReset={resetPlayback}
             speed={speed}
@@ -1009,7 +1074,7 @@ function AppContent() {
             stepIndex={stepIndex}
             stepCount={stepCount}
             currentEvent={currentEvent}
-            disabled={liveViewActive || stepCount === 0}
+            disabled={stepCount === 0}
           />
         </CanvasWorkspace>
       </main>
@@ -1041,9 +1106,12 @@ function AppContent() {
             liveNowSec={liveNowSec}
             recentRuns={recentRuns}
             selectedRunId={selectedRunId}
+            runSynced={runSynced}
+            runSyncStatus={runSyncStatus}
             liveReconnecting={liveReconnecting}
             onSelectRunId={(id) => void onSelectRunId(id)}
             onRefreshLiveRun={onRefreshLiveRun}
+            onOpenStartRun={mode === 'local' ? () => setStartRunOpen(true) : undefined}
             openBattleReportToken={battleReportToken}
           />
         </RunControlsContext.Provider>
@@ -1080,10 +1148,28 @@ function AppContent() {
         onClose={closeTransfer}
         client={client}
         runId={caseExportRunId}
-        defaultTitle={locale === 'zh' ? '运行回放' : 'Run replay'}
+        defaultTitle={messages.transfer.exportCaseModal.defaultTitle}
         onPreviewInPlayer={handleLoadCase}
         onToast={push}
       />
+      {mode === 'local' && startRunOpen && (
+        <LaunchGraphContext.Provider value={graph}>
+          <StartRunModal
+            client={client}
+            onToast={push}
+            onClose={() => setStartRunOpen(false)}
+            onStarted={(newRunId) => {
+              lastLiveCanvasRef.current = null;
+              setLiveViewActive(true);
+              if (newRunId) {
+                void onSelectRunId(newRunId);
+              } else {
+                void onRefreshLiveRun();
+              }
+            }}
+          />
+        </LaunchGraphContext.Provider>
+      )}
       {tourState.open && (
         <GuidedTourOverlay
           steps={tourState.steps}

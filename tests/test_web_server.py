@@ -6,8 +6,11 @@ import io
 import json
 import os
 import shutil
+import socket
+import struct
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import redirect_stdout
 from functools import partial
@@ -24,8 +27,8 @@ from vibebaton import __version__, cli, credentials
 from vibebaton.config import BatonConfig, HotReloadConfig
 from vibebaton.db import StateStore
 from vibebaton.report import compute_run_telemetry
-from vibebaton.schemas import RunStatus
-from vibebaton.web_server import VibeBatonWebServer, _set_toml_role_keys, create_server
+from vibebaton.schemas import MilestoneSpec, PlanDAG, RunStatus, TaskSpec, TaskStatus
+from vibebaton.web_server import VibeBatonWebServer, _CanvasRequestHandler, _set_toml_role_keys, create_server
 
 PRESET_IDS = (
     "claude_only_3tier",
@@ -425,6 +428,28 @@ class TestStaticHosting(WebServerTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(headers.get_content_type(), "text/html")
         self.assertIn("cd web && npm.cmd run build", unescape(body))
+
+    def test_missing_dist_returns_204_for_favicon_ico(self) -> None:
+        with urlopen(self.base + "/favicon.ico", timeout=5) as response:
+            self.assertEqual(response.status, 204)
+            self.assertEqual(response.read(), b"")
+
+    def test_serves_favicon_svg_and_ico_with_expected_mime_types(self) -> None:
+        self.static_dir.mkdir()
+        (self.static_dir / "index.html").write_text("<h1>Canvas</h1>", encoding="utf-8")
+        (self.static_dir / "favicon.svg").write_text("<svg/>", encoding="utf-8")
+        ico_bytes = struct.pack("<HHH", 0, 1, 0)
+        (self.static_dir / "favicon.ico").write_bytes(ico_bytes)
+
+        with urlopen(self.base + "/favicon.svg", timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), "image/svg+xml")
+            self.assertEqual(response.read(), b"<svg/>")
+
+        with urlopen(self.base + "/favicon.ico", timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), "image/x-icon")
+            self.assertEqual(response.read(), ico_bytes)
 
     def test_serves_index_and_static_asset_with_mime_types(self) -> None:
         self.static_dir.mkdir()
@@ -1140,6 +1165,61 @@ class TestRunApi(WebServerTestCase):
 
             self.server.shutdown()
             self.assertEqual(stream.read(), b"")
+
+    def test_live_stream_emits_on_task_status_and_quota_change_without_tick_churn(self) -> None:
+        run_id = self._start_run()
+        store = StateStore(self.repo / ".baton" / "state.sqlite")
+        store.register_plan(
+            run_id,
+            PlanDAG(
+                rfc_version="1.0",
+                complexity_tier="simple",
+                milestones=[
+                    MilestoneSpec(
+                        id="M1",
+                        title="Milestone 1",
+                        tasks=[TaskSpec(id="M1-T1", title="Build widget")],
+                    )
+                ],
+            ),
+        )
+
+        with urlopen(self.base + "/api/runs/stream", timeout=5) as stream:
+            event, initial = self._read_sse_frame(stream)
+            self.assertEqual(event, b"snapshot")
+            self.assertEqual(initial["tasks"][0]["status"], "PENDING")
+            initial_updated_at = initial["run"]["updated_at"]
+
+            # Changing a task status without advancing run.updated_at must still emit an SSE snapshot.
+            store.update_task(run_id, "M1-T1", status=TaskStatus.RUNNING, attempts=1)
+            event, task_update = self._read_sse_frame(stream)
+            self.assertEqual(event, b"snapshot")
+            self.assertEqual(task_update["run"]["updated_at"], initial_updated_at)
+            self.assertEqual(task_update["tasks"][0]["status"], "RUNNING")
+            self.assertEqual(task_update["tasks"][0]["attempts"], 1)
+
+            # Triggering a provider quota cooldown without touching the run row must emit an SSE snapshot.
+            store.trigger_provider_cooldown("dsh_opencode", [60], "429 rate limit", explicit_wait_sec=45.0)
+            event, quota_update = self._read_sse_frame(stream)
+            self.assertEqual(event, b"snapshot")
+            self.assertEqual(quota_update["run"]["updated_at"], initial_updated_at)
+            self.assertEqual(quota_update["quotas"][0]["provider"], "dsh_opencode")
+            self.assertEqual(quota_update["quotas"][0]["cooldown_hits"], 1)
+
+            # Purely ticking remaining_sec with unchanged state must keep the stream idle (no spurious frame).
+            sig_t0 = _CanvasRequestHandler._sse_snapshot_signature(
+                {**quota_update, "quotas": [{**quota_update["quotas"][0], "remaining_sec": 44.8}]}
+            )
+            sig_t1 = _CanvasRequestHandler._sse_snapshot_signature(
+                {**quota_update, "quotas": [{**quota_update["quotas"][0], "remaining_sec": 43.2}]}
+            )
+            self.assertEqual(sig_t0, sig_t1)
+
+            stream.fp.raw._sock.settimeout(1.3)
+            with self.assertRaises((TimeoutError, socket.timeout)):
+                stream.readline()
+
+            self.server.shutdown()
 
 
 if __name__ == "__main__":

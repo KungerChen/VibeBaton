@@ -890,9 +890,48 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(frame.encode("utf-8"))
         self.wfile.flush()
 
+    @staticmethod
+    def _sse_snapshot_signature(snapshot: _RunSnapshot) -> tuple[Any, ...]:
+        run = snapshot["run"] or {}
+        tasks_sig = tuple(
+            (
+                task.get("id"),
+                task.get("status"),
+                task.get("attempts"),
+                task.get("current_role"),
+                task.get("assigned_model"),
+            )
+            for task in snapshot["tasks"]
+        )
+        milestones_sig = tuple(
+            (milestone.get("id"), milestone.get("status"))
+            for milestone in snapshot["milestones"]
+        )
+        quotas_sig = tuple(
+            sorted(
+                (
+                    quota.get("provider"),
+                    quota.get("cooldown_until"),
+                    quota.get("cooldown_hits"),
+                    round(float(quota.get("remaining_sec") or 0.0)) > 0,
+                )
+                for quota in snapshot["quotas"]
+            )
+        )
+        return (
+            run.get("id"),
+            run.get("status"),
+            run.get("updated_at"),
+            len(snapshot["events"]),
+            tasks_sig,
+            milestones_sig,
+            quotas_sig,
+        )
+
     def _get_run_stream(self) -> None:
         once = "1" in parse_qs(urlsplit(self.path).query).get("once", [])
         previous = _latest_run_snapshot(self.server.store)
+        previous_sig = self._sse_snapshot_signature(previous)
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -907,20 +946,17 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             last_write = time.monotonic()
             while not self.server.shutdown_event.wait(1.0):
                 current = _latest_run_snapshot(self.server.store)
+                current_sig = self._sse_snapshot_signature(current)
                 before, after = previous["run"] or {}, current["run"] or {}
                 same_run = before.get("id") == after.get("id")
                 previous_count = len(previous["events"])
-                if (
-                    not same_run
-                    or before.get("status") != after.get("status")
-                    or before.get("updated_at") != after.get("updated_at")
-                    or previous_count != len(current["events"])
-                ):
+                if current_sig != previous_sig:
                     self._write_sse("snapshot", current)
                     first_new_event = previous_count if same_run else 0
                     for event in current["events"][first_new_event:]:
                         self._write_sse("event", event)
                     previous = current
+                    previous_sig = current_sig
                     last_write = time.monotonic()
                 elif time.monotonic() - last_write >= 15:
                     # An idle write also gives the socket a chance to detect a disconnect.
@@ -1049,6 +1085,10 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             self._send_bytes(200, mime or "application/octet-stream", body)
         elif path == "/":
             self._send_bytes(200, "text/html; charset=utf-8", _BUILD_NOTICE)
+        elif path == "/favicon.ico":
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
         else:
             self._send_json(404, {"error": "Static file not found"})
 

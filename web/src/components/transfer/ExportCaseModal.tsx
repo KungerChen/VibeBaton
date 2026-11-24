@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { Check } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { BatonApiClient } from '../../api/client';
 import { useI18n } from '../../i18n';
 import type { BatonCaseBundle } from '../../types/graph';
@@ -19,6 +20,26 @@ export interface ExportCaseModalProps {
   onToast?(msg: string): void;
 }
 
+function copyWithSelection(text: string, container: HTMLElement): boolean {
+  const previousFocus = document.activeElement;
+  const field = document.createElement('textarea');
+  field.className = 'transfer-export-recipe-clipboard';
+  field.value = text;
+  field.readOnly = true;
+  container.append(field);
+
+  try {
+    field.focus({ preventScroll: true });
+    field.select();
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    field.remove();
+    if (previousFocus instanceof HTMLElement) previousFocus.focus({ preventScroll: true });
+  }
+}
+
 export function ExportCaseModal({ open, ...props }: ExportCaseModalProps) {
   return open ? <ExportCaseDialog key={props.runId ?? undefined} {...props} /> : null;
 }
@@ -29,6 +50,9 @@ function ExportCaseDialog({
   const { locale, messages } = useI18n();
   const copy = messages.transfer.exportCaseModal;
   const id = useId();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const copyTimerRef = useRef<number | undefined>(undefined);
+  const [copied, setCopied] = useState(false);
   const [title, setTitle] = useState(defaultTitle);
   const [includeReviews, setIncludeReviews] = useState(true);
   const [anonymize, setAnonymize] = useState(false);
@@ -82,14 +106,32 @@ function ExportCaseDialog({
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
+  useEffect(() => () => {
+    if (copyTimerRef.current !== undefined) globalThis.clearTimeout(copyTimerRef.current);
+  }, []);
+
   async function copyJson() {
     if (!cleanBundle) return;
+    const text = serializeCase(cleanBundle);
+    let ok = false;
     try {
-      await navigator.clipboard.writeText(serializeCase(cleanBundle));
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
     } catch {
+      // Fall back to selection copy inside the modal.
+    }
+    if (!ok && contentRef.current) {
+      ok = copyWithSelection(text, contentRef.current);
+    }
+    if (!ok) {
       onToast?.(`${copy.copyJson} ✕`);
       return;
     }
+    setCopied(true);
+    if (copyTimerRef.current !== undefined) globalThis.clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = globalThis.setTimeout(() => setCopied(false), 2000);
     onToast?.(`${copy.copyJson} ✓`);
   }
 
@@ -101,7 +143,7 @@ function ExportCaseDialog({
 
   return (
     <Modal open title={copy.title} onClose={onClose}>
-      <div className="transfer-export-case-body">
+      <div className="transfer-export-case-body" ref={contentRef}>
         <div className="transfer-export-case-field">
           <Label htmlFor={`${id}-title`}>{copy.titleLabel}</Label>
           <Input
@@ -162,8 +204,18 @@ function ExportCaseDialog({
           <Button className="transfer-export-case-action" variant="default" disabled={!cleanBundle} onClick={download}>
             {copy.download}
           </Button>
-          <Button className="transfer-export-case-action" disabled={!cleanBundle} onClick={() => void copyJson()}>
-            {copy.copyJson}
+          <Button
+            className="transfer-export-case-action"
+            aria-live="polite"
+            disabled={!cleanBundle}
+            onClick={() => void copyJson()}
+          >
+            {copied ? (
+              <>
+                <Check size={14} aria-hidden="true" />
+                <span>{copy.copied}</span>
+              </>
+            ) : copy.copyJson}
           </Button>
           <Button className="transfer-export-case-action" disabled={!cleanBundle} onClick={preview}>
             {copy.previewReplay}

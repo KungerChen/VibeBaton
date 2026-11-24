@@ -337,4 +337,18 @@ describe('PricingModal', () => {
     expect(client.getPricing).toHaveBeenCalledTimes(2);
     expect(renderToStaticMarkup(dialog().children)).toContain(copy.lastSynced);
   });
+
+  test('surfaces an inline alert when saving custom prices fails', async () => {
+    const client = mockClient();
+    client.saveCustomPricing.mockRejectedValueOnce(new Error('disk full'));
+    const { dialog, row } = await mount(client);
+    const model = builtin.model;
+    await click(button(row(model), copy.edit));
+    await enterRate(row(model), `${copy.columns.input} ${model}`, '2.0');
+    await click(button(row(model), copy.save));
+
+    const markup = renderToStaticMarkup(dialog().children);
+    expect(markup).toContain(copy.saveFailed);
+    expect(markup).toContain('role="alert"');
+  });
 });

@@ -1,6 +1,6 @@
 import './PlaybackBar.css';
 import './ui/ui.css';
-import { Film, Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
+import { ArrowLeft, Film, Pause, Play, RotateCcw, SkipBack, SkipForward, X } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 import { OFFICIAL_STAGE1_CASE_ID } from '../engine/caseReplay';
 import { SPEEDS } from '../engine/playback';
@@ -28,6 +28,10 @@ export function PlaybackBar({
   onScenarioChange,
   replayActive = false,
   onToggleReplay,
+  onExitReplay,
+  liveViewActive = false,
+  liveRunId,
+  onExitLiveView,
   activeCaseId,
   activeCaseTitle,
   isCustomCaseActive,
@@ -39,6 +43,7 @@ export function PlaybackBar({
   onResetTutorialCase,
   playing,
   onPlayPause,
+  onStepBack,
   onStep,
   onReset,
   speed,
@@ -55,7 +60,11 @@ export function PlaybackBar({
   const progress = stepCount > 0 ? Math.min(100, Math.max(0, (stepIndex / stepCount) * 100)) : 0;
   const speedIndex = SPEEDS.findIndex((value) => value === speed);
   const nextSpeed = SPEEDS[(speedIndex + 1) % SPEEDS.length];
-  const stepDisabled = disabled || stepIndex >= stepCount;
+  const transportDisabled = liveViewActive || disabled;
+  const stepBackDisabled = transportDisabled || stepIndex <= 0 || !onStepBack;
+  const stepDisabled = transportDisabled || stepIndex >= stepCount;
+  const showCaseSelect = replayActive || savedCases.length > 0;
+  const showSummaryPill = replayActive && Boolean(summaryPill);
   const outcome = currentEvent?.outcome ?? null;
   const badgeVariant = (outcome ? BADGE_BY_OUTCOME[outcome] : undefined) ?? 'outline';
   const defaultEventLabel = currentEvent
@@ -91,14 +100,20 @@ export function PlaybackBar({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (disabled || event.target !== event.currentTarget) return;
+    if (transportDisabled) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('select, input, textarea, [contenteditable="true"]')) return;
 
     if (event.key === ' ') {
+      if (target?.closest('button, a, [role="button"], [role="tab"], [role="switch"]')) return;
       event.preventDefault();
       onPlayPause();
     } else if (event.key === 'ArrowRight' && !stepDisabled) {
       event.preventDefault();
       onStep();
+    } else if (event.key === 'ArrowLeft' && !stepBackDisabled) {
+      event.preventDefault();
+      onStepBack?.();
     }
   };
 
@@ -114,12 +129,12 @@ export function PlaybackBar({
         aria-label={messages.playback.scenarioAria}
       >
         {SCENARIOS.map((value) => {
-          const isActive = !replayActive && scenario === value;
+          const isActive = !liveViewActive && !replayActive && scenario === value;
           return (
             <button
               key={value}
               type="button"
-              disabled={disabled}
+              disabled={!liveViewActive && disabled}
               aria-pressed={isActive}
               onClick={() => onScenarioChange(value)}
               className={cn(
@@ -139,12 +154,12 @@ export function PlaybackBar({
             <span className="mx-0.5 h-4 w-px bg-border-strong" aria-hidden="true" />
             <button
               type="button"
-              aria-pressed={replayActive}
-              title={isCustomCaseActive ? replayCaseLabel : copy.tutorialTooltip}
+              aria-pressed={!liveViewActive && replayActive}
+              title={isCustomCaseActive ? replayCaseLabel : messages.playback.replayTitle}
               onClick={handleReplayToggle}
               className={cn(
                 'inline-flex max-w-64 items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer',
-                replayActive
+                !liveViewActive && replayActive
                   ? 'bg-[var(--sky-soft)] text-[var(--sky)] shadow-xs'
                   : 'text-[var(--sky)] hover:bg-[var(--sky-soft)]/60',
               )}
@@ -156,85 +171,127 @@ export function PlaybackBar({
         )}
       </div>
 
-      <select
-        className="playback-bar__case-select"
-        aria-label={copy.switcherLabel}
-        title={copy.switcherLabel}
-        value={CASE_OPTION_PREFIX + activeCaseId}
-        onChange={(event) => handleCaseSelect(event.target.value)}
-      >
-        {caseOptions.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
-        ))}
-      </select>
-
-      <div className="flex flex-none items-center gap-1">
+      {!liveViewActive && replayActive && onExitReplay && (
         <Button
-          variant="default"
-          size="icon-sm"
-          disabled={disabled}
-          aria-label={playing ? messages.playback.pause : messages.playback.play}
-          onClick={onPlayPause}
-          className="rounded-lg"
-        >
-          {playing ? <Pause size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          disabled={stepDisabled}
-          aria-label={messages.playback.stepForward}
-          onClick={onStep}
-        >
-          <SkipForward size={14} aria-hidden="true" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          disabled={disabled}
-          aria-label={messages.playback.reset}
-          onClick={onReset}
-        >
-          <RotateCcw size={14} aria-hidden="true" />
-        </Button>
-        <Button
-          variant="secondary"
+          variant="outline"
           size="xs"
-          disabled={disabled}
-          aria-label={messages.playback.speedAria(speed)}
-          onClick={() => onSpeedChange(nextSpeed)}
-          className="min-w-11 font-mono tabular-nums"
+          onClick={onExitReplay}
+          className="shrink-0"
         >
-          {speed}x
+          <X size={12} aria-hidden="true" />
+          <span>{messages.playback.exitReplay}</span>
         </Button>
-      </div>
+      )}
 
-      <div className="flex flex-none flex-col gap-1 w-28">
-        <span className="text-[11px] font-medium font-mono tabular-nums text-muted-foreground whitespace-nowrap">
-          {messages.playback.stepCount(stepIndex, stepCount)}
-        </span>
-        <div className="h-1 overflow-hidden rounded-full bg-border-strong" aria-hidden="true">
-          <div
-            className="h-full rounded-full bg-primary transition-[width] duration-200"
-            style={{ width: `${progress}%` }}
-          />
+      {!liveViewActive && showCaseSelect && (
+        <select
+          className="playback-bar__case-select"
+          aria-label={copy.switcherLabel}
+          title={copy.switcherLabel}
+          value={CASE_OPTION_PREFIX + activeCaseId}
+          onChange={(event) => handleCaseSelect(event.target.value)}
+        >
+          {caseOptions.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      )}
+
+      {liveViewActive ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="info" className="gap-1.5 py-1 px-2.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" aria-hidden="true" />
+            <span>{messages.playback.liveBanner(liveRunId ?? 'live')}</span>
+          </Badge>
+          {onExitLiveView && (
+            <Button variant="outline" size="xs" onClick={onExitLiveView}>
+              <ArrowLeft size={12} aria-hidden="true" />
+              <span>{messages.playback.backToBlueprint}</span>
+            </Button>
+          )}
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="flex flex-none items-center gap-1">
+            <Button
+              variant="default"
+              size="icon-sm"
+              disabled={transportDisabled}
+              aria-label={playing ? messages.playback.pause : messages.playback.play}
+              onClick={onPlayPause}
+              className="rounded-lg"
+            >
+              {playing ? <Pause size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
+            </Button>
+            {onStepBack && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={stepBackDisabled}
+                aria-label={messages.playback.stepBack}
+                onClick={onStepBack}
+              >
+                <SkipBack size={14} aria-hidden="true" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={stepDisabled}
+              aria-label={messages.playback.stepForward}
+              onClick={onStep}
+            >
+              <SkipForward size={14} aria-hidden="true" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={transportDisabled}
+              aria-label={messages.playback.reset}
+              onClick={onReset}
+            >
+              <RotateCcw size={14} aria-hidden="true" />
+            </Button>
+            <Button
+              variant="secondary"
+              size="xs"
+              disabled={transportDisabled}
+              aria-label={messages.playback.speedAria(speed)}
+              onClick={() => onSpeedChange(nextSpeed)}
+              className="min-w-11 font-mono tabular-nums"
+            >
+              {speed}x
+            </Button>
+          </div>
 
-      {summaryPill ? (
-        <span className="playback-bar__summary-pill" title={summaryPill}>{summaryPill}</span>
-      ) : null}
+          <div className="flex flex-none flex-col gap-1 w-28">
+            <span className="text-[11px] font-medium font-mono tabular-nums text-muted-foreground whitespace-nowrap">
+              {messages.playback.stepCount(stepIndex, stepCount)}
+            </span>
+            <div className="h-1 overflow-hidden rounded-full bg-border-strong" aria-hidden="true">
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-200"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
 
-      <Badge
-        variant={badgeVariant}
-        className={cn(
-          'max-w-60 truncate py-1 px-2.5',
-          replayActive && 'max-w-88',
-        )}
-        title={eventLabel}
-      >
-        <span className="truncate">{eventLabel}</span>
-      </Badge>
+          {showSummaryPill ? (
+            <span className="playback-bar__summary-pill" title={summaryPill ?? undefined}>{summaryPill}</span>
+          ) : null}
+
+          <Badge
+            variant={badgeVariant}
+            className={cn(
+              'max-w-60 truncate py-1 px-2.5',
+              replayActive && 'max-w-88',
+            )}
+            title={eventLabel}
+          >
+            <span className="truncate">{eventLabel}</span>
+          </Badge>
+        </>
+      )}
     </div>
   );
 }

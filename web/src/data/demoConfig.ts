@@ -1,25 +1,28 @@
+import { MESSAGES, type Locale } from '../i18n/messages';
 import type { DoctorRoleResult, ModelCapability, RoleConfig, RolesConfigResponse } from '../types/graph';
 import { flagship_4tier } from './presets/flagship_4tier';
 
 const installHints = new Map([
   ['claude_sub', 'Install the Claude CLI and run `claude auth login`.'],
   ['codex_sub', 'Install the Codex CLI and run `codex login`.'],
-  ['dsh_opencode', 'Install the DeepSeek Harness CLI and set OPENCODE_API_KEY.'],
   ['dsh_deepseek', 'Install the DeepSeek Harness CLI and set DEEPSEEK_API_KEY.'],
 ]);
 
-export function demoProviderHealth(provider: string): Omit<DoctorRoleResult, 'latency_ms'> {
+export function demoProviderHealth(provider: string, locale: Locale = 'en'): Omit<DoctorRoleResult, 'latency_ms'> {
   if (provider === 'host_native') {
     return { provider, ok: true, detail: 'Ready in standalone demo.', install_hint: '' };
   }
   if (!provider) {
     return { provider, ok: false, detail: 'Select a configured provider or role.', install_hint: '' };
   }
+  const install_hint = provider === 'dsh_opencode'
+    ? MESSAGES[locale].nodeReadiness.dshInstallHint
+    : (installHints.get(provider) ?? 'Check the provider CLI installation and PATH.');
   return {
     provider,
     ok: false,
     detail: 'Missing in standalone demo.',
-    install_hint: installHints.get(provider) ?? 'Check the provider CLI installation and PATH.',
+    install_hint,
   };
 }
 

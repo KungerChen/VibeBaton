@@ -50,7 +50,7 @@ function PricingDialog({ client, onClose, pendingChange }: PricingDialogProps) {
   const [catalog, setCatalog] = useState<PricingStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [operation, setOperation] = useState<'sync' | 'write' | null>(null);
-  const [feedback, setFeedback] = useState<'syncFailed' | 'saved' | null>(null);
+  const [feedback, setFeedback] = useState<'syncFailed' | 'saved' | 'saveFailed' | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const validationId = useId();
   const syncing = operation === 'sync';
@@ -126,7 +126,7 @@ function PricingDialog({ client, onClose, pendingChange }: PricingDialogProps) {
         setDraft((current) => current?.model === model ? null : current);
         setFeedback('saved');
       } catch {
-        // Keep the current rates and draft available for retry.
+        setFeedback('saveFailed');
       }
     });
   }
@@ -181,6 +181,7 @@ function PricingDialog({ client, onClose, pendingChange }: PricingDialogProps) {
           </Button>
         </div>
         {feedback === 'syncFailed' && <p className="pricing-modal__error" role="alert">{copy.syncFailed}</p>}
+        {feedback === 'saveFailed' && <p className="pricing-modal__error" role="alert">{copy.saveFailed}</p>}
         {feedback === 'saved' && <Badge variant="success" role="status" className="pricing-modal__saved">{copy.saved}</Badge>}
 
         {!loading && catalog && (

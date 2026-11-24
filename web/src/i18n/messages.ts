@@ -31,6 +31,8 @@ export interface Messages {
     soundPreview: string;
     soundOn: string;
     soundOff: string;
+    modeLive: string;
+    modeReplay: string;
   };
   tabs: {
     ariaLabel: string;
@@ -100,6 +102,8 @@ export interface Messages {
       copyLink: string;
       copied: string;
       previewToggle: string;
+      counts(nodes: number, edges: number): string;
+      manualCopyHint: string;
     };
     exportCaseModal: {
       title: string;
@@ -117,6 +121,8 @@ export interface Messages {
       notClean: string;
       download: string;
       copyJson: string;
+      copied: string;
+      defaultTitle: string;
       previewReplay: string;
       loading: string;
       error: string;
@@ -165,8 +171,12 @@ export interface Messages {
     scenarios: Record<Scenario, string>;
     replayButton: string;
     replayTitle: string;
+    exitReplay: string;
+    backToBlueprint: string;
+    liveBanner(runId: string): string;
     play: string;
     pause: string;
+    stepBack: string;
     stepForward: string;
     reset: string;
     speedAria(speed: number): string;
@@ -185,6 +195,8 @@ export interface Messages {
     detailsDescription: string;
     detailsNodes: string;
     detailsEdges: string;
+    emptyHint: string;
+    openTraceLive: string;
     nodeHeadingPrefix: string;
     edgeHeadingPrefix: string;
     fields: {
@@ -197,6 +209,7 @@ export interface Messages {
       targetHandle: string;
     };
     saveHotReload: string;
+    canvasImmediateNote: string;
     demoHotSwapHintPrefix: string;
     demoHotSwapHintSuffix: string;
     traceTitle: string;
@@ -205,6 +218,8 @@ export interface Messages {
     liveSectionAria: string;
     liveTitle: string;
     reconnecting: string;
+    runSyncing: string;
+    runSyncFailed: string;
     runHistoryLabel: string;
     runHistoryOption(id: string, status: string, passed: number, total: number, elapsed: string): string;
     stageTimingTitle: string;
@@ -254,11 +269,13 @@ export interface Messages {
     };
     noEvents: string;
     originalNote: string;
+    planningStageLabel: string;
     modalStartTitle: string;
     modalReportTitle: string;
     reportRendered: string;
     reportRaw: string;
     reportCopy: string;
+    copiedInline: string;
     rfcSourceLegend: string;
     rfcMarkdownOption: string;
     rfcRepoPathOption: string;
@@ -273,6 +290,7 @@ export interface Messages {
     cancel: string;
     startRun: string;
     startingRun: string;
+    startTimeoutError: string;
     errors: {
       enterRfcMarkdown: string;
       enterRelativePath: string;
@@ -386,13 +404,16 @@ export interface Messages {
     resetToOfficial: string;
     invalidNumber: string;
     saved: string;
+    saveFailed: string;
     close: string;
   };
   nodeReadiness: {
     statuses: Record<'ready' | 'cooldown' | 'missing', string>;
     doctorButton: string;
+    doctorTimeout: string;
     latency(milliseconds: number): string;
     installHint: string;
+    dshInstallHint: string;
     pinModelOverride: string;
   };
   credentials: {
@@ -467,6 +488,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       soundPreview: 'Preview',
       soundOn: 'On',
       soundOff: 'Off',
+      modeLive: 'Live',
+      modeReplay: 'Replay',
     },
     tabs: {
       ariaLabel: 'Workspace views',
@@ -551,6 +574,8 @@ export const MESSAGES: Record<Locale, Messages> = {
         copyLink: 'Copy Recipe Link',
         copied: 'Copied to clipboard',
         previewToggle: 'JSON preview',
+        counts: (nodes, edges) => `${nodes} ${nodes === 1 ? 'node' : 'nodes'} · ${edges} ${edges === 1 ? 'edge' : 'edges'}`,
+        manualCopyHint: 'Copy the selected text below.',
       },
       exportCaseModal: {
         title: 'Export Run Case',
@@ -568,6 +593,8 @@ export const MESSAGES: Record<Locale, Messages> = {
         notClean: 'Review redaction before sharing',
         download: 'Download .baton-case.json',
         copyJson: 'Copy Case JSON',
+        copied: 'Copied',
+        defaultTitle: 'Run replay',
         previewReplay: 'Preview in Replay Player',
         loading: 'Preparing run case...',
         error: 'Could not prepare the run case.',
@@ -647,8 +674,12 @@ export const MESSAGES: Record<Locale, Messages> = {
       },
       replayButton: 'Tutorial: Stage 1 (60×)',
       replayTitle: 'Replay real Stage 1 self-hosting run (run-20261121-044454-3b1845 · 107m @ 60×)',
+      exitReplay: 'Exit Replay',
+      backToBlueprint: 'Back to Blueprint',
+      liveBanner: (runId) => `Live Sync · ${runId}`,
       play: 'Play',
       pause: 'Pause',
+      stepBack: 'Step back',
       stepForward: 'Step forward',
       reset: 'Reset playback',
       speedAria: (speed) => `Playback speed ${speed}x`,
@@ -675,6 +706,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       detailsDescription: 'Description',
       detailsNodes: 'Nodes',
       detailsEdges: 'Edges',
+      emptyHint: 'Click any node or edge on the canvas to inspect or hot-swap its model.',
+      openTraceLive: 'Open Trace & Live Run',
       nodeHeadingPrefix: 'Node',
       edgeHeadingPrefix: 'Edge',
       fields: {
@@ -687,6 +720,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         targetHandle: 'Target Handle',
       },
       saveHotReload: 'Save to baton.toml (Hot-Reload)',
+      canvasImmediateNote: 'Field edits update the canvas recipe immediately. Saving writes global role defaults to baton.toml.',
       demoHotSwapHintPrefix: 'Run ',
       demoHotSwapHintSuffix: ' locally to hot-swap models',
       traceTitle: 'Trace',
@@ -695,6 +729,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       liveSectionAria: 'Live run',
       liveTitle: 'Live Run',
       reconnecting: 'reconnecting…',
+      runSyncing: 'Loading selected run…',
+      runSyncFailed: 'Selected run failed to load. Refresh or choose another run.',
       runHistoryLabel: 'Run History',
       runHistoryOption: (id, status, passed, total, elapsed) => `${id} · ${status} (${passed}/${total} · ${elapsed})`,
       stageTimingTitle: 'Stage Timing',
@@ -735,22 +771,24 @@ export const MESSAGES: Record<Locale, Messages> = {
       noTasks: 'No tasks yet.',
       noRuns: 'No runs yet.',
       runStatuses: {
-        PLANNING: 'PLANNING',
-        IN_PROGRESS: 'IN_PROGRESS',
-        REVIEWING: 'REVIEWING',
-        RUNNING: 'RUNNING',
-        PAUSED: 'PAUSED',
-        WAITING_HUMAN: 'WAITING_HUMAN',
-        READY_FOR_FINAL_GATE: 'READY_FOR_FINAL_GATE',
-        COMPLETED: 'COMPLETED',
-        FAILED: 'FAILED',
-        HALTED: 'HALTED',
-        PASSED: 'PASSED',
-        PENDING: 'PENDING',
-        REJECTED: 'REJECTED',
-        CANCELLED: 'CANCELLED',
-        ESCALATED: 'ESCALATED',
-        UNKNOWN: 'UNKNOWN',
+        PLANNING: 'Planning',
+        IN_PROGRESS: 'In Progress',
+        REVIEWING: 'Reviewing',
+        GATE_CHECKING: 'Gate Checking',
+        COOLDOWN: 'Quota Cooldown',
+        RUNNING: 'Running',
+        PAUSED: 'Paused',
+        WAITING_HUMAN: 'Waiting for Human',
+        READY_FOR_FINAL_GATE: 'Ready for Final Gate',
+        COMPLETED: 'Completed',
+        FAILED: 'Failed',
+        HALTED: 'Halted',
+        PASSED: 'Passed',
+        PENDING: 'Pending',
+        REJECTED: 'Rejected',
+        CANCELLED: 'Cancelled',
+        ESCALATED: 'Escalated',
+        UNKNOWN: 'Unknown',
       },
       eventLogTitle: 'Event Log',
       eventLogAria: 'Run event log',
@@ -761,11 +799,13 @@ export const MESSAGES: Record<Locale, Messages> = {
       },
       noEvents: 'No events yet.',
       originalNote: 'Original note',
+      planningStageLabel: '01_PLAN',
       modalStartTitle: 'Start Real Run',
       modalReportTitle: 'Battle Report',
       reportRendered: 'Rendered',
       reportRaw: 'Raw Markdown',
       reportCopy: 'Copy Markdown',
+      copiedInline: 'Copied',
       rfcSourceLegend: 'RFC source',
       rfcMarkdownOption: 'RFC markdown',
       rfcRepoPathOption: 'Repo path',
@@ -780,6 +820,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       cancel: 'Cancel',
       startRun: 'Start Run',
       startingRun: 'Starting…',
+      startTimeoutError: 'Start request timed out — close this dialog and check the Live Run panel to see if the run started.',
       errors: {
         enterRfcMarkdown: 'Enter RFC markdown.',
         enterRelativePath: 'Enter a path relative to the repository.',
@@ -866,7 +907,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       shortcutsTitle: 'Shortcuts & Tips',
       shortcuts: [
         { keys: 'Space', desc: 'Play or pause simulation playback' },
-        { keys: '→', desc: 'Advance playback one step forward' },
+        { keys: '← / →', desc: 'Step backward or forward one frame' },
         { keys: 'Delete / Backspace', desc: 'Remove selected canvas node or edge' },
       ],
       dontShowAgain: "Don't show automatically on startup",
@@ -995,13 +1036,16 @@ export const MESSAGES: Record<Locale, Messages> = {
       resetToOfficial: 'Reset to Official',
       invalidNumber: 'Enter a finite, non-negative number.',
       saved: 'Prices saved',
+      saveFailed: 'Could not save custom prices',
       close: 'Close',
     },
     nodeReadiness: {
       statuses: { ready: 'Ready', cooldown: 'Cooldown', missing: 'Missing' },
       doctorButton: '5s Doctor',
+      doctorTimeout: 'Probe timed out after 5 seconds.',
       latency: (milliseconds) => `${milliseconds} ms latency`,
       installHint: 'Setup Hint',
+      dshInstallHint: 'Install the DeepSeek Harness CLI and configure your DSH Gateway Key.',
       pinModelOverride: 'Pin model override',
     },
     credentials: {
@@ -1083,6 +1127,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       soundPreview: '试听',
       soundOn: '已开启',
       soundOff: '默认关闭',
+      modeLive: '实时运行',
+      modeReplay: '案例回放',
     },
     tabs: {
       ariaLabel: '工作区视图',
@@ -1122,7 +1168,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       liveRunActiveBadge: '实时同步',
     },
     transfer: {
-      sectionTitle: '配方与案例分享',
+      sectionTitle: '工作流配方与案例分享',
       sectionSubtitle: '配方（.baton.json）保存工作流，运行案例（.baton-case.json）用于回放运行记录。',
       recipeBadge: '配方',
       caseBadge: '运行案例',
@@ -1167,6 +1213,8 @@ export const MESSAGES: Record<Locale, Messages> = {
         copyLink: '复制配方链接',
         copied: '已复制到剪贴板',
         previewToggle: '预览 JSON',
+        counts: (nodes, edges) => `${nodes} 个节点 · ${edges} 条连线`,
+        manualCopyHint: '请手动复制下方内容。',
       },
       exportCaseModal: {
         title: '导出运行案例',
@@ -1184,6 +1232,8 @@ export const MESSAGES: Record<Locale, Messages> = {
         notClean: '分享前请检查脱敏结果',
         download: '下载 .baton-case.json',
         copyJson: '复制案例 JSON',
+        copied: '已复制',
+        defaultTitle: '运行回放',
         previewReplay: '在播放器中预览',
         loading: '正在生成运行案例…',
         error: '生成运行案例失败。',
@@ -1263,8 +1313,12 @@ export const MESSAGES: Record<Locale, Messages> = {
       },
       replayButton: '示范教程：一期真跑',
       replayTitle: '回放真实一期自举记录（run-20261121-044454-3b1845 · 107 分钟 @ 60×）',
+      exitReplay: '退出回放',
+      backToBlueprint: '返回工作流蓝图',
+      liveBanner: (runId) => `实时同步 · ${runId}`,
       play: '播放',
       pause: '暂停',
+      stepBack: '单步后退',
       stepForward: '单步前进',
       reset: '重置回放',
       speedAria: (speed) => `回放倍速 ${speed}x`,
@@ -1291,6 +1345,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       detailsDescription: '说明',
       detailsNodes: '节点数',
       detailsEdges: '连线数',
+      emptyHint: '点击画布上的任意节点或连线，即可查看属性或热切换模型。',
+      openTraceLive: '查看轨迹与实时运行',
       nodeHeadingPrefix: '节点',
       edgeHeadingPrefix: '连线',
       fields: {
@@ -1303,6 +1359,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         targetHandle: '目标端口',
       },
       saveHotReload: '保存到 baton.toml（热重载）',
+      canvasImmediateNote: '字段修改会立即更新画布配方；保存则将全局角色默认配置写入 baton.toml。',
       demoHotSwapHintPrefix: '本地运行 ',
       demoHotSwapHintSuffix: ' 即可实时热切换模型',
       traceTitle: '执行轨迹',
@@ -1311,11 +1368,13 @@ export const MESSAGES: Record<Locale, Messages> = {
       liveSectionAria: '实时运行',
       liveTitle: '实时运行',
       reconnecting: '重连中…',
+      runSyncing: '正在加载选中运行…',
+      runSyncFailed: '选中运行加载失败，请刷新或切换其他运行。',
       runHistoryLabel: '历史运行切换',
       runHistoryOption: (id, status, passed, total, elapsed) => `${id} · ${status}（${passed}/${total} 任务 · ${elapsed}）`,
       stageTimingTitle: '阶段耗时明细',
       modelRuntimeTitle: '模型运行统计',
-      billingTitle: '令牌用量与费用',
+      billingTitle: 'Token 用量与费用',
       billingTotalCost: (usd) => `总费用 ${usd}`,
       billingTokens: (prompt, completion, cached) => `输入 ${prompt} · 输出 ${completion} · 缓存 ${cached}`,
       billingPerModel: (prompt, completion) => `输入 ${prompt} · 输出 ${completion}`,
@@ -1354,6 +1413,8 @@ export const MESSAGES: Record<Locale, Messages> = {
         PLANNING: '规划中',
         IN_PROGRESS: '进行中',
         REVIEWING: '审校中',
+        GATE_CHECKING: '门禁检查中',
+        COOLDOWN: '配额冷却中',
         RUNNING: '运行中',
         PAUSED: '已暂停',
         WAITING_HUMAN: '等待人工审批',
@@ -1377,11 +1438,13 @@ export const MESSAGES: Record<Locale, Messages> = {
       },
       noEvents: '暂无事件。',
       originalNote: '查看原文',
+      planningStageLabel: '01_PLAN · 规划',
       modalStartTitle: '启动真实运行',
       modalReportTitle: '战报详情',
       reportRendered: '渲染视图',
       reportRaw: '原始 Markdown',
       reportCopy: '复制 Markdown',
+      copiedInline: '已复制',
       rfcSourceLegend: 'RFC 来源',
       rfcMarkdownOption: 'RFC Markdown 文本',
       rfcRepoPathOption: '仓库路径',
@@ -1396,6 +1459,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       cancel: '取消',
       startRun: '立即启动',
       startingRun: '启动中…',
+      startTimeoutError: '启动请求超时 —— 请关闭弹窗并在右侧「实时运行」中确认是否已创建运行。',
       errors: {
         enterRfcMarkdown: '请输入 RFC Markdown 内容。',
         enterRelativePath: '请输入相对于仓库根目录的路径。',
@@ -1482,7 +1546,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       shortcutsTitle: '常用快捷键',
       shortcuts: [
         { keys: 'Space', desc: '播放或暂停当前工作流动画回放' },
-        { keys: '→', desc: '单步前进一帧轨迹事件' },
+        { keys: '← / →', desc: '单步后退或前进一帧轨迹事件' },
         { keys: 'Delete / Backspace', desc: '删除当前选中的节点或连线' },
       ],
       dontShowAgain: '下次打开不再自动弹出',
@@ -1601,7 +1665,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         output: '输出',
         actions: '操作',
       },
-      unit: '美元 / 百万词元',
+      unit: '美元 / 百万 Token',
       sourceCustom: '自定义',
       sourceOfficialCache: '官方缓存',
       sourceBuiltin: '内置官方价',
@@ -1611,13 +1675,16 @@ export const MESSAGES: Record<Locale, Messages> = {
       resetToOfficial: '恢复官方价',
       invalidNumber: '请输入有限的非负数。',
       saved: '单价已保存',
+      saveFailed: '保存自定义单价失败',
       close: '关闭',
     },
     nodeReadiness: {
       statuses: { ready: '就绪', cooldown: '冷却中', missing: '缺失' },
       doctorButton: '5 秒诊断',
+      doctorTimeout: '探测在 5 秒后超时。',
       latency: (milliseconds) => `延迟 ${milliseconds} 毫秒`,
       installHint: '配置提示',
+      dshInstallHint: '请安装 DeepSeek Harness CLI 并配置 DSH 网关密钥。',
       pinModelOverride: '固定模型覆盖设置',
     },
     credentials: {

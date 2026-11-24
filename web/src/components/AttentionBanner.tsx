@@ -29,6 +29,7 @@ export interface AttentionBannerProps {
   locale: Locale;
   notificationPermission: NotificationPermission | 'unsupported';
   busy?: boolean;
+  controlsDisabled?: boolean;
   onApprove: () => void;
   onReject: (note: string) => void;
   onResume: () => void;
@@ -43,6 +44,7 @@ export function AttentionBanner({
   locale,
   notificationPermission,
   busy = false,
+  controlsDisabled = false,
   onApprove,
   onReject,
   onResume,
@@ -59,9 +61,16 @@ export function AttentionBanner({
   const title = copy[ATTENTION_TITLE_KEYS[alert.category]];
   const detail = alert.message.trim() || copy.fallbackDetails[alert.category];
   const actions = attentionActionsFor(alert.category);
+  const actionsDisabled = busy || controlsDisabled;
 
   function submitReject() {
+    if (actionsDisabled) return;
     onReject(note.trim());
+    setRejectOpen(false);
+    setNote('');
+  }
+
+  function cancelReject() {
     setRejectOpen(false);
     setNote('');
   }
@@ -90,7 +99,7 @@ export function AttentionBanner({
 
       <div className="attention-banner__actions">
         {actions.includes('approve') && (
-          <Button variant="default" size="sm" disabled={busy} onClick={onApprove}>
+          <Button variant="default" size="sm" disabled={actionsDisabled} onClick={onApprove}>
             {copy.approve}
           </Button>
         )}
@@ -99,7 +108,7 @@ export function AttentionBanner({
           <Button
             variant="destructive"
             size="sm"
-            disabled={busy}
+            disabled={actionsDisabled}
             onClick={() => setRejectOpen(true)}
           >
             {copy.reject}
@@ -107,23 +116,39 @@ export function AttentionBanner({
         )}
 
         {actions.includes('reject') && rejectOpen && (
-          <div className="attention-banner__reject">
+          <form
+            className="attention-banner__reject"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitReject();
+            }}
+          >
             <Input
+              autoFocus
               className="attention-banner__note"
               value={note}
               placeholder={copy.rejectNotePlaceholder}
               aria-label={copy.rejectNotePlaceholder}
-              disabled={busy}
+              disabled={actionsDisabled}
               onChange={(event) => setNote(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  cancelReject();
+                }
+              }}
             />
-            <Button variant="destructive" size="sm" disabled={busy} onClick={submitReject}>
+            <Button type="submit" variant="destructive" size="sm" disabled={actionsDisabled}>
               {copy.reject}
             </Button>
-          </div>
+            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={cancelReject}>
+              {MESSAGES[locale].inspector.cancel}
+            </Button>
+          </form>
         )}
 
         {actions.includes('resume') && (
-          <Button variant="default" size="sm" disabled={busy} onClick={onResume}>
+          <Button variant="default" size="sm" disabled={actionsDisabled} onClick={onResume}>
             {copy.resume}
           </Button>
         )}

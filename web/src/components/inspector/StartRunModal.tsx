@@ -1,6 +1,7 @@
 import './StartRunModal.css';
 import { ArrowLeft, ArrowRight, Check, Play, ShieldCheck } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { ApiError } from '../../api/client';
 import { useI18n } from '../../i18n';
 import { formatProviderDisplay, translateRole } from '../../i18n/presets';
 import type { RolesConfigResponse } from '../../types/graph';
@@ -17,7 +18,7 @@ import { RfcStep, useRfcDraft } from './wizard/RfcStep';
 
 type StartRunModalProps = Pick<RightInspectorProps, 'client' | 'onToast'> & {
   onClose(): void;
-  onStarted(): void;
+  onStarted(runId?: string): void;
 };
 
 type StartPayload = Parameters<RightInspectorProps['client']['startRun']>[0];
@@ -43,7 +44,7 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
   const [mode, setMode] = useState<NonNullable<StartPayload['mode']>>('overnight');
   const [overrides, setOverrides] = useState('');
   const [overridesError, setOverridesError] = useState<string>();
-  const [startError, setStartError] = useState(false);
+  const [startError, setStartError] = useState<{ kind: 'timeout' | 'error'; detail?: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const rfc = useRfcDraft(client, step === 'brainstorm');
   const id = useId();
@@ -72,7 +73,7 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
 
   function move(direction: 'back' | 'next') {
     rfc.dismissSkipWarning();
-    setStartError(false);
+    setStartError(null);
     setStep((current) => getWizardStep(current, direction));
   }
 
@@ -80,7 +81,7 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
     event.preventDefault();
     if (submitting || blankRfc) return;
     setOverridesError(undefined);
-    setStartError(false);
+    setStartError(null);
 
     let modelOverrides: StartPayload['model_overrides'];
     try {
@@ -101,10 +102,17 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
       });
       onToast(toasts.runStarted(run_id, daemon_pid), 'ok');
       onClose();
-      onStarted();
+      onStarted(run_id);
     } catch (error) {
-      setStartError(true);
-      onToast(error instanceof Error ? error.message : String(error), 'err');
+      const isTimeout = (error instanceof ApiError && error.status === 408)
+        || (error instanceof Error && error.name === 'AbortError');
+      if (isTimeout) {
+        setStartError({ kind: 'timeout' });
+      } else {
+        const detail = error instanceof Error ? error.message : String(error);
+        setStartError({ kind: 'error', detail });
+        onToast(detail, 'err');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -173,7 +181,15 @@ export function StartRunModal({ client, onToast, onClose, onStarted }: StartRunM
                       )}
                     </div>
                     {blankRfc && <p className="start-run-wizard__error" role="alert">{inspector.errors.enterRfcMarkdown}</p>}
-                    {startError && <p className="start-run-wizard__error" role="alert">{copy.startError}</p>}
+                    {startError && (
+                      <p className="start-run-wizard__error" role="alert">
+                        {startError.kind === 'timeout'
+                          ? inspector.startTimeoutError
+                          : startError.detail
+                            ? `${copy.startError} (${startError.detail})`
+                            : copy.startError}
+                      </p>
+                    )}
                   </form>
                 </CardContent>
               </Card>
