@@ -149,8 +149,10 @@ class WebServerTestCase(unittest.TestCase):
                 body = raw
             return response.status, headers, body
 
+    DEV_ORIGIN = "http://localhost:5173"  # the Vite dev frontend; the only cross-origin caller allowed
+
     def get(self, path: str) -> tuple[int, HTTPMessage, Any]:
-        return self._request(Request(self.base + path))
+        return self._request(Request(self.base + path, headers={"Origin": self.DEV_ORIGIN}))
 
     def send_json(
         self, path: str, payload: dict[str, Any], method: str = "POST"
@@ -163,7 +165,7 @@ class WebServerTestCase(unittest.TestCase):
         request = Request(
             self.base + path,
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Origin": self.DEV_ORIGIN},
             method=method,
         )
         return self._request(request)
@@ -174,7 +176,7 @@ class TestWebApi(WebServerTestCase):
         status, headers, body = self.get("/api/health")
         self.assertEqual(status, 200)
         self.assertEqual(headers.get_content_type(), "application/json")
-        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+        self.assertEqual(headers["Access-Control-Allow-Origin"], self.DEV_ORIGIN)
         self.assertEqual(
             set(body),
             {"status", "mode", "version", "repo", "config_path", "providers", "quotas", "roles"},
@@ -413,7 +415,7 @@ class TestWebApi(WebServerTestCase):
             )
         )
         self.assertEqual(status, 204)
-        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+        self.assertEqual(headers["Access-Control-Allow-Origin"], self.DEV_ORIGIN)
         self.assertEqual(headers["Access-Control-Allow-Methods"], "GET, POST, PUT, OPTIONS")
         self.assertEqual(headers["Access-Control-Allow-Headers"], "Content-Type")
         self.assertEqual(body, b"")
@@ -517,7 +519,7 @@ class TestRoleConfigApi(WebServerTestCase):
     def test_reads_providers_and_roles_from_current_config(self) -> None:
         status, headers, body = self.get("/api/config/roles")
         self.assertEqual(status, 200)
-        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+        self.assertEqual(headers["Access-Control-Allow-Origin"], self.DEV_ORIGIN)
         self.assertEqual(set(body), {"config_path", "providers", "roles", "budget_profile", "model_catalog"})
         self.assertEqual(body["config_path"], str(self.config_path))
         self.assertEqual(set(body["providers"]["codex_sub"]), {"max_concurrency", "command"})
@@ -648,7 +650,7 @@ class TestBudgetConfigApi(WebServerTestCase):
         )
 
         self.assertEqual(status, 200)
-        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+        self.assertEqual(headers["Access-Control-Allow-Origin"], self.DEV_ORIGIN)
         self.assertEqual(set(result), {"budget_profile", "model_catalog"})
         self.assertEqual(result["budget_profile"], "max_quality")
         self.assertEqual(self.config_path.read_bytes(), source.replace(
@@ -737,7 +739,7 @@ class TestCredentialsApi(WebServerTestCase):
         status, headers, result = self.get("/api/credentials")
 
         self.assertEqual(status, 200)
-        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+        self.assertEqual(headers["Access-Control-Allow-Origin"], self.DEV_ORIGIN)
         self.assertEqual(result, [
             {"provider_key": key, "configured": False, "source": "none", "masked": ""}
             for key in credentials.SUPPORTED_KEYS
@@ -1121,7 +1123,7 @@ class TestRunApi(WebServerTestCase):
         self.assertEqual(headers.get_content_type(), "text/event-stream")
         self.assertEqual(headers["Cache-Control"], "no-cache")
         self.assertEqual(headers["Connection"], "keep-alive")
-        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+        self.assertEqual(headers["Access-Control-Allow-Origin"], self.DEV_ORIGIN)
         event, data, *ending = body.split("\n")
         self.assertEqual(event, "event: snapshot")
         self.assertTrue(data.startswith("data: "))

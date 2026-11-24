@@ -8,6 +8,8 @@ import mimetypes
 import os
 import re
 import shutil
+import sqlite3
+import subprocess
 import tempfile
 import threading
 import time
@@ -22,7 +24,8 @@ from time import monotonic
 from typing import Any, Callable, Iterable, Mapping, Protocol, TypedDict
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, case_export, credentials, presets, pricing
+from . import __version__, case_export, cli_registry, credentials, presets, pricing
+from .brainstorm import RFC_RELATIVE_PATH, brainstorm_turn, confirm_blueprint
 from .config import (
     ALLOWED_BUDGET_PROFILES,
     BatonConfig,
@@ -32,6 +35,14 @@ from .config import (
     find_config_path,
 )
 from .db import StateStore
+from .git_ops import (
+    GitError,
+    backup_tag_name,
+    create_backup_tag,
+    merge_branch_into,
+    reset_branch_to,
+    uncommitted_paths,
+)
 from .graph_engine import SCENARIOS, simulate_graph
 from .graph_schema import GraphValidationResult, WorkflowGraph, validate_graph
 from .mcp_server import _spawn_detached_daemon
@@ -58,15 +69,26 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(r"/api/credentials"), "_post_credentials"),
     ("POST", re.compile(r"/api/rfc/check"), "_post_rfc_check"),
     ("POST", re.compile(r"/api/rfc/brainstorm"), "_post_rfc_brainstorm"),
+    ("GET", re.compile(r"/api/cli-registry"), "_get_cli_registry"),
+    ("POST", re.compile(r"/api/cli-registry/scan"), "_post_cli_registry_scan"),
+    ("POST", re.compile(r"/api/cli-registry/install"), "_post_cli_registry_install"),
+    ("POST", re.compile(r"/api/cli-registry/login"), "_post_cli_registry_login"),
+    ("GET", re.compile(r"/api/workspace/info"), "_get_workspace_info"),
+    ("POST", re.compile(r"/api/workspace/select"), "_post_workspace_select"),
+    ("POST", re.compile(r"/api/workspace/init-git"), "_post_workspace_init_git"),
+    ("POST", re.compile(r"/api/brainstorm/chat"), "_post_brainstorm_chat"),
+    ("POST", re.compile(r"/api/brainstorm/confirm"), "_post_brainstorm_confirm"),
     ("GET", re.compile(r"/api/runs"), "_get_runs"),
     ("GET", re.compile(r"/api/runs/latest"), "_get_latest_run"),
     ("GET", re.compile(r"/api/runs/stream"), "_get_run_stream"),
     ("GET", re.compile(r"/api/runs/([^/]+)/report"), "_get_run_report"),
     ("GET", re.compile(r"/api/runs/([^/]+)/case-export"), "_get_run_case_export"),
+    ("GET", re.compile(r"/api/runs/([^/]+)/tasks/([^/]+)"), "_get_run_task"),
     ("GET", re.compile(r"/api/runs/([^/]+)"), "_get_run"),
     ("POST", re.compile(r"/api/runs/start"), "_post_run_start"),
     ("POST", re.compile(r"/api/runs/([^/]+)/control"), "_post_run_control"),
     ("POST", re.compile(r"/api/runs/([^/]+)/resolve"), "_post_run_resolve"),
+    ("POST", re.compile(r"/api/runs/([^/]+)/finalize"), "_post_run_finalize"),
 ]
 
 _TOML_STRING_KEY_LINE = re.compile(
@@ -100,6 +122,28 @@ then reload this page.</p>
 
 class _BadRequest(ValueError):
     """A request error serialized by the dispatcher as a JSON 400."""
+
+
+class _UnsupportedMediaType(_BadRequest):
+    """A request body that is not declared as JSON; serialized as a JSON 415."""
+
+
+_LOOPBACK_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _is_loopback_hostname(hostname: str | None) -> bool:
+    return hostname is not None and hostname.lower().rstrip(".") in _LOOPBACK_HOSTNAMES
+
+
+def _allowed_origin(origin: str | None) -> bool:
+    """Only browser pages served from a loopback origin (same server or a local dev server) may call the API."""
+    if not origin:
+        return False
+    try:
+        parts = urlsplit(origin)
+        return parts.scheme in {"http", "https"} and _is_loopback_hostname(parts.hostname)
+    except ValueError:
+        return False
 
 
 class _ProviderProbe(Protocol):
@@ -194,6 +238,62 @@ def _text_field(payload: Mapping[str, Any], key: str, *, default: str | None = N
         expected = "a non-empty string" if default is None else "a string"
         raise _BadRequest(f"{key} must be {expected}")
     return value
+
+
+_GIT_TIMEOUT_SEC = 30.0
+# Client-supplied command fields are never executed; they are only logged as ignored.
+_IGNORED_INSTALL_FIELDS = ("argv", "command", "install_cmd")
+
+
+def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
+    """Run git in ``repo``; ``None`` when git itself cannot be started."""
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], shell=False, stdin=subprocess.DEVNULL, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", timeout=_GIT_TIMEOUT_SEC, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _git_stdout(repo: Path, *args: str) -> str:
+    """Run git in ``repo`` and return stdout, raising GitError on any failure."""
+    result = _git(repo, *args)
+    if result is None or result.returncode != 0:
+        detail = "git could not be started" if result is None else (result.stderr or result.stdout).strip()
+        raise GitError(f"git {' '.join(args)} failed: {detail}")
+    return result.stdout
+
+
+def _workspace_info(repo: Path) -> dict[str, Any]:
+    inside = _git(repo, "rev-parse", "--is-inside-work-tree")
+    is_git = inside is not None and inside.returncode == 0 and inside.stdout.strip() == "true"
+    branch = None
+    has_commits = False
+    if is_git:
+        head = _git(repo, "symbolic-ref", "--short", "-q", "HEAD")  # also names an unborn branch
+        if head is not None and head.returncode == 0:
+            branch = head.stdout.strip() or None
+        verify = _git(repo, "rev-parse", "-q", "--verify", "HEAD")
+        has_commits = verify is not None and verify.returncode == 0
+    return {
+        "path": str(repo),
+        "is_git_repo": is_git,
+        "branch": branch,
+        "has_commits": has_commits,
+        "has_rfc": (repo / RFC_RELATIVE_PATH).is_file(),
+    }
+
+
+def _json_object(raw: object) -> dict[str, Any]:
+    """Decode a stored JSON column, treating anything but an object as empty."""
+    if isinstance(raw, dict):
+        return raw
+    try:
+        value = json.loads(raw) if isinstance(raw, str) and raw else {}
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def _validated_pricing_updates(updates: object) -> dict[str, dict[str, float] | None]:
@@ -343,6 +443,19 @@ def _latest_run_snapshot(store: StateStore) -> _RunSnapshot:
     return _run_snapshot(store, run["id"] if run is not None else None)
 
 
+_TASK_STATUS_PHRASES = {
+    "PENDING": "is waiting to start",
+    "RUNNING": "is being worked on",
+    "GATE_CHECKING": "is running its automated checks",
+    "REVIEWING": "is being reviewed",
+    "COOLDOWN": "is waiting for the model provider to cool down",
+    "WAITING_HUMAN": "needs your decision",
+    "PASSED": "is done and passed its checks",
+    "FAILED": "failed",
+    "SKIPPED": "was skipped",
+}
+
+
 def _resolve_rfc_path(repo: Path, supplied_path: str) -> Path:
     try:
         path = (repo / supplied_path).resolve()
@@ -425,9 +538,36 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
     server: _CanvasHTTPServer
 
     def _send_cors_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # Never a wildcard: only loopback origins may read responses or pass a preflight.
+        origin = self.headers.get("Origin")
+        if not _allowed_origin(origin):
+            return
+        self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def _host_allowed(self) -> bool:
+        """Reject DNS-rebinding requests whose Host is not loopback (or the explicitly bound host)."""
+        host = self.headers.get("Host")
+        if not host:
+            return False
+        try:
+            hostname = urlsplit("//" + host).hostname
+        except ValueError:
+            return False
+        if _is_loopback_hostname(hostname):
+            return True
+        bound = str(self.server.server_address[0]).lower()
+        return hostname is not None and bound not in {"", "0.0.0.0", "::"} and hostname.lower() == bound
+
+    def _forbidden_reason(self) -> str | None:
+        if not self._host_allowed():
+            return "Host header is not a loopback address"
+        origin = self.headers.get("Origin")
+        if self.command in {"POST", "PUT", "OPTIONS"} and origin is not None and not _allowed_origin(origin):
+            return "Cross-origin requests are not allowed"
+        return None
 
     def _send_bytes(self, status: int, content_type: str, body: bytes, *, cors: bool = False) -> None:
         self.send_response(status)
@@ -458,6 +598,9 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             if optional:
                 return {}
             raise _BadRequest("A JSON request body is required")
+        # Requiring application/json forces a CORS preflight for any browser-originated request.
+        if self.headers.get_content_type() != "application/json":
+            raise _UnsupportedMediaType("Content-Type must be application/json")
 
         body = bytearray()
         while len(body) < length:
@@ -476,11 +619,19 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         return payload
 
     def do_OPTIONS(self) -> None:
+        reason = self._forbidden_reason()
+        if reason is not None:
+            self._send_json(403, {"error": reason})
+            return
         self.send_response(204)
         self._send_cors_headers()
         self.end_headers()
 
     def _dispatch(self) -> None:
+        reason = self._forbidden_reason()
+        if reason is not None:
+            self._send_json(403, {"error": reason})
+            return
         try:
             raw_path = urlsplit(self.path).path
         except ValueError:
@@ -494,6 +645,8 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             if match is not None:
                 try:
                     getattr(self, handler_name)(*match.groups())
+                except _UnsupportedMediaType as exc:
+                    self._send_json(415, {"error": str(exc)})
                 except _BadRequest as exc:
                     self._send_json(400, {"error": str(exc)})
                 return
@@ -583,6 +736,8 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             else:
                 raise _BadRequest("Provide a graph object or a graph_json string")
             validation = validate_graph(WorkflowGraph.from_dict(graph_data))
+        except _UnsupportedMediaType:
+            raise
         except (ValueError, RecursionError) as exc:
             validation = GraphValidationResult(
                 valid=False, errors=[str(exc)], warnings=[], entry_nodes=[], has_cycles=False
@@ -811,6 +966,140 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             acceptance_cmd=_text_field(payload, "acceptance_cmd", default=""),
             non_goals=_text_field(payload, "non_goals", default=""),
         )
+        self._send_json(200, result)
+
+    def _get_cli_registry(self) -> None:
+        try:
+            registry = cli_registry.load_cli_registry()
+        except (OSError, ValueError) as exc:
+            self._send_json(500, {"error": f"CLI registry could not be loaded: {exc}"})
+            return
+        self._send_json(200, registry)
+
+    def _post_cli_registry_scan(self) -> None:
+        payload = self._read_json_body(optional=True)
+        repo = self.server.repo_path
+        if "repo_path" in payload:
+            repo = Path(_text_field(payload, "repo_path")).expanduser().resolve()
+            if not repo.is_dir():
+                raise _BadRequest("repo_path must be an existing directory")
+        with self.server.config_lock:
+            config = self.server.loader.current
+        scan = cli_registry.scan_host_clis(repo, config, self.server.credentials_path)
+        self._send_json(200, {"scan": scan, "lineup": cli_registry.build_recommended_lineup(scan, config)})
+
+    @staticmethod
+    def _cli_id(payload: Mapping[str, Any]) -> str:
+        # "id" is the contract field; "cli_id" is accepted as an alias.
+        return _text_field(payload, "cli_id" if "id" not in payload and "cli_id" in payload else "id")
+
+    def _post_cli_registry_install(self) -> None:
+        payload = self._read_json_body()
+        ignored = [key for key in _IGNORED_INSTALL_FIELDS if key in payload]
+        if ignored:
+            self.log_message("Ignoring client-supplied install fields %s; only registry recipes run", ignored)
+        if payload.get("confirmed") is not True:
+            raise _BadRequest("Installing a CLI requires confirmed: true")
+        cli_id = self._cli_id(payload)
+        try:
+            result = cli_registry.run_cli_install(cli_id, confirmed=True)
+        except KeyError:
+            self._send_json(404, {"error": f"Unknown CLI driver {cli_id!r}"})
+            return
+        except ValueError as exc:
+            self._send_json(500, {"error": str(exc)})
+            return
+        self._send_json(200, result)
+
+    def _post_cli_registry_login(self) -> None:
+        cli_id = self._cli_id(self._read_json_body())
+        try:
+            result = cli_registry.launch_cli_login(cli_id)
+        except KeyError:
+            self._send_json(404, {"error": f"Unknown CLI driver {cli_id!r}"})
+            return
+        except FileNotFoundError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
+        except OSError as exc:
+            self._send_json(500, {"error": f"Login could not be launched: {exc}"})
+            return
+        self._send_json(200, result)
+
+    def _get_workspace_info(self) -> None:
+        self._send_json(200, _workspace_info(self.server.repo_path))
+
+    def _post_workspace_select(self) -> None:
+        raw = _text_field(self._read_json_body(), "path")
+        if any(char in raw for char in "\0\r\n"):
+            raise _BadRequest("path must not contain NUL or newline characters")
+        candidate = Path(raw).expanduser()
+        if not candidate.is_absolute():
+            raise _BadRequest("path must be absolute")
+        try:
+            repo = candidate.resolve()
+            is_dir = repo.is_dir()
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise _BadRequest(f"path could not be resolved: {exc}") from exc
+        if not is_dir:
+            raise _BadRequest("path must be an existing directory")
+        with self.server.config_lock:
+            # Runs live in the workspace's own state DB, so the store follows the repo.
+            try:
+                store = StateStore(repo / self.server.loader.current.daemon.db_path)
+            except (OSError, sqlite3.Error) as exc:
+                raise _BadRequest(f"Workspace state could not be opened: {exc}") from exc
+            self.server.repo_path = repo
+            self.server.store = store
+        self._send_json(200, _workspace_info(repo))
+
+    def _post_workspace_init_git(self) -> None:
+        repo = self.server.repo_path
+        info = _workspace_info(repo)
+        if info["is_git_repo"]:
+            self._send_json(200, {**info, "created": False})
+            return
+        init = _git(repo, "init", "-b", "main")
+        if init is not None and init.returncode != 0:  # git < 2.28 has no -b
+            init = _git(repo, "init")
+            if init is not None and init.returncode == 0:
+                init = _git(repo, "symbolic-ref", "HEAD", "refs/heads/main")
+        if init is None or init.returncode != 0:
+            detail = "git is not available" if init is None else (init.stderr or init.stdout).strip()
+            self._send_json(500, {"error": f"git init failed: {detail}"})
+            return
+        if not any(entry.name not in {".git", ".baton"} for entry in repo.iterdir()):
+            # Empty tree: give main a root commit. Best effort; has_commits reports the outcome.
+            _git(repo, "commit", "--allow-empty", "-q", "-m", "chore: initialize repository")
+        self._send_json(200, {**_workspace_info(repo), "created": True})
+
+    def _post_brainstorm_chat(self) -> None:
+        payload = self._read_json_body()
+        scenario = payload.get("scenario")
+        if scenario is not None and not isinstance(scenario, str):
+            raise _BadRequest("scenario must be a string or null")
+        offline = payload.get("offline", False)
+        if not isinstance(offline, bool):
+            raise _BadRequest("offline must be a boolean")
+        config = None
+        if not offline:  # without a config brainstorm_turn uses the offline composer
+            with self.server.config_lock:
+                config = self.server.loader.current
+        try:
+            result = brainstorm_turn(self.server.repo_path, payload.get("messages"), scenario, config)
+        except ValueError as exc:
+            raise _BadRequest(str(exc)) from exc
+        self._send_json(200, result)
+
+    def _post_brainstorm_confirm(self) -> None:
+        markdown = _text_field(self._read_json_body(), "rfc_markdown")
+        try:
+            result = confirm_blueprint(self.server.repo_path, markdown)
+        except ValueError as exc:
+            raise _BadRequest(str(exc)) from exc
+        except OSError as exc:
+            self._send_json(500, {"error": f"RFC could not be written: {exc}"})
+            return
         self._send_json(200, result)
 
     def _get_runs(self) -> None:
@@ -1046,19 +1335,217 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             self._send_run_not_found(run_id)
             return
         payload = self._read_json_body()
-        decision = payload.get("decision")
+        # GuidedDecisionModal sends {task_id, choice, note}; the canvas sends {decision, note}.
+        guided = "choice" in payload or "task_id" in payload
+        decision = payload.get("choice" if guided else "decision")
         if decision not in ("approve", "reject"):
-            raise _BadRequest("decision must be approve or reject")
+            raise _BadRequest(f"{'choice' if guided else 'decision'} must be approve or reject")
         note = payload.get("note", "")
         if not isinstance(note, str):
             raise _BadRequest("note must be a string")
-        store.record_human_decision(run_id, decision, note)
+        task_id = payload.get("task_id")
+        if guided:
+            if not isinstance(task_id, str) or not task_id.strip():
+                raise _BadRequest("task_id must be a non-empty string")
+            if store.get_task(run_id, task_id) is None:
+                self._send_json(404, {"error": f"Unknown task {task_id!r} in run {run_id!r}"})
+                return
+        store.record_human_decision(run_id, decision, note, task_id=task_id if guided else None)
         pid = None
         if decision == "approve":
             pid = self._spawn_run_daemon(run_id, RunStatus.PAUSED)
             if pid is None:
                 return
+        if guided:
+            status = store.get_run(run_id)["status"]
+            self._send_json(200, {"ok": True, "run_id": run_id, "task_id": task_id, "status": status})
+            return
         self._send_json(200, {"run_id": run_id, "decision": decision, "daemon_pid": pid})
+
+    def _get_run_task(self, run_id: str, task_id: str) -> None:
+        store = self.server.store
+        if store.get_run(run_id) is None:
+            self._send_run_not_found(run_id)
+            return
+        task = store.get_task(run_id, task_id)
+        if task is None:
+            self._send_json(404, {"error": f"Unknown task {task_id!r} in run {run_id!r}"})
+            return
+        review = _json_object(task.get("last_review_json"))
+        spec = _json_object(task.get("spec_json"))
+        provider = model = None
+        cost = 0.0
+        changed: list[str] = []
+        # The mechanical gate runs before AI review, so reaching review means the gate passed.
+        test_status = "not_run" if spec.get("verify_cmd") else "not_configured"
+        for event in store.get_events(run_id, task_id=task_id, limit=-1):
+            if spec.get("verify_cmd"):
+                if event["kind"] == "mechanical_gate_caught":
+                    test_status = "failed"
+                elif event["kind"] in ("task_review_passed", "task_review_rejected", "task_passed"):
+                    test_status = "passed"
+            payload = _json_object(event.get("payload_json"))
+            if isinstance(payload.get("provider"), str):
+                provider = payload["provider"]
+            if isinstance(payload.get("model"), str):
+                model = payload["model"]
+            if isinstance(payload.get("cost_usd"), (int, float)) and not isinstance(payload["cost_usd"], bool):
+                cost += float(payload["cost_usd"])
+            files = payload.get("changed_files")
+            if isinstance(files, list):
+                changed = [str(item) for item in files]
+        verdict = review.get("verdict")
+        verdict = verdict if isinstance(verdict, str) else None
+        summary = f"“{task['title']}” {_TASK_STATUS_PHRASES.get(task['status'], 'is ' + task['status'].lower())}."
+        if verdict:
+            summary += f" Reviewer verdict: {verdict}."
+        if task["status"] == "FAILED" and task.get("last_error"):
+            summary += f" Last error: {str(task['last_error']).strip().splitlines()[0]}"
+        self._send_json(
+            200,
+            {
+                "run_id": run_id,
+                "task_id": task_id,
+                "milestone_id": task["milestone_id"],
+                "title": task["title"],
+                "tier": task["tier"],
+                "status": task["status"],
+                "summary": summary,
+                "attempts": int(task.get("attempts") or 0),
+                "test_status": test_status,
+                "provider": provider,
+                "model": model,
+                "elapsed_sec": float(task.get("duration_sec") or 0.0),
+                "cost_usd": round(cost, 6),
+                "changed_files": changed,
+                "review_verdict": verdict,
+            },
+        )
+
+    def _post_run_finalize(self, run_id: str) -> None:
+        store = self.server.store
+        run = store.get_run(run_id)
+        if run is None:
+            self._send_run_not_found(run_id)
+            return
+        payload = self._read_json_body()
+        action = payload.get("action")
+        if action not in ("approve", "revise", "rollback"):
+            raise _BadRequest("action must be approve, revise or rollback")
+        note = payload.get("note", "")
+        if not isinstance(note, str):
+            raise _BadRequest("note must be a string")
+        if action == "revise" and not note.strip():
+            raise _BadRequest("revise requires a non-empty note")
+        repo = self.server.repo_path
+        with self.server.config_lock:
+            daemon_cfg = self.server.loader.current.daemon
+        base_branch, dev_branch = daemon_cfg.base_branch, daemon_cfg.dev_branch
+        extra: dict[str, Any] = {}
+        backup_tag: str | None = None
+        try:
+            if action == "revise":
+                revisions = repo / ".baton" / "runs" / run_id / "revisions.md"
+                revisions.parent.mkdir(parents=True, exist_ok=True)
+                stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                with revisions.open("a", encoding="utf-8") as handle:
+                    handle.write(f"## Revision request {stamp}\n\n{note.strip()}\n\n")
+                store.record_human_decision(run_id, "revise", note)
+                status = RunStatus.PAUSED
+                extra["revisions_path"] = str(revisions)
+            elif action == "approve":
+                if run["status"] != RunStatus.READY_FOR_FINAL_GATE.value:
+                    self._send_json(409, {"error": f"Run is {run['status']}, not READY_FOR_FINAL_GATE"})
+                    return
+                dirty = uncommitted_paths(repo)
+                if dirty:
+                    self._send_json(409, {"error": f"Commit or stash uncommitted changes first: {', '.join(dirty)}"})
+                    return
+                backup_tag = create_backup_tag(repo, run_id, base_branch)
+                # The run-start tag may predate later base commits; rollback must return here instead.
+                pre_merge_head = _git_stdout(repo, "rev-parse", base_branch).strip()
+                # merge_branch_into needs a worktree on the base branch, which git refuses
+                # while the main checkout holds it; park the checkout on a detached HEAD meanwhile.
+                current = _git(repo, "symbolic-ref", "-q", "--short", "HEAD")
+                on_base = current is not None and current.returncode == 0 and current.stdout.strip() == base_branch
+                worktree_root = Path(daemon_cfg.worktree_root)
+                if not worktree_root.is_absolute():
+                    worktree_root = repo / worktree_root
+                if on_base:
+                    _git_stdout(repo, "checkout", "-q", "--detach")
+                try:
+                    merge_branch_into(
+                        repo, dev_branch, base_branch,
+                        f"VibeBaton run {run_id}: merge {dev_branch} into {base_branch}", worktree_root,
+                    )
+                finally:
+                    if on_base:
+                        _git_stdout(repo, "checkout", "-q", base_branch)
+                merged_commit = _git_stdout(repo, "rev-parse", base_branch).strip()
+                changed = _git_stdout(repo, "diff", "--name-only", pre_merge_head, merged_commit).splitlines()
+                extra.update(merged_commit=merged_commit, changed_files=changed)
+                status = RunStatus.COMPLETED
+                store.update_run_status(run_id, status)
+                store.log_event(run_id, "final_gate_approved", actor="human", message=note,
+                                payload={"backup_tag": backup_tag, "base_branch": base_branch,
+                                         "dev_branch": dev_branch, "merged_commit": merged_commit,
+                                         "pre_merge_head": pre_merge_head})
+            else:
+                # Only undo our own approved merge, and only while it is still the base head:
+                # a hard reset must never drop later user commits or other runs' merges.
+                if run["status"] != RunStatus.COMPLETED.value:
+                    self._send_json(409, {"error": f"Run is {run['status']}; only an approved (COMPLETED) run can be rolled back"})
+                    return
+                gate_events = [
+                    event for event in store.get_events(run_id, limit=-1)
+                    if event["kind"] in ("final_gate_approved", "final_gate_rolled_back")
+                ]
+                if not gate_events or gate_events[-1]["kind"] != "final_gate_approved":
+                    self._send_json(409, {"error": "Run has no approved final-gate merge to roll back"})
+                    return
+                approved = _json_object(gate_events[-1]["payload_json"])
+                merged_commit = approved.get("merged_commit")
+                pre_merge_head = approved.get("pre_merge_head")
+                head = _git(repo, "rev-parse", base_branch)
+                base_head = head.stdout.strip() if head is not None and head.returncode == 0 else None
+                if not merged_commit or base_head != merged_commit:
+                    self._send_json(
+                        409,
+                        {"error": f"{base_branch} has moved past this run's merge ({merged_commit}); refusing to roll back"},
+                    )
+                    return
+                if not pre_merge_head:
+                    self._send_json(409, {"error": "Approval did not record the pre-merge base head; refusing to roll back"})
+                    return
+                backup_tag = backup_tag_name(run_id)
+                # Reset only past our own squash commit (to the base head at approve time), never to the
+                # run-start tag, which would also drop commits that landed on the base during the run.
+                # A no-op merge left merged_commit == pre_merge_head, so there is nothing to reset.
+                if merged_commit != pre_merge_head:
+                    reset_branch_to(repo, base_branch, pre_merge_head)
+                extra["restored_to"] = pre_merge_head
+                status = RunStatus.PAUSED
+                store.update_run_status(run_id, status)
+                store.log_event(run_id, "final_gate_rolled_back", actor="human", message=note,
+                                payload={"backup_tag": backup_tag, "base_branch": base_branch,
+                                         "restored_to": extra["restored_to"]})
+        except GitError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
+        head = _git(repo, "rev-parse", base_branch)
+        self._send_json(
+            200,
+            {
+                "ok": True,
+                "run_id": run_id,
+                "action": action,
+                "status": status.value,
+                "backup_tag": backup_tag,
+                "base_branch": base_branch,
+                "base_head": head.stdout.strip() if head is not None and head.returncode == 0 else None,
+                **extra,
+            },
+        )
 
     def _serve_static(self, raw_path: str, path: str) -> None:
         relative = Path(path.lstrip("/") or "index.html")

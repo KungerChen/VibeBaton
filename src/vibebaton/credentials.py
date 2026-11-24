@@ -111,6 +111,16 @@ def list_credential_status(credentials_path: Path | None = None) -> list[Credent
     return _credential_statuses(_read_local_credentials(default_credentials_path(credentials_path)))
 
 
+def list_present_provider_keys(keys: tuple[str, ...], credentials_path: Path | None = None) -> list[str]:
+    """Return the sorted subset of ``keys`` holding a non-empty value (environment first, then
+    the local store). Read-only; never returns values. An unreadable store counts as empty."""
+    try:
+        local = _read_local_credentials(default_credentials_path(credentials_path), keys)
+    except (OSError, ValueError):
+        local = {}
+    return sorted({key for key in keys if _credential_value(key, local)[0]})
+
+
 def _replace_credentials(path: Path, local: dict[str, str]) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     temp_file = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False)

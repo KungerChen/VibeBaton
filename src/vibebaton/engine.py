@@ -35,6 +35,7 @@ from .git_ops import (
     MergeResult,
     check_path_whitelist,
     commit_worktree_changes,
+    create_backup_tag,
     create_worktree,
     ensure_branch,
     ensure_git_ready,
@@ -519,6 +520,11 @@ class OrchestrationEngine:
                     dev_branch=cfg.daemon.dev_branch,
                 )
                 dev_branch = cfg.daemon.dev_branch
+                # Snapshot the base head before any dev change so the final gate can roll back.
+                try:
+                    create_backup_tag(self.repo_path, run_id, base_branch)
+                except GitError as exc:
+                    self.store.log_event(run_id, "backup_tag_failed", message=str(exc))
 
                 # Stage 0: Specialist panel (panel mode only); its master spec feeds the planner.
                 plan_input = rfc_text
@@ -1055,6 +1061,14 @@ class OrchestrationEngine:
                         duration_sec=time.monotonic() - start_time,
                     )
                     return False
+                self.store.log_event(
+                    run_id,
+                    "task_changes",
+                    task_id=spec.id,
+                    milestone_id=milestone_id,
+                    message=f"{len(wl.changed_files)} file(s) changed on attempt {attempt}",
+                    payload={"changed_files": wl.changed_files},
+                )
 
                 # 2. Deterministic Mechanical Gate (Machine-First, LLM-Second)
                 if self.cfg.policies.machine_gate_before_ai_review and spec.verify_cmd:

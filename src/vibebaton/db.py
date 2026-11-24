@@ -211,9 +211,11 @@ class StateStore:
         with self._connect() as conn:
             conn.execute(f"UPDATE runs SET {', '.join(fields)} WHERE id = ?", values)
 
-    def record_human_decision(self, run_id: str, decision: str, note: str = "") -> None:
+    def record_human_decision(
+        self, run_id: str, decision: str, note: str = "", task_id: str | None = None
+    ) -> None:
         now = time.time()
-        payload = json.dumps({"decision": decision, "note": note, "at": now}, ensure_ascii=False)
+        payload = json.dumps({"decision": decision, "note": note, "at": now, "task_id": task_id}, ensure_ascii=False)
         next_status = RunStatus.RUNNING if decision == "approve" else RunStatus.PAUSED
         with self._connect() as conn:
             conn.execute(
@@ -226,6 +228,7 @@ class StateStore:
             actor="human",
             message=f"Human resolved with '{decision}': {note}",
             payload={"decision": decision, "note": note},
+            task_id=task_id,
         )
 
     # ------------------------------------------------------------------

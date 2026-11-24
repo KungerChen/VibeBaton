@@ -66,7 +66,7 @@ class TestPricingApi(WebServerTestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(headers.get_content_type(), "application/json")
-        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+        self.assertEqual(headers["Access-Control-Allow-Origin"], self.DEV_ORIGIN)
         self.assertEqual(set(body), {"models", "cache", "custom_path"})
         self.assertEqual(body["custom_path"], str(self.custom_path))
         self.assertEqual(body["cache"]["path"], str(self.cache_path))

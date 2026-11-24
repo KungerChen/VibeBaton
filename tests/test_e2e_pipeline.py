@@ -275,6 +275,14 @@ class TestEndToEndPipeline(unittest.TestCase):
             self.assertIn("task_review_rejected", event_kinds)
             self.assertIn("task_escalated", event_kinds)
             self.assertIn("milestone_passed", event_kinds)
+            # Node detail reads changed_files from the engine's task_changes events.
+            t101_changes = [
+                json.loads(e["payload_json"])["changed_files"]
+                for e in events
+                if e["kind"] == "task_changes" and e["task_id"] == "T-101"
+            ]
+            self.assertTrue(t101_changes)
+            self.assertIn("src/math_ops.py", t101_changes[-1])
 
             allocations = [json.loads(e["payload_json"]) for e in events if e["kind"] == "task_allocated"]
             self.assertCountEqual(
@@ -304,6 +312,15 @@ class TestEndToEndPipeline(unittest.TestCase):
                 check=True,
             ).stdout
             self.assertIn("def multiply(a: int, b: int) -> int:", mul_src)
+
+            # The run start snapshotted the untouched base head as the final-gate rollback point.
+            tagged, base_head = (
+                subprocess.run(["git", "rev-parse", ref], cwd=str(repo), capture_output=True, text=True,
+                               check=True).stdout.strip()
+                for ref in (f"baton-backup/{run_id}^{{commit}}", "main")
+            )
+            self.assertEqual(tagged, base_head)
+            self.assertNotIn("backup_tag_failed", event_kinds)
 
             # Verify Battle Report generation
             report_md = generate_battle_report(store, run_id)
