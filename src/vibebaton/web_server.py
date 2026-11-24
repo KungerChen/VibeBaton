@@ -1280,6 +1280,19 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             not isinstance(value, str) for value in overrides.values()
         ):
             raise _BadRequest("model_overrides must map roles to model strings")
+        role_providers = payload.get("role_providers", {})
+        if not isinstance(role_providers, dict) or any(
+            not isinstance(value, str) for value in role_providers.values()
+        ):
+            raise _BadRequest("role_providers must map roles to provider ids")
+        if role_providers:
+            with self.server.config_lock:
+                config = self.server.loader.current
+            try:
+                # Explicit model_overrides win over the lineup for the same role.
+                overrides = {**cli_registry.lineup_model_overrides(role_providers, config), **overrides}
+            except ValueError as exc:
+                raise _BadRequest(str(exc)) from exc
         markdown = payload.get("rfc_markdown", "")
         if not isinstance(markdown, str):
             raise _BadRequest("rfc_markdown must be a string")

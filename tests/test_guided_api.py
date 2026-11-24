@@ -22,6 +22,11 @@ Shared response contract (M1 workers: implement exactly these shapes; errors are
                                              (never writes .baton/00_RFC.md); 400 bad messages / unknown scenario
     POST /api/brainstorm/confirm    {rfc_markdown}
                                           -> 200 {rfc_path, readiness: RFCReadiness, ready_to_launch}; 400 blank
+    POST /api/runs/start            {..., role_providers?: {role: provider_id}}
+                                          -> role_providers (the Guided lineup) become "provider:model"
+                                             model_overrides for moved roles (model from the role's fallback,
+                                             else any role targeting that provider); explicit model_overrides
+                                             win; 400 unknown role/provider or no configured model
     GET  /api/runs/<id>/tasks/<task_id>   -> 200 TaskDetail {run_id, task_id, milestone_id, title, tier, status,
                                              summary (plain-language sentence), provider: str|null, model: str|null,
                                              elapsed_sec: float, cost_usd: float, changed_files: [str],
@@ -154,6 +159,58 @@ class GuidedApiTestCase(WebServerTestCase):
         if status is not RunStatus.PENDING:
             self.store.update_run_status(run_id, status, human_prompt="Need a decision")
         return run_id
+
+
+class TestGuidedRunStartLineup(GuidedApiTestCase):
+    """POST /api/runs/start {role_providers}: the Guided lineup becomes provider:model overrides."""
+
+    CODEX_ONLY = {
+        "brainstorm_and_final_gate": "codex_sub",
+        "tactical_planner": "codex_sub",
+        "milestone_reviewer": "codex_sub",
+        "micro_orchestrator": "codex_sub",
+        "critical_executor": "codex_sub",
+        "bulk_worker": "codex_sub",
+    }
+
+    def _start(self, **extra: Any) -> tuple[int, Any]:
+        return self._post("/api/runs/start", {"rfc_markdown": "# RFC\n\nLineup.\n", **extra})
+
+    def test_codex_only_lineup_overrides_every_moved_role(self) -> None:
+        status, body = self._start(role_providers=self.CODEX_ONLY)
+        self.assertEqual(status, 201, body)
+        overrides = json.loads(self.store.get_run(body["run_id"])["model_overrides_json"])
+        self.assertEqual(overrides, {
+            "brainstorm_and_final_gate": "codex_sub:gpt-6.2-sol@high",
+            "tactical_planner": "codex_sub:gpt-6.2-sol@high",
+            "milestone_reviewer": "codex_sub:gpt-6.2-astra@xhigh",
+            "bulk_worker": "codex_sub:gpt-6.2-sol@max",
+        })
+        cfg = self.server.loader.current
+        for role in self.CODEX_ONLY:
+            resolved, provider = cfg.resolve_role(role, model_overrides=overrides)
+            self.assertEqual(resolved.provider, "codex_sub", role)
+            self.assertIsNotNone(provider)
+
+    def test_explicit_model_overrides_win_over_lineup(self) -> None:
+        status, body = self._start(
+            role_providers={"tactical_planner": "codex_sub"},
+            model_overrides={"tactical_planner": "codex_sub:gpt-6.2-sol@max"},
+        )
+        self.assertEqual(status, 201, body)
+        overrides = json.loads(self.store.get_run(body["run_id"])["model_overrides_json"])
+        self.assertEqual(overrides, {"tactical_planner": "codex_sub:gpt-6.2-sol@max"})
+
+    def test_bad_role_providers_are_rejected_without_a_run(self) -> None:
+        for role_providers in (
+            ["codex_sub"],
+            {"tactical_planner": 1},
+            {"no_such_role": "codex_sub"},
+            {"tactical_planner": "no_such_provider"},
+        ):
+            with self.subTest(role_providers=role_providers):
+                self.assert_error(self._start(role_providers=role_providers), 400)
+        self.assertEqual(self.spawn_calls, [])
 
 
 class TestCliRegistryApi(GuidedApiTestCase):

@@ -1,9 +1,10 @@
 import './HeaderBar.css';
 import './ui/ui.css';
-import { BookOpen, Moon, Sun, Volume2, VolumeX } from 'lucide-react';
+import { BookOpen, BookText, Moon, Sun, Volume2, VolumeX } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../i18n';
 import { translatePresetText } from '../i18n/presets';
+import type { StudioMode } from '../lib/studioMode';
 import { cn } from '../lib/utils';
 import { useTheme } from '../theme';
 import type { HeaderBarProps } from './types';
@@ -11,6 +12,14 @@ import { Badge } from './ui/badge';
 import { BrandMark } from './ui/BrandMark';
 import { Button } from './ui/button';
 import { Switch } from './ui/switch';
+
+const STUDIO_MODES: readonly StudioMode[] = ['guided', 'pro'];
+
+export type HeaderBarStudioProps = HeaderBarProps & {
+  studioMode?: StudioMode;
+  onStudioModeChange?: (mode: StudioMode) => void;
+  onOpenGlossary?: () => void;
+};
 
 export function HeaderBar({
   mode,
@@ -20,7 +29,10 @@ export function HeaderBar({
   liveViewActive = false,
   onOpenStartRun,
   onOpenGuide,
-}: HeaderBarProps) {
+  studioMode,
+  onStudioModeChange,
+  onOpenGlossary,
+}: HeaderBarStudioProps) {
   const { locale, setLocale, messages } = useI18n();
   const {
     theme,
@@ -86,6 +98,33 @@ export function HeaderBar({
       )}
 
       <div className="header-bar__right" data-tour-id="header-controls">
+        {studioMode && onStudioModeChange && (
+          <>
+            <div
+              className="header-bar__studio-mode inline-flex items-center rounded-lg border border-border bg-muted p-0.5"
+              role="group"
+              aria-label={messages.header.studioModeAria}
+            >
+              {STUDIO_MODES.map((option) => (
+                <button
+                  key={option}
+                  className={cn(
+                    'rounded-md px-2 py-0.5 text-[11px] font-semibold transition-all cursor-pointer',
+                    studioMode === option
+                      ? 'bg-card text-text-strong shadow-xs'
+                      : 'text-muted-foreground hover:text-text-strong',
+                  )}
+                  type="button"
+                  aria-pressed={studioMode === option}
+                  onClick={() => onStudioModeChange(option)}
+                >
+                  {messages.guided.mode[option]}
+                </button>
+              ))}
+            </div>
+            <span className="header-bar__divider" aria-hidden="true" />
+          </>
+        )}
         {connected && onOpenStartRun && (
           <>
             <Button
@@ -109,6 +148,21 @@ export function HeaderBar({
             >
               <BookOpen size={14} aria-hidden="true" />
               <span>{messages.header.guideButton}</span>
+            </Button>
+            <span className="header-bar__divider" aria-hidden="true" />
+          </>
+        )}
+
+        {onOpenGlossary && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="header-bar__glossary-btn"
+              onClick={onOpenGlossary}
+            >
+              <BookText size={14} aria-hidden="true" />
+              <span>{messages.glossary.open}</span>
             </Button>
             <span className="header-bar__divider" aria-hidden="true" />
           </>

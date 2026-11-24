@@ -33,6 +33,7 @@ export interface Messages {
     soundOff: string;
     modeLive: string;
     modeReplay: string;
+    studioModeAria: string;
   };
   tabs: {
     ariaLabel: string;
@@ -478,6 +479,82 @@ export interface Messages {
       guards: readonly string[];
     };
   };
+  guided: {
+    mode: { guided: string; pro: string };
+    steps: readonly { title: string; hint: string }[];
+    workbench: {
+      stepsAria: string;
+      waitingForRun: string;
+      nodeHint: string;
+    };
+    setup: {
+      pickFolder: string;
+      currentFolder: string;
+      gitReady: string;
+      gitMissing: string;
+      initGit: string;
+      scanClis: string;
+      scanning: string;
+      install: string;
+      login: string;
+      ready: string;
+      missing: string;
+      lineupReady: string;
+      lineupMissing: string;
+      useLineup: string;
+    };
+    brainstorm: {
+      scenariosTitle: string;
+      inputPlaceholder: string;
+      send: string;
+      blueprintTitle: string;
+      summary: string;
+      deliverables: string;
+      touchedAreas: string;
+      verificationPlan: string;
+      readiness: string;
+      confirmLaunch: string;
+      showRfc: string;
+      hideRfc: string;
+    };
+    nodeDetail: {
+      title: string;
+      summary: string;
+      model: string;
+      elapsed: string;
+      cost: string;
+      tests: string;
+      changedFiles: string;
+      verdict: string;
+      close: string;
+    };
+    decision: {
+      title: string;
+      intro: string;
+      submit: string;
+      noteLabel: string;
+    };
+    signOff: {
+      title: string;
+      testsPassed: string;
+      changedFiles: string;
+      battleReport: string;
+      approve: string;
+      revise: string;
+      rollback: string;
+      rollbackConfirm: string;
+      done: string;
+    };
+  };
+  glossary: {
+    open: string;
+    title: string;
+    search: string;
+    plain: string;
+    pro: string;
+    related: string;
+    empty: string;
+  };
 }
 
 export const MESSAGES: Record<Locale, Messages> = {
@@ -499,6 +576,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       soundOff: 'Off',
       modeLive: 'Live',
       modeReplay: 'Replay',
+      studioModeAria: 'Studio mode',
     },
     tabs: {
       ariaLabel: 'Workspace views',
@@ -1136,6 +1214,87 @@ export const MESSAGES: Record<Locale, Messages> = {
         ],
       },
     },
+    guided: {
+      mode: { guided: 'Guided', pro: 'Pro' },
+      workbench: {
+        stepsAria: 'Guided steps',
+        waitingForRun: 'Starting the build. The task map appears as soon as the plan is ready...',
+        nodeHint: 'Click any task on the map to see what happened in plain words.',
+      },
+      steps: [
+        { title: 'Workspace', hint: 'Choose your project folder and confirm the AI coding tools on this computer.' },
+        { title: 'Blueprint', hint: 'Describe what you want to build and shape the plan together with the architect.' },
+        { title: 'Build', hint: 'Watch the AI team plan, write, test, and review each task.' },
+        { title: 'Sign-Off', hint: 'Review the result and decide whether it lands on your main branch.' },
+      ],
+      setup: {
+        pickFolder: 'Choose Project Folder',
+        currentFolder: 'Current project folder',
+        gitReady: 'Version history is on. Every change can be reviewed and undone.',
+        gitMissing: 'This folder does not track version history yet. Turn it on so every change can be undone.',
+        initGit: 'Turn On Version History',
+        scanClis: 'Scan AI Coding Tools',
+        scanning: 'Scanning this computer...',
+        install: 'Install',
+        login: 'Sign In',
+        ready: 'Ready',
+        missing: 'Not installed',
+        lineupReady: 'Your AI team is ready to work.',
+        lineupMissing: 'Install or sign in to at least one AI coding tool to form a team.',
+        useLineup: 'Use This Team',
+      },
+      brainstorm: {
+        scenariosTitle: 'What would you like to do?',
+        inputPlaceholder: 'Describe your idea, the limits, and how you will know it works...',
+        send: 'Send',
+        blueprintTitle: 'Blueprint',
+        summary: 'Summary',
+        deliverables: 'Deliverables',
+        touchedAreas: 'Areas of the project that will change',
+        verificationPlan: 'How we will verify it',
+        readiness: 'Readiness',
+        confirmLaunch: 'Confirm Blueprint & Start Building',
+        showRfc: 'Show Full RFC',
+        hideRfc: 'Hide Full RFC',
+      },
+      nodeDetail: {
+        title: 'Task Details',
+        summary: 'What happened',
+        model: 'Model',
+        elapsed: 'Time spent',
+        cost: 'Cost',
+        tests: 'Tests',
+        changedFiles: 'Changed files',
+        verdict: 'Reviewer verdict',
+        close: 'Close',
+      },
+      decision: {
+        title: 'Your Decision Is Needed',
+        intro: 'The AI team paused on this task and needs your call before continuing.',
+        submit: 'Submit Decision',
+        noteLabel: 'Note for the team (optional)',
+      },
+      signOff: {
+        title: 'Final Sign-Off',
+        testsPassed: 'All verification checks passed',
+        changedFiles: 'Changed files',
+        battleReport: 'Open Battle Report',
+        approve: 'Approve & Merge',
+        revise: 'Request Changes',
+        rollback: 'Roll Back',
+        rollbackConfirm: 'Roll back this merge? Your main branch returns to where it was before approval.',
+        done: 'Merged into your main branch. A backup tag was saved before the merge.',
+      },
+    },
+    glossary: {
+      open: 'Glossary',
+      title: 'Glossary',
+      search: 'Search terms...',
+      plain: 'In plain words',
+      pro: 'Technical detail',
+      related: 'Related terms',
+      empty: 'No matching terms.',
+    },
   },
   zh: {
     docTitle: 'VibeBaton — 多智能体工作流画布',
@@ -1155,6 +1314,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       soundOff: '默认关闭',
       modeLive: '实时运行',
       modeReplay: '案例回放',
+      studioModeAria: '工作台模式',
     },
     tabs: {
       ariaLabel: '工作区视图',
@@ -1538,7 +1698,7 @@ export const MESSAGES: Record<Locale, Messages> = {
           ],
         },
         {
-          title: '2. 小白五步跑通首次真实任务',
+          title: '2. 五步跑通首次真实任务',
           summary: '无需记忆复杂命令，跟随侧边栏和向导弹窗五步就能启动一个安全的通宵或交互任务。',
           points: [
             '第 1 步（选预算与绿色预设）：左侧选择「节省 / 均衡 / 质量优先」预算档位，挑一个显示绿色「本机就绪」的工作流。',
@@ -1791,6 +1951,87 @@ export const MESSAGES: Record<Locale, Messages> = {
           '人类 L0 终审闸门：全部里程碑仅先合入 dev，待人工终审确认后再合并主干。',
         ],
       },
+    },
+    guided: {
+      mode: { guided: '引导模式', pro: '专业模式' },
+      workbench: {
+        stepsAria: '引导步骤',
+        waitingForRun: '正在启动施工，计划就绪后这里会显示任务地图……',
+        nodeHint: '点击地图上的任意任务，用通俗的话查看发生了什么。',
+      },
+      steps: [
+        { title: '工作区', hint: '选择项目文件夹，并确认本机已有的 AI 编程工具。' },
+        { title: '蓝图', hint: '说说你想做什么，与架构伙伴一起把方案打磨成形。' },
+        { title: '施工', hint: '查看 AI 团队如何规划、编写、测试并评审每个任务。' },
+        { title: '验收', hint: '检查成果，决定是否合入你的主分支。' },
+      ],
+      setup: {
+        pickFolder: '选择项目文件夹',
+        currentFolder: '当前项目文件夹',
+        gitReady: '版本记录已开启，每一处改动都可审阅、可撤销。',
+        gitMissing: '这个文件夹还没有开启版本记录。开启后，每一处改动都可以撤销。',
+        initGit: '开启版本记录',
+        scanClis: '扫描 AI 编程工具',
+        scanning: '正在扫描本机……',
+        install: '安装',
+        login: '登录',
+        ready: '已就绪',
+        missing: '未安装',
+        lineupReady: '你的 AI 团队已准备就绪。',
+        lineupMissing: '请至少安装并登录一个 AI 编程工具来组建团队。',
+        useLineup: '使用这支团队',
+      },
+      brainstorm: {
+        scenariosTitle: '你想做什么？',
+        inputPlaceholder: '描述你的想法、限制条件，以及如何判断它已经完成……',
+        send: '发送',
+        blueprintTitle: '蓝图',
+        summary: '概要',
+        deliverables: '交付物',
+        touchedAreas: '将会改动的项目区域',
+        verificationPlan: '验证方式',
+        readiness: '就绪度',
+        confirmLaunch: '确认蓝图并开始施工',
+        showRfc: '查看完整 RFC',
+        hideRfc: '收起完整 RFC',
+      },
+      nodeDetail: {
+        title: '任务详情',
+        summary: '发生了什么',
+        model: '模型',
+        elapsed: '耗时',
+        cost: '成本',
+        tests: '测试',
+        changedFiles: '改动的文件',
+        verdict: '评审结论',
+        close: '关闭',
+      },
+      decision: {
+        title: '需要你来决定',
+        intro: 'AI 团队在这个任务上暂停了，需要你拍板后才能继续。',
+        submit: '提交决定',
+        noteLabel: '给团队的备注（可选）',
+      },
+      signOff: {
+        title: '最终验收',
+        testsPassed: '全部验证检查已通过',
+        changedFiles: '改动的文件',
+        battleReport: '打开战报',
+        approve: '批准并合并',
+        revise: '要求修改',
+        rollback: '回滚',
+        rollbackConfirm: '确定回滚这次合并吗？主分支将恢复到批准之前的状态。',
+        done: '已合入你的主分支，合并前已自动保存备份标签。',
+      },
+    },
+    glossary: {
+      open: '术语表',
+      title: '术语表',
+      search: '搜索术语……',
+      plain: '通俗解释',
+      pro: '技术细节',
+      related: '相关术语',
+      empty: '没有匹配的术语。',
     },
   },
 };

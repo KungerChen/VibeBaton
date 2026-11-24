@@ -16,7 +16,7 @@ import subprocess  # contract: scan/install/login run argv lists via subprocess 
 import sys
 import time
 from pathlib import Path
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, Mapping, NotRequired, TypedDict
 
 from . import credentials
 from .cli_runner import resolve_cli_binary  # contract: binary discovery (tests patch it here)
@@ -471,6 +471,37 @@ def build_recommended_lineup(scan_result: CliScanResult, cfg: BatonConfig) -> Re
         "notes_en": f"Every role is covered by ready providers: {chosen}.",
         "notes_zh": f"所有角色均已分配到可用的提供方：{chosen}。",
     }
+
+
+def lineup_model_overrides(role_providers: Mapping[str, str], cfg: BatonConfig) -> dict[str, str]:
+    """Turn a lineup's role->provider map into ``resolve_role`` overrides of the form ``provider:model``.
+
+    Roles that keep their configured provider need no override. A role moved to another provider
+    takes a model already configured for that provider: the role's own fallback first, then any
+    other role's primary or fallback target. Raises ``ValueError`` for an unknown role/provider or
+    a provider with no configured model.
+    """
+    overrides: dict[str, str] = {}
+    for role_name, provider_id in role_providers.items():
+        role = cfg.roles.get(role_name)
+        if role is None:
+            raise ValueError(f"role_providers names unknown role {role_name!r}")
+        if provider_id not in cfg.providers:
+            raise ValueError(f"role_providers names unknown provider {provider_id!r} for role {role_name!r}")
+        if provider_id == role.provider:
+            continue
+        candidates = [
+            *role.fallback,
+            *cfg.roles.values(),
+            *(target for other in cfg.roles.values() for target in other.fallback),
+        ]
+        model = next((c.model for c in candidates if c.provider == provider_id and c.model.strip()), None)
+        if model is None:
+            raise ValueError(
+                f"No model is configured for provider {provider_id!r}; set one in baton.toml for role {role_name!r}"
+            )
+        overrides[role_name] = f"{provider_id}:{model}"
+    return overrides
 
 
 def _provider_runnable(provider: ProviderConfig, driver: CliDriver, keys: set[str]) -> bool:

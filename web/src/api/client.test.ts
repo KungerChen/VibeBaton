@@ -17,7 +17,23 @@ import type {
   RfcBrainstormResult,
   SimulationResult,
 } from '../types/graph';
-import { ApiError, BatonApiClient } from './client';
+import {
+  ApiError,
+  BatonApiClient,
+  type BlueprintConfirmResult,
+  type BrainstormTurnResult,
+  type CliDriver,
+  type CliInstallRequest,
+  type CliInstallResult,
+  type CliLoginResult,
+  type CliRegistry,
+  type CliRegistryScanResponse,
+  type FinalizeResult,
+  type InitGitResult,
+  type ResolveRunTaskResult,
+  type RunTaskDetail,
+  type WorkspaceInfo,
+} from './client';
 
 const health = { status: 'ok', version: 'test' };
 
@@ -671,4 +687,152 @@ test('aborts a hanging startRun request after timeoutMs and rejects with status 
   } finally {
     vi.useRealTimers();
   }
+});
+
+test('calls every Guided Studio endpoint with typed payloads', async () => {
+  const runId = 'run #7';
+  const encodedRun = 'run%20%237';
+  const driver: CliDriver = {
+    id: 'claude', name: 'Claude Code', tier: 'official', binary: 'claude',
+    summary_en: 'Coding CLI.', summary_zh: 'Coding CLI zh.', prereq: ['node'],
+    install_cmd: ['npm', 'install', '-g', '@anthropic-ai/claude-code'], login_cmd: ['claude', 'auth', 'login'],
+    official_url: 'https://example.test', command_template: ['claude', '-p'], version_cmd: ['claude', '--version'],
+    provider_ids: ['claude_sub'], env_keys: ['ANTHROPIC_API_KEY'], auth_check_cmd: null,
+  };
+  const registry: CliRegistry = { schema_version: 1, drivers: [driver], tags: [] };
+  const scan: CliRegistryScanResponse = {
+    scan: {
+      drivers: [{
+        id: 'claude', status: 'ready', binary_path: '/usr/bin/claude', version: '2.0.0',
+        prereq_missing: [], reason_en: 'Ready.', reason_zh: 'Ready zh.',
+      }],
+      http_api_keys_present: [],
+      scanned_at: 1_790_000_000,
+    },
+    lineup: { ready: true, roles: { planner: 'claude_sub' }, source: 'cli', notes_en: 'OK', notes_zh: 'OK zh' },
+  };
+  const installed: CliInstallResult = {
+    id: 'codex', ok: true, command: ['npm', 'install', '-g', '@openai/codex'], returncode: 0, output: '',
+  };
+  const login: CliLoginResult = {
+    id: 'codex', launched: true, command: ['codex', 'login'], message_en: 'Opened.', message_zh: 'Opened zh.',
+  };
+  const workspace: WorkspaceInfo = { path: '/repo', is_git_repo: false, branch: null, has_commits: false, has_rfc: false };
+  const initialized: InitGitResult = { ...workspace, is_git_repo: true, branch: 'main', has_commits: true, created: true };
+  const turn: BrainstormTurnResult = {
+    reply: 'Understood.',
+    rfc_markdown: '# Todo app\n',
+    blueprint: {
+      title: 'Todo app', summary: 'A small todo app.', deliverables: ['app.py'], touched_areas: ['app.py'],
+      verification_plan: ['pytest'], readiness_score: 85, ready_to_launch: true,
+    },
+    provider_used: null,
+    offline: true,
+  };
+  const confirmed: BlueprintConfirmResult = {
+    rfc_path: '/repo/.baton/00_RFC.md',
+    readiness: { score: 85, safe_for_overnight: true, missing_sections: [], warnings: [], detected_commands: ['pytest'] },
+    ready_to_launch: true,
+  };
+  const detail: RunTaskDetail = {
+    run_id: runId, task_id: 'M1/T1', milestone_id: 'M1', title: 'Add API', tier: 'routine', status: 'PASSED',
+    summary: 'Passed.', attempts: 1, test_status: 'passed', provider: 'claude_sub', model: 'sonnet',
+    elapsed_sec: 12.5, cost_usd: 0.04, changed_files: ['app.py'], review_verdict: 'PASS',
+  };
+  const resolved: ResolveRunTaskResult = { ok: true, run_id: runId, task_id: 'M1-T2', status: 'RUNNING' };
+  const finalized: FinalizeResult = {
+    ok: true, run_id: runId, action: 'approve', status: 'COMPLETED', backup_tag: 'baton-backup/run',
+    base_branch: 'main', base_head: 'abc123', merged_commit: 'abc123', changed_files: ['app.py'],
+  };
+  const revised: FinalizeResult = {
+    ok: true, run_id: runId, action: 'revise', status: 'PAUSED', backup_tag: null,
+    base_branch: 'main', base_head: 'abc123', revisions_path: '/repo/.baton/runs/x/revisions.md',
+  };
+  const responses = [
+    registry, scan, scan, installed, login, workspace, workspace, initialized, turn, confirmed, detail, resolved,
+    finalized, revised,
+  ];
+  const fetchImpl = healthyFetch();
+  for (const body of responses) fetchImpl.mockResolvedValueOnce(Response.json(body));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+
+  const messages = [{ role: 'user', content: 'Build a todo app' }] as const;
+  await expect(client.getCliRegistry()).resolves.toEqual(registry);
+  await expect(client.scanCliRegistry()).resolves.toEqual(scan);
+  await expect(client.scanCliRegistry('/other')).resolves.toEqual(scan);
+  await expect(client.installCli({ cliId: 'codex', confirmed: true })).resolves.toEqual(installed);
+  await expect(client.loginCli('codex')).resolves.toEqual(login);
+  await expect(client.getWorkspaceInfo()).resolves.toEqual(workspace);
+  await expect(client.selectWorkspace('/repo')).resolves.toEqual(workspace);
+  await expect(client.initGitWorkspace()).resolves.toEqual(initialized);
+  await expect(client.brainstormChat({ messages: [...messages], scenario: 'web_app' })).resolves.toEqual(turn);
+  await expect(client.brainstormConfirm('# Todo app\n')).resolves.toEqual(confirmed);
+  await expect(client.getRunTaskDetail(runId, 'M1/T1')).resolves.toEqual(detail);
+  await expect(client.resolveRunTask(runId, { taskId: 'M1-T2', choice: 'approve' })).resolves.toEqual(resolved);
+  await expect(client.finalizeRun(runId, { action: 'approve' })).resolves.toEqual(finalized);
+  await expect(client.finalizeRun(runId, { action: 'revise', note: 'Add tests' })).resolves.toEqual(revised);
+
+  expect(fetchImpl.mock.calls.slice(1)).toEqual([
+    ['/api/cli-registry', { method: 'GET' }],
+    ['/api/cli-registry/scan', jsonRequest('POST', {})],
+    ['/api/cli-registry/scan', jsonRequest('POST', { repo_path: '/other' })],
+    ['/api/cli-registry/install', jsonRequest('POST', { id: 'codex', confirmed: true })],
+    ['/api/cli-registry/login', jsonRequest('POST', { id: 'codex' })],
+    ['/api/workspace/info', { method: 'GET' }],
+    ['/api/workspace/select', jsonRequest('POST', { path: '/repo' })],
+    ['/api/workspace/init-git', jsonRequest('POST', {})],
+    ['/api/brainstorm/chat', jsonRequest('POST', { messages, scenario: 'web_app' })],
+    ['/api/brainstorm/confirm', jsonRequest('POST', { rfc_markdown: '# Todo app\n' })],
+    [`/api/runs/${encodedRun}/tasks/M1%2FT1`, { method: 'GET' }],
+    [`/api/runs/${encodedRun}/resolve`, jsonRequest('POST', { task_id: 'M1-T2', choice: 'approve', note: '' })],
+    [`/api/runs/${encodedRun}/finalize`, jsonRequest('POST', { action: 'approve', note: '' })],
+    [`/api/runs/${encodedRun}/finalize`, jsonRequest('POST', { action: 'revise', note: 'Add tests' })],
+  ]);
+});
+
+test('installCli sends only the chosen cliId with confirmed: true, even if extra fields are passed', async () => {
+  const fetchImpl = healthyFetch().mockResolvedValueOnce(
+    Response.json({ id: 'gemini', ok: true, command: ['npm'], returncode: 0, output: '' }),
+  );
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+
+  const extra = { cliId: 'gemini', confirmed: true, install_cmd: ['curl', 'https://example.test'] };
+  await client.installCli(extra as CliInstallRequest);
+  const body: unknown = JSON.parse(String(fetchImpl.mock.calls[1][1]?.body));
+  expect(body).toStrictEqual({ id: 'gemini', confirmed: true });
+});
+
+test('Guided endpoints surface backend errors and stay unavailable in demo mode', async () => {
+  const fetchImpl = healthyFetch()
+    .mockResolvedValueOnce(Response.json({ error: 'Unknown CLI driver' }, { status: 404 }))
+    .mockResolvedValueOnce(Response.json({ error: 'Run is RUNNING, not READY_FOR_FINAL_GATE' }, { status: 409 }));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+  await expect(client.loginCli('nope')).rejects.toMatchObject({
+    name: 'ApiError', status: 404, message: 'Unknown CLI driver',
+  });
+  await expect(client.finalizeRun('run-1', { action: 'approve' })).rejects.toMatchObject({ status: 409 });
+
+  const demoFetch = vi.fn<typeof fetch>();
+  const demo = new BatonApiClient('', demoFetch);
+  const calls = [
+    demo.getCliRegistry(),
+    demo.scanCliRegistry(),
+    demo.installCli({ cliId: 'claude', confirmed: true }),
+    demo.loginCli('claude'),
+    demo.getWorkspaceInfo(),
+    demo.selectWorkspace('/repo'),
+    demo.initGitWorkspace(),
+    demo.brainstormChat({ messages: [{ role: 'user', content: 'Hi' }] }),
+    demo.brainstormConfirm('# RFC'),
+    demo.getRunTaskDetail('run-1', 'T1'),
+    demo.resolveRunTask('run-1', { taskId: 'T1', choice: 'reject', note: 'No' }),
+    demo.finalizeRun('run-1', { action: 'rollback' }),
+  ];
+  await Promise.all(calls.map((call) => expect(call).rejects.toMatchObject({
+    name: 'ApiError', status: 0, message: 'Not available in standalone demo',
+  })));
+  expect(demoFetch).not.toHaveBeenCalled();
 });

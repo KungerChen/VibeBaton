@@ -3,6 +3,7 @@ import { addEdge, useEdgesState, useNodesState, type OnConnect } from '@xyflow/r
 import { BatonApiClient, type ApiMode } from './api/client';
 import { AttentionBanner } from './components/AttentionBanner';
 import { CanvasWorkspace, updateWorkspaceReadiness } from './components/CanvasWorkspace';
+import { GlossaryDrawer, GuidedWorkbench } from './components/guided';
 import { HeaderBar } from './components/HeaderBar';
 import { isLiveSnapshot, RunControlsContext, useRunControls } from './components/inspector/LiveRunPanel';
 import { StartRunModal } from './components/inspector/StartRunModal';
@@ -55,6 +56,7 @@ import { deriveStates, stepIntervalMs } from './engine/playback';
 import { buildShareUrl, decodeRecipeHash } from './engine/shareUrl';
 import { I18nProvider, useI18n } from './i18n';
 import { translatePresetText } from './i18n/presets';
+import { loadStudioMode, saveStudioMode, type StudioMode } from './lib/studioMode';
 import { ThemeProvider, useTheme } from './theme';
 import type {
   BatonCaseBundle,
@@ -227,6 +229,8 @@ function AppContent() {
   const [liveReconnecting, setLiveReconnecting] = useState(false);
   const [liveViewActive, setLiveViewActive] = useState(false);
   const [startRunOpen, setStartRunOpen] = useState(false);
+  const [studioMode, setStudioMode] = useState<StudioMode>(() => loadStudioMode());
+  const [glossaryOpen, setGlossaryOpen] = useState(false);
   const lastLiveCanvasRef = useRef<{ runId: string | null; signature: string } | null>(null);
   const availableCaseRunId = mode === 'local' ? selectedRunId ?? runId ?? recentRuns[0]?.id ?? null : null;
   const snapshotRunId = typeof liveSnapshot?.run?.id === 'string' ? liveSnapshot.run.id : null;
@@ -956,6 +960,51 @@ function AppContent() {
   }
 
   const version = client.health?.version;
+
+  function onStudioModeChange(nextMode: StudioMode) {
+    setStudioMode(nextMode);
+    saveStudioMode(nextMode);
+  }
+
+  const headerBar = (
+    <HeaderBar
+      mode={mode ?? 'demo'}
+      version={typeof version === 'string' ? version : undefined}
+      graphName={graph.name}
+      replayActive={replayActive}
+      liveViewActive={liveViewActive}
+      // Start Run and the Quick Start guide belong to the Pro layout; Guided Mode has its own flow.
+      onOpenStartRun={studioMode === 'pro' && mode === 'local' ? () => setStartRunOpen(true) : undefined}
+      onOpenGuide={studioMode === 'pro' ? () => setGuideOpen(true) : undefined}
+      studioMode={studioMode}
+      onStudioModeChange={onStudioModeChange}
+      onOpenGlossary={() => setGlossaryOpen(true)}
+    />
+  );
+  const glossaryDrawer = (
+    <GlossaryDrawer open={glossaryOpen} onClose={() => setGlossaryOpen(false)} locale={locale} />
+  );
+
+  if (studioMode === 'guided') {
+    return (
+      <div className="guided-app">
+        {headerBar}
+        <GuidedWorkbench
+          locale={locale}
+          client={client}
+          liveSnapshot={liveSnapshot}
+          onFollowRun={(followRunId) => {
+            lastLiveCanvasRef.current = null;
+            setLiveViewActive(true);
+            void onSelectRunId(followRunId);
+          }}
+        />
+        {glossaryDrawer}
+        <ToastHost toasts={toasts} />
+      </div>
+    );
+  }
+
   return (
     <div
       className="app"
@@ -964,15 +1013,7 @@ function AppContent() {
         '--inspector-w': `${paneWidths.inspector}px`,
       } as CSSProperties}
     >
-      <HeaderBar
-        mode={mode ?? 'demo'}
-        version={typeof version === 'string' ? version : undefined}
-        graphName={graph.name}
-        replayActive={replayActive}
-        liveViewActive={liveViewActive}
-        onOpenStartRun={mode === 'local' ? () => setStartRunOpen(true) : undefined}
-        onOpenGuide={() => setGuideOpen(true)}
-      />
+      {headerBar}
       <AttentionBanner
         key={visibleFingerprint}
         alert={visibleAttentionAlert}
@@ -1179,6 +1220,7 @@ function AppContent() {
           onRequirePane={onRequirePane}
         />
       )}
+      {glossaryDrawer}
       <ToastHost toasts={toasts} />
     </div>
   );

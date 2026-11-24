@@ -82,6 +82,7 @@ test('launch requests accept the panel run mode', () => {
     rfc_markdown?: string;
     mode?: LaunchRunMode;
     model_overrides?: Record<string, string>;
+    role_providers?: Record<string, string>;
   }>();
   expectTypeOf<Parameters<BatonApiClient['startRun']>[0]>().toEqualTypeOf<LaunchRunRequest>();
 });

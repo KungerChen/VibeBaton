@@ -1,0 +1,120 @@
+.modal__panel:has(> .guided-decision) {
+  width: min(100%, 40rem);
+}
+
+.modal__panel:has(> .guided-decision) .modal__close {
+  display: none;
+}
+
+.guided-decision {
+  display: grid;
+  gap: 1rem;
+}
+
+.guided-decision__intro {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.guided-decision__question {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.guided-decision__options {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.guided-decision__option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--muted);
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.guided-decision__option:hover {
+  border-color: var(--border-strong);
+  background: var(--panel-hover);
+}
+
+.guided-decision__option:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.guided-decision__option--selected {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  background: var(--accent-soft);
+}
+
+.guided-decision__radio {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin: 0.15rem 0 0;
+  accent-color: var(--primary);
+}
+
+.guided-decision__option-body {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.guided-decision__option-label {
+  color: var(--text-strong);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.guided-decision__option-hint {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.guided-decision__form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.guided-decision__field {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.guided-decision__error {
+  margin: 0;
+  color: var(--rose);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.guided-decision__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 32rem) {
+  .guided-decision__actions {
+    justify-content: stretch;
+  }
+
+  .guided-decision__actions > * {
+    width: 100%;
+  }
+}
