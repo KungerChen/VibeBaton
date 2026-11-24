@@ -455,6 +455,25 @@ _TASK_STATUS_PHRASES = {
     "SKIPPED": "was skipped",
 }
 
+_TASK_STATUS_PHRASES_ZH = {
+    "PENDING": "正在等待开始",
+    "RUNNING": "正在开发中",
+    "GATE_CHECKING": "正在运行自动检查",
+    "REVIEWING": "正在接受评审",
+    "COOLDOWN": "正在等待模型供应方冷却",
+    "WAITING_HUMAN": "需要你的决定",
+    "PASSED": "已完成并通过了所有检查",
+    "FAILED": "执行失败",
+    "SKIPPED": "已跳过",
+}
+
+_TASK_VERDICT_PHRASES_ZH = {
+    "PASS": "通过",
+    "MINOR_FIX": "建议小幅修改",
+    "MAJOR_REWORK": "需要返工",
+    "PLAN_AMENDMENT": "需要调整计划",
+}
+
 
 def _resolve_rfc_path(repo: Path, supplied_path: str) -> Path:
     try:
@@ -1081,12 +1100,17 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         offline = payload.get("offline", False)
         if not isinstance(offline, bool):
             raise _BadRequest("offline must be a boolean")
+        locale = payload.get("locale")
+        if locale is not None and not isinstance(locale, str):
+            raise _BadRequest("locale must be a string or null")
         config = None
         if not offline:  # without a config brainstorm_turn uses the offline composer
             with self.server.config_lock:
                 config = self.server.loader.current
         try:
-            result = brainstorm_turn(self.server.repo_path, payload.get("messages"), scenario, config)
+            result = brainstorm_turn(
+                self.server.repo_path, payload.get("messages"), scenario, config, locale=locale
+            )
         except ValueError as exc:
             raise _BadRequest(str(exc)) from exc
         self._send_json(200, result)
@@ -1407,13 +1431,23 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             files = payload.get("changed_files")
             if isinstance(files, list):
                 changed = [str(item) for item in files]
+        lang = parse_qs(urlsplit(self.path).query).get("lang", ["en"])[0]
         verdict = review.get("verdict")
         verdict = verdict if isinstance(verdict, str) else None
-        summary = f"“{task['title']}” {_TASK_STATUS_PHRASES.get(task['status'], 'is ' + task['status'].lower())}."
-        if verdict:
-            summary += f" Reviewer verdict: {verdict}."
-        if task["status"] == "FAILED" and task.get("last_error"):
-            summary += f" Last error: {str(task['last_error']).strip().splitlines()[0]}"
+        if lang == "zh":
+            phrase = _TASK_STATUS_PHRASES_ZH.get(task["status"], f"当前状态：{task['status']}")
+            summary = f"「{task['title']}」{phrase}。"
+            if verdict:
+                verdict_label = _TASK_VERDICT_PHRASES_ZH.get(verdict, verdict)
+                summary += f" 评审结论：{verdict_label}。"
+            if task["status"] == "FAILED" and task.get("last_error"):
+                summary += f" 最近错误：{str(task['last_error']).strip().splitlines()[0]}"
+        else:
+            summary = f"“{task['title']}” {_TASK_STATUS_PHRASES.get(task['status'], 'is ' + task['status'].lower())}."
+            if verdict:
+                summary += f" Reviewer verdict: {verdict}."
+            if task["status"] == "FAILED" and task.get("last_error"):
+                summary += f" Last error: {str(task['last_error']).strip().splitlines()[0]}"
         self._send_json(
             200,
             {

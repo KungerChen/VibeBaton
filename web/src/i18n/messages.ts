@@ -496,9 +496,12 @@ export interface Messages {
       scanClis: string;
       scanning: string;
       install: string;
+      installConsent: string;
       login: string;
+      needsLogin: string;
       ready: string;
       missing: string;
+      tiers: { official: string; community: string };
       lineupReady: string;
       lineupMissing: string;
       useLineup: string;
@@ -508,11 +511,14 @@ export interface Messages {
       inputPlaceholder: string;
       send: string;
       blueprintTitle: string;
+      emptyCard: string;
       summary: string;
       deliverables: string;
       touchedAreas: string;
       verificationPlan: string;
       readiness: string;
+      notReadyHint: string;
+      offlineNotice: string;
       confirmLaunch: string;
       showRfc: string;
       hideRfc: string;
@@ -527,6 +533,9 @@ export interface Messages {
       changedFiles: string;
       verdict: string;
       close: string;
+      statuses: Record<string, string>;
+      testStatuses: Record<string, string>;
+      verdicts: Record<string, string>;
     };
     decision: {
       title: string;
@@ -537,18 +546,32 @@ export interface Messages {
     signOff: {
       title: string;
       testsPassed: string;
+      testsSummary(passed: number, total: number): string;
       changedFiles: string;
       battleReport: string;
       approve: string;
       revise: string;
+      reviseNote: string;
       rollback: string;
+      rollbackHint: string;
       rollbackConfirm: string;
       done: string;
+      revisedDone: string;
+      rolledBackDone: string;
+    };
+    errors: {
+      dirtyWorkingTree: string;
+      notReadyForFinalGate: string;
+      rollbackRequiresCompleted: string;
+      rollbackMovedPastMerge: string;
+      emptyReviseNote: string;
     };
   };
   glossary: {
     open: string;
     title: string;
+    all: string;
+    close: string;
     search: string;
     plain: string;
     pro: string;
@@ -1144,7 +1167,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     credentials: {
       title: 'Credentials Setup',
       keyLabels: {
-        DEEPSEEK_API_KEY: 'DSH API Key',
+        DEEPSEEK_API_KEY: 'DeepSeek API Key (DSH)',
         OPENAI_API_KEY: 'OpenAI API Key',
         OPENCODE_API_KEY: 'DSH Gateway Key',
         ANTHROPIC_API_KEY: 'Anthropic API Key',
@@ -1218,12 +1241,12 @@ export const MESSAGES: Record<Locale, Messages> = {
       mode: { guided: 'Guided', pro: 'Pro' },
       workbench: {
         stepsAria: 'Guided steps',
-        waitingForRun: 'Starting the build. The task map appears as soon as the plan is ready...',
+        waitingForRun: 'Starting the build. The task map appears as soon as the plan is ready…',
         nodeHint: 'Click any task on the map to see what happened in plain words.',
       },
       steps: [
         { title: 'Workspace', hint: 'Choose your project folder and confirm the AI coding tools on this computer.' },
-        { title: 'Blueprint', hint: 'Describe what you want to build and shape the plan together with the architect.' },
+        { title: 'Blueprint', hint: 'Describe what you want to build and shape the plan with your AI architecture partner.' },
         { title: 'Build', hint: 'Watch the AI team plan, write, test, and review each task.' },
         { title: 'Sign-Off', hint: 'Review the result and decide whether it lands on your main branch.' },
       ],
@@ -1234,25 +1257,31 @@ export const MESSAGES: Record<Locale, Messages> = {
         gitMissing: 'This folder does not track version history yet. Turn it on so every change can be undone.',
         initGit: 'Turn On Version History',
         scanClis: 'Scan AI Coding Tools',
-        scanning: 'Scanning this computer...',
+        scanning: 'Scanning this computer…',
         install: 'Install',
+        installConsent: 'Allow VibeBaton to run this install command:',
         login: 'Sign In',
+        needsLogin: 'Sign-in needed',
         ready: 'Ready',
         missing: 'Not installed',
+        tiers: { official: 'Official', community: 'Community' },
         lineupReady: 'Your AI team is ready to work.',
         lineupMissing: 'Install or sign in to at least one AI coding tool to form a team.',
         useLineup: 'Use This Team',
       },
       brainstorm: {
         scenariosTitle: 'What would you like to do?',
-        inputPlaceholder: 'Describe your idea, the limits, and how you will know it works...',
+        inputPlaceholder: 'Describe your idea, the limits, and how you will know it works…',
         send: 'Send',
         blueprintTitle: 'Blueprint',
+        emptyCard: 'Your blueprint appears here after the first message.',
         summary: 'Summary',
         deliverables: 'Deliverables',
         touchedAreas: 'Areas of the project that will change',
         verificationPlan: 'How we will verify it',
         readiness: 'Readiness',
+        notReadyHint: 'Almost there: name the command that proves it works (for example npm test) so the build can start.',
+        offlineNotice: 'No AI tool answered, so this draft was assembled from your own words. Connect a tool in Workspace for a smarter partner.',
         confirmLaunch: 'Confirm Blueprint & Start Building',
         showRfc: 'Show Full RFC',
         hideRfc: 'Hide Full RFC',
@@ -1267,29 +1296,66 @@ export const MESSAGES: Record<Locale, Messages> = {
         changedFiles: 'Changed files',
         verdict: 'Reviewer verdict',
         close: 'Close',
+        statuses: {
+          PENDING: 'PENDING',
+          RUNNING: 'RUNNING',
+          GATE_CHECKING: 'GATE CHECKING',
+          REVIEWING: 'REVIEWING',
+          COOLDOWN: 'COOLDOWN',
+          WAITING_HUMAN: 'WAITING HUMAN',
+          PASSED: 'PASSED',
+          FAILED: 'FAILED',
+          SKIPPED: 'SKIPPED',
+        },
+        testStatuses: {
+          passed: 'passed',
+          failed: 'failed',
+          not_run: 'not run',
+          not_configured: 'not configured',
+        },
+        verdicts: {
+          PASS: 'PASS',
+          MINOR_FIX: 'MINOR FIX',
+          MAJOR_REWORK: 'MAJOR REWORK',
+          PLAN_AMENDMENT: 'PLAN AMENDMENT',
+        },
       },
       decision: {
         title: 'Your Decision Is Needed',
-        intro: 'The AI team paused on this task and needs your call before continuing.',
+        intro: 'The AI team paused here and needs your call. Read the question, pick an option, then submit.',
         submit: 'Submit Decision',
         noteLabel: 'Note for the team (optional)',
       },
       signOff: {
         title: 'Final Sign-Off',
         testsPassed: 'All verification checks passed',
+        testsSummary: (passed, total) => `${passed}/${total} verification checks passed`,
         changedFiles: 'Changed files',
         battleReport: 'Open Battle Report',
         approve: 'Approve & Merge',
         revise: 'Request Changes',
+        reviseNote: 'Tell the team what to change (required)',
         rollback: 'Roll Back',
-        rollbackConfirm: 'Roll back this merge? Your main branch returns to where it was before approval.',
-        done: 'Merged into your main branch. A backup tag was saved before the merge.',
+        rollbackHint: 'Available after approval while no newer commits land on your main branch.',
+        rollbackConfirm: 'Roll back this merge? Your main branch returns to where it was before approval. Click Roll Back again to confirm, or press Esc to cancel.',
+        done: 'Merged into your main branch. You can roll back while no newer commits land on it; the backup tag from run start stays as a recovery point.',
+        revisedDone: 'Sent back with your notes. The run is paused until you resume it.',
+        rolledBackDone: 'Rolled back. Your main branch is back where it was before approval.',
+      },
+      errors: {
+        dirtyWorkingTree: 'Some files have unsaved changes (dirty working tree). Commit or stash them, then try again.',
+        notReadyForFinalGate: 'This run is not waiting for final sign-off anymore. Refresh to see its latest status.',
+        rollbackRequiresCompleted: 'Rollback is available only right after a merge approval.',
+        rollbackMovedPastMerge: 'Your main branch already has newer commits after this merge, so automatic rollback stopped safely.',
+        emptyReviseNote: 'Please write a short note telling the team what to change.',
       },
     },
     glossary: {
       open: 'Glossary',
       title: 'Glossary',
-      search: 'Search terms...',
+      all: 'All',
+      close: 'Close',
+      search: 'Search terms…',
       plain: 'In plain words',
       pro: 'Technical detail',
       related: 'Related terms',
@@ -1882,7 +1948,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     credentials: {
       title: '凭据设置',
       keyLabels: {
-        DEEPSEEK_API_KEY: 'DSH API 密钥',
+        DEEPSEEK_API_KEY: 'DeepSeek API 密钥（DSH）',
         OPENAI_API_KEY: 'OpenAI API 密钥',
         OPENCODE_API_KEY: 'DSH 网关密钥',
         ANTHROPIC_API_KEY: 'Anthropic API 密钥',
@@ -1948,7 +2014,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         guards: [
           '配额防线：触发 429 限流仅冷却对应供应方并支持回退接力，不拖垮全局。',
           '路径白名单物理守卫：Git Worktree 中越界改动在合入前自动拦截回滚。',
-          '人类 L0 终审闸门：全部里程碑仅先合入 dev，待人工终审确认后再合并主干。',
+          '人类 L0 终审门禁：全部里程碑仅先合入 dev，待人工终审确认后再合并主干。',
         ],
       },
     },
@@ -1974,9 +2040,12 @@ export const MESSAGES: Record<Locale, Messages> = {
         scanClis: '扫描 AI 编程工具',
         scanning: '正在扫描本机……',
         install: '安装',
+        installConsent: '允许 VibeBaton 执行以下安装命令：',
         login: '登录',
+        needsLogin: '需要登录',
         ready: '已就绪',
         missing: '未安装',
+        tiers: { official: '官方', community: '社区' },
         lineupReady: '你的 AI 团队已准备就绪。',
         lineupMissing: '请至少安装并登录一个 AI 编程工具来组建团队。',
         useLineup: '使用这支团队',
@@ -1986,11 +2055,14 @@ export const MESSAGES: Record<Locale, Messages> = {
         inputPlaceholder: '描述你的想法、限制条件，以及如何判断它已经完成……',
         send: '发送',
         blueprintTitle: '蓝图',
+        emptyCard: '发送第一条消息后，蓝图会显示在这里。',
         summary: '概要',
         deliverables: '交付物',
         touchedAreas: '将会改动的项目区域',
         verificationPlan: '验证方式',
         readiness: '就绪度',
+        notReadyHint: '还差一步：告诉我用哪条命令证明它能用（比如 npm test），即可开始施工。',
+        offlineNotice: '暂无 AI 工具响应，这份草稿是根据你的原话整理的。在「工作区」连接工具后可获得更聪明的伙伴。',
         confirmLaunch: '确认蓝图并开始施工',
         showRfc: '查看完整 RFC',
         hideRfc: '收起完整 RFC',
@@ -2005,6 +2077,29 @@ export const MESSAGES: Record<Locale, Messages> = {
         changedFiles: '改动的文件',
         verdict: '评审结论',
         close: '关闭',
+        statuses: {
+          PENDING: '待运行',
+          RUNNING: '运行中',
+          GATE_CHECKING: '门禁检查中',
+          REVIEWING: '评审中',
+          COOLDOWN: '限流冷却中',
+          WAITING_HUMAN: '需要你的决定',
+          PASSED: '已通过',
+          FAILED: '失败',
+          SKIPPED: '已跳过',
+        },
+        testStatuses: {
+          passed: '已通过',
+          failed: '未通过',
+          not_run: '尚未运行',
+          not_configured: '未配置测试命令',
+        },
+        verdicts: {
+          PASS: '通过',
+          MINOR_FIX: '建议小幅修改',
+          MAJOR_REWORK: '需要返工',
+          PLAN_AMENDMENT: '需要调整计划',
+        },
       },
       decision: {
         title: '需要你来决定',
@@ -2015,21 +2110,35 @@ export const MESSAGES: Record<Locale, Messages> = {
       signOff: {
         title: '最终验收',
         testsPassed: '全部验证检查已通过',
+        testsSummary: (passed, total) => `${passed}/${total} 项验证检查通过`,
         changedFiles: '改动的文件',
         battleReport: '打开战报',
         approve: '批准并合并',
         revise: '要求修改',
+        reviseNote: '告诉团队需要改什么（必填）',
         rollback: '回滚',
-        rollbackConfirm: '确定回滚这次合并吗？主分支将恢复到批准之前的状态。',
-        done: '已合入你的主分支，合并前已自动保存备份标签。',
+        rollbackHint: '批准并合并后可用；若主分支已有新提交则自动锁定。',
+        rollbackConfirm: '确定回滚这次合并吗？主分支将恢复到批准之前的状态。再次点击「回滚」确认，按 Esc 取消。',
+        done: '已合入你的主分支。在主分支出现新提交之前仍可回滚；本次运行开始时创建的备份标签会保留作为恢复点。',
+        revisedDone: '已附意见退回，运行将暂停，直到你重新启动。',
+        rolledBackDone: '已回滚，主分支已恢复到批准前的状态。',
+      },
+      errors: {
+        dirtyWorkingTree: '有文件改动尚未提交（dirty working tree）。请先提交或暂存，再重试。',
+        notReadyForFinalGate: '当前运行已不在等待终审阶段，请刷新查看最新状态。',
+        rollbackRequiresCompleted: '只有在刚批准并合并后才能执行回滚。',
+        rollbackMovedPastMerge: '主分支在本次合并后已有新提交，为保护后续改动，系统已停止自动回滚。',
+        emptyReviseNote: '请先填写需要团队修改的内容。',
       },
     },
     glossary: {
       open: '术语表',
       title: '术语表',
+      all: '全部',
+      close: '关闭',
       search: '搜索术语……',
-      plain: '通俗解释',
-      pro: '技术细节',
+      plain: '通俗解读',
+      pro: '技术定义',
       related: '相关术语',
       empty: '没有匹配的术语。',
     },

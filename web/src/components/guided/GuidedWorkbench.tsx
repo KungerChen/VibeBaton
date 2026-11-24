@@ -249,6 +249,7 @@ export function GuidedWorkbench({ locale, client, liveSnapshot, onFollowRun }: G
           <div className="guided-workbench__panel">
             <GuidedSignOffPanel
               runId={runId}
+              runStatus={typeof snapshot.run?.status === 'string' ? snapshot.run.status : undefined}
               summary={signOffSummaryFromSnapshot(snapshot)}
               locale={locale}
               finalizer={(id, payload) => client.finalizeRun(id, payload)}
@@ -263,7 +264,7 @@ export function GuidedWorkbench({ locale, client, liveSnapshot, onFollowRun }: G
           runId={runId}
           taskId={detailTaskId}
           locale={locale}
-          fetcher={(id, taskId) => client.getRunTaskDetail(id, taskId)}
+          fetcher={(id, taskId) => client.getRunTaskDetail(id, taskId, locale)}
           onClose={() => setDetailTaskId(null)}
         />
       )}

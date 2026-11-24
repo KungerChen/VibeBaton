@@ -14,7 +14,7 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A transformer-based neural network trained on large text corpora to predict the next token. VibeBaton treats each LLM as a provider behind a role (planner, executor, reviewer) and never accepts its output without the mechanical gate and an independent review.',
     proExplain_zh:
-      '基于 Transformer 架构、在大规模语料上训练以预测下一个 token 的神经网络。VibeBaton 把每个 LLM 视为某个角色（规划者、执行者、评审者）背后的供应方，且其输出必须经过机械闸门和独立评审才会被采纳。',
+      '基于 Transformer 架构、在大规模语料上训练以预测下一个 token 的神经网络。VibeBaton 把每个 LLM 视为某个角色（规划者、执行者、评审者）背后的供应方，且其输出必须经过机械门禁和独立评审才会被采纳。',
     related: ['token', 'model', 'prompt', 'hallucination', 'provider'],
   },
   {
@@ -35,7 +35,7 @@ export const AI_TERMS: GlossaryEntry[] = [
   },
   {
     id: 'context-window',
-    term: 'Context window',
+    term: 'Context Window',
     category: 'ai',
     oneLiner_en: 'The maximum amount of text a model can hold in view at once, counted in tokens.',
     oneLiner_zh: '模型一次能同时看到的文本上限，以 token 计。',
@@ -68,7 +68,7 @@ export const AI_TERMS: GlossaryEntry[] = [
   },
   {
     id: 'system-prompt',
-    term: 'System prompt',
+    term: 'System Prompt',
     category: 'ai',
     oneLiner_en:
       'The standing instruction that sets the role, rules, and output format a model follows for the whole conversation.',
@@ -80,7 +80,7 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A high-priority message prepended by the client, separate from user turns, that shapes every response in the session. VibeBaton gives each role (planner, executor, reviewer) its own system prompt spelling out allowed actions, the mechanical gate, and the required response schema; role rules are enforced again by the engine because prompts alone are not a security boundary.',
     proExplain_zh:
-      '由客户端置于对话最前的高优先级消息，与用户轮次分开，影响该会话的每次回复。VibeBaton 为每个角色（规划者、执行者、评审者）准备独立的系统提示词，写明允许的动作、机械闸门和必须遵循的响应 schema；同时引擎会再次强制执行角色规则，因为提示词本身并不是安全边界。',
+      '由客户端置于对话最前的高优先级消息，与用户轮次分开，影响该会话的每次回复。VibeBaton 为每个角色（规划者、执行者、评审者）准备独立的系统提示词，写明允许的动作、机械门禁和必须遵循的响应 schema；同时引擎会再次强制执行角色规则，因为提示词本身并不是安全边界。',
     related: ['prompt', 'role', 'guardrails', 'structured-output', 'llm'],
   },
   {
@@ -96,7 +96,7 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A sampling parameter that scales the logits before the softmax, flattening (higher values) or sharpening (lower values, approaching greedy decoding) the next-token distribution; 0 is not guaranteed deterministic on every provider. VibeBaton pins a low temperature per role so two runs of the same task differ only where the code genuinely allows it.',
     proExplain_zh:
-      '一种采样参数，在 softmax 之前缩放 logits，从而拉平（值较高）或锐化（值较低，趋近贪心解码）下一个 token 的概率分布；并非所有服务商都能保证 0 时完全确定。VibeBaton 为每个角色固定低温度，使同一任务的两次运行只在代码本身允许的地方有差异。',
+      '一种采样参数，在 softmax 之前缩放 logits，从而拉平（值较高）或锐化（值较低，趋近贪心解码）下一个 token 的概率分布；并非所有供应方都能保证 0 时完全确定。VibeBaton 为每个角色固定低温度，使同一任务的两次运行只在代码本身允许的地方有差异。',
     related: ['inference', 'model', 'reasoning-effort', 'hallucination'],
   },
   {
@@ -112,7 +112,7 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Fluent, confident output that is not grounded in the input or the world, arising because the model optimizes for likely continuations rather than truth. VibeBaton counters it mechanically: executors must run a real verification command, reviewers compare the diff against the RFC, and the final gate re-runs checks instead of trusting a summary.',
     proExplain_zh:
-      '流畅而自信、却没有输入或事实依据的输出，根源在于模型优化的是“最可能的续写”而不是真实性。VibeBaton 用机械手段对抗它：执行者必须运行真实的验证命令，评审者将 diff 与 RFC 对照，最终闸门会重新运行检查，而不是相信一段总结。',
+      '流畅而自信、却没有输入或事实依据的输出，根源在于模型优化的是“最可能的续写”而不是真实性。VibeBaton 用机械手段对抗它：执行者必须运行真实的验证命令，评审者将 diff 与 RFC 对照，终审门禁会重新运行检查，而不是相信一段总结。',
     related: ['guardrails', 'evals', 'mechanical-gate', 'ai-review', 'llm'],
   },
   {
@@ -124,16 +124,16 @@ export const AI_TERMS: GlossaryEntry[] = [
     plainExplain_en:
       'A chatbot replies with text; an agent goes further: it reads a file, runs a command, looks at the result, and decides what to do next, repeating until the task is done or it gets stuck. More autonomy means the guardrails around it matter more.',
     plainExplain_zh:
-      '聊天机器人只回复文字，代理则更进一步：它读取文件、运行命令、查看结果，再决定下一步，如此循环，直到任务完成或卡住。自主性越强，围绕它的护栏就越重要。',
+      '聊天机器人只回复文字，智能体则更进一步：它读取文件、运行命令、查看结果，再决定下一步，如此循环，直到任务完成或卡住。自主性越强，围绕它的护栏就越重要。',
     proExplain_en:
       'A loop of model call, tool call, observation, and next model call, with the tools and stopping conditions defined by the harness. In VibeBaton the executor is an agent bounded by its task allowed paths, a verification command, and a turn budget; when it exceeds those, the task fails rather than improvising.',
     proExplain_zh:
-      '由“模型调用、工具调用、观察结果、再次调用模型”构成的循环，可用工具和停止条件由外层框架定义。在 VibeBaton 中，执行者这一代理受任务允许路径、验证命令和轮次预算约束；一旦越界，任务会直接失败，而不是即兴发挥。',
+      '由“模型调用、工具调用、观察结果、再次调用模型”构成的循环，可用工具和停止条件由外层框架定义。在 VibeBaton 中，执行者这一智能体受任务允许路径、验证命令和轮次预算约束；一旦越界，任务会直接失败，而不是即兴发挥。',
     related: ['coding-agent', 'tool-call', 'multi-agent', 'orchestration', 'guardrails'],
   },
   {
     id: 'tool-call',
-    term: 'Tool call',
+    term: 'Tool Call',
     category: 'ai',
     oneLiner_en: 'A structured request from a model asking the program around it to run a function.',
     oneLiner_zh: '模型发出的结构化请求，让外层程序执行某个函数。',
@@ -157,16 +157,17 @@ export const AI_TERMS: GlossaryEntry[] = [
     plainExplain_en:
       'Before MCP, every AI integration needed its own custom plug. MCP is a common socket: a server publishes the tools and data it offers, and any compatible client can use them without bespoke glue. It is how an agent can reach a database, a repository host, or an issue tracker.',
     plainExplain_zh:
-      '在使用 MCP 之前，每个 AI 集成都需要单独做一套定制接口。MCP 就像一个通用插座：服务端公布自己提供的工具和数据，任何兼容的客户端都能直接使用，不必再写专门的胶水代码。代理正是通过它连接数据库、代码托管平台或问题跟踪系统。',
+      '在使用 MCP 之前，每个 AI 集成都需要单独做一套定制接口。MCP 就像一个通用插座：服务端公布自己提供的工具和数据，任何兼容的客户端都能直接使用，不必再写专门的胶水代码。智能体正是通过它连接数据库、代码托管平台或问题跟踪系统。',
     proExplain_en:
       'An open JSON-RPC protocol in which servers expose resources, prompts, and tools, and clients connect over stdio or HTTP. VibeBaton can consume MCP servers as tool providers for its agents while keeping its own file sandbox and verification gate in control of what actually changes.',
     proExplain_zh:
-      '一种开放的 JSON-RPC 协议：服务端对外暴露资源、提示词和工具，客户端通过 stdio 或 HTTP 连接。VibeBaton 可以把 MCP 服务端作为代理的工具来源，同时仍由自身的文件沙箱和验证闸门控制真正发生的改动。',
+      '一种开放的 JSON-RPC 协议：服务端对外暴露资源、提示词和工具，客户端通过 stdio 或 HTTP 连接。VibeBaton 可以把 MCP 服务端作为智能体的工具来源，同时仍由自身的文件沙箱和验证门禁控制真正发生的改动。',
     related: ['tool-call', 'agent', 'api', 'sandbox'],
   },
   {
     id: 'model',
     term: 'Model',
+    matchCase: true,
     category: 'ai',
     oneLiner_en: 'The trained neural network whose weights determine how an AI responds.',
     oneLiner_zh: '训练好的神经网络，其权重决定了 AI 如何回应。',
@@ -182,7 +183,7 @@ export const AI_TERMS: GlossaryEntry[] = [
   },
   {
     id: 'reasoning-effort',
-    term: 'Reasoning effort',
+    term: 'Reasoning Effort',
     category: 'ai',
     oneLiner_en:
       'A per-request setting for how much deliberate thinking a model spends before answering.',
@@ -190,11 +191,11 @@ export const AI_TERMS: GlossaryEntry[] = [
     plainExplain_en:
       'Some tasks need a quick answer, others need working through several steps. This is a dial for that: higher effort buys more internal reasoning and better plans, at the cost of latency and tokens. A routine rename does not need the same setting as an architecture decision.',
     plainExplain_zh:
-      '有些任务只需快速回答，有些则需要逐步推演。这个参数就是对应的旋钮：调高会花更多内部推理，换来更好的计划，代价是延迟和 token。给变量改个名字和做一次架构决策，显然不需要同一档位。',
+      '有些任务只需快速回答，有些则需要逐步推演。这个参数就是对应的旋钮：调高会花更多内部推理，换来更好的计划，代价是延迟和 token。给变量改个名字和做一次架构决策，不需要同一档位。',
     proExplain_en:
       'A provider-level control (low, medium, high, or a token budget for reasoning) that changes how many hidden reasoning tokens are generated before the visible answer. VibeBaton maps task tier to effort: routine tasks stay cheap and fast, while critical planning and review tasks may spend more.',
     proExplain_zh:
-      '服务商层面的控制项（低、中、高，或推理 token 预算），决定在可见答案之前生成多少隐藏推理 token。VibeBaton 将任务层级映射到推理档位：常规任务保持便宜和快速，关键的规划与评审任务则可以投入更多。',
+      '供应方层面的控制项（低、中、高，或推理 token 预算），决定在可见答案之前生成多少隐藏推理 token。VibeBaton 将任务层级映射到推理档位：常规任务保持便宜和快速，关键的规划与评审任务则可以投入更多。',
     related: ['inference', 'temperature', 'model-routing', 'critical-task'],
   },
   {
@@ -206,16 +207,16 @@ export const AI_TERMS: GlossaryEntry[] = [
     plainExplain_en:
       'Training is how a model learns; inference is how it is used. Every prompt you send starts an inference: the model reads the tokens and produces the next ones one step at a time. You pay for inference by the token, and it is the slow part of an agent run.',
     plainExplain_zh:
-      '训练是模型学习的过程，推理则是使用模型的过程。你发送的每个提示词都会触发一次推理：模型读取 token，再一步一步生成后续内容。推理按 token 计费，也是代理运行中较慢的环节。',
+      '训练是模型学习的过程，推理则是使用模型的过程。你发送的每个提示词都会触发一次推理：模型读取 token，再一步一步生成后续内容。推理按 token 计费，也是智能体运行中较慢的环节。',
     proExplain_en:
       'The forward pass that turns input tokens into a probability distribution over the next token, repeated until a stop condition. VibeBaton calls inference through provider APIs or local CLI drivers, measures latency and token counts per call, and treats a timed-out inference as a failed attempt eligible for retry or fallback.',
     proExplain_zh:
-      '把输入 token 转换为下一个 token 概率分布的前向计算，并重复执行直到遇到停止条件。VibeBaton 通过服务商 API 或本地 CLI 驱动发起推理，逐次记录延迟和 token 数，并把超时的推理视为失败尝试，交给重试或回退处理。',
+      '把输入 token 转换为下一个 token 概率分布的前向计算，并重复执行直到遇到停止条件。VibeBaton 通过供应方 API 或本地 CLI 驱动发起推理，逐次记录延迟和 token 数，并把超时的推理视为失败尝试，交给重试或回退处理。',
     related: ['llm', 'token', 'latency', 'streaming', 'provider'],
   },
   {
     id: 'fine-tuning',
-    term: 'Fine-tuning',
+    term: 'Fine-Tuning',
     category: 'ai',
     oneLiner_en: 'Further training a base model on your own examples so it better fits a specific task.',
     oneLiner_zh: '在基础模型上用你自己的样例继续训练，使它更贴合特定任务。',
@@ -235,7 +236,7 @@ export const AI_TERMS: GlossaryEntry[] = [
     category: 'ai',
     oneLiner_en:
       'A list of numbers that represents the meaning of a piece of text, so similar text ends up close together.',
-    oneLiner_zh: '用一串数字表示一段文本的含义，含义相近的文本在向量空间里距离也近。',
+    oneLiner_zh: '用一串数字给文本的含义“定位”，意思相近的话会被放在彼此靠近的位置。',
     plainExplain_en:
       'Imagine filing every sentence by its position on a giant map of meaning: "reset a password" and "recover login" land near each other even though they share no keywords. Embeddings make it possible to search by meaning rather than exact wording.',
     plainExplain_zh:
@@ -265,18 +266,18 @@ export const AI_TERMS: GlossaryEntry[] = [
   },
   {
     id: 'multi-agent',
-    term: 'Multi-agent',
+    term: 'Multi-Agent',
     category: 'ai',
     oneLiner_en: 'A setup where several AI agents work on the same job in different roles or in parallel.',
-    oneLiner_zh: '让多个 AI 代理分角色或并行处理同一项工作的方式。',
+    oneLiner_zh: '让多个 AI 智能体分角色或并行处理同一项工作的方式。',
     plainExplain_en:
       'One agent doing everything has to be planner, coder, and reviewer at once, and reviewing its own work is weak. Splitting the job lets one plan, one implement, and one check, like a small team. The cost is coordination: agents can duplicate work or disagree.',
     plainExplain_zh:
-      '如果一个代理包揽全部工作，它就要同时做规划、写代码和评审，而自己审自己效果有限。拆开之后，一个负责规划、一个负责实现、一个负责检查，像一支小团队。代价是协调成本：代理之间可能重复劳动或意见不一致。',
+      '如果一个智能体包揽全部工作，它就要同时做规划、写代码和评审，而自己审自己效果有限。拆开之后，一个负责规划、一个负责实现、一个负责检查，像一支小团队。代价是协调成本：智能体之间可能重复劳动或意见不一致。',
     proExplain_en:
       'An architecture with separate agent instances, each with its own prompt, context, and permissions, connected by a coordinator or shared artifacts. VibeBaton runs planner, executor, and reviewer as distinct roles and forbids the executor from approving its own diff, which turns independence into a property of the system rather than a hope.',
     proExplain_zh:
-      '一种由多个独立代理实例组成的架构，每个实例有自己的提示词、上下文和权限，通过协调器或共享产物连接。VibeBaton 把规划者、执行者和评审者设为不同角色，并禁止执行者批准自己的 diff，让“独立性”成为系统属性而不是一种期望。',
+      '一种由多个独立智能体实例组成的架构，每个实例有自己的提示词、上下文和权限，通过协调器或共享产物连接。VibeBaton 把规划者、执行者和评审者设为不同角色，并禁止执行者批准自己的 diff，让“独立性”成为系统属性而不是一种期望。',
     related: ['agent', 'orchestration', 'role', 'ai-review', 'specialist-panel'],
   },
   {
@@ -285,7 +286,7 @@ export const AI_TERMS: GlossaryEntry[] = [
     category: 'ai',
     oneLiner_en:
       'The coordination layer that decides which agent or model runs when, and with what input.',
-    oneLiner_zh: '负责决定何时由哪个代理或模型执行、输入是什么的协调层。',
+    oneLiner_zh: '负责决定何时由哪个智能体或模型执行、输入是什么的协调层。',
     plainExplain_en:
       'An orchestra sounds chaotic without a conductor. Orchestration hands each worker its part, starts independent parts together, waits for the ones that must finish first, and collects the results. In an AI system it is the difference between a pile of calls and a completed job.',
     plainExplain_zh:
@@ -293,29 +294,29 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Scheduling, dependency resolution, retries, budget enforcement, and result aggregation across model calls and agent runs. VibeBaton implements it in the plan engine: it walks the Plan DAG, applies concurrency limits and fallback chains, and records every step in the battle report so a failed orchestration is diagnosable.',
     proExplain_zh:
-      '跨模型调用和代理运行的调度、依赖解析、重试、预算控制与结果汇总。VibeBaton 在计划引擎中实现这些能力：遍历 Plan DAG，应用并发上限和回退链，并把每一步记录进战报，使失败的编排可以诊断。',
+      '跨模型调用和智能体运行的调度、依赖解析、重试、预算控制与结果汇总。VibeBaton 在计划引擎中实现这些能力：遍历 Plan DAG，应用并发上限和回退链，并把每一步记录进战报，使失败的编排可以诊断。',
     related: ['multi-agent', 'plan-dag', 'fallback-chain', 'agent', 'provider'],
   },
   {
     id: 'coding-agent',
-    term: 'Coding agent',
+    term: 'Coding Agent',
     category: 'ai',
     oneLiner_en:
       'An AI agent equipped to read and edit a codebase, run commands, and iterate until tests pass.',
-    oneLiner_zh: '能够读写代码库、运行命令，并反复迭代直到测试通过的 AI 代理。',
+    oneLiner_zh: '能够读写代码库、运行命令，并反复迭代直到测试通过的 AI 智能体。',
     plainExplain_en:
       'A coding assistant suggests a snippet; a coding agent opens the file, makes the edit, runs the tests, reads the failure, and tries again. That loop is powerful, and it needs a clear scope and a real test suite to stay honest.',
     plainExplain_zh:
-      '代码助手只给出片段，代码代理则会打开文件、完成修改、运行测试、读取失败信息，然后再试一次。这个循环很有力，但也需要清晰的范围和真实的测试套件，才能保证它不偏离目标。',
+      '代码助手只给出片段，代码智能体则会打开文件、完成修改、运行测试、读取失败信息，然后再试一次。这个循环很有力，但也需要清晰的范围和真实的测试套件，才能保证它不偏离目标。',
     proExplain_en:
       'An agent whose tools include file read and write plus shell execution inside a working tree, with a loop bounded by a verification command. VibeBaton runs coding agents in isolated worktrees, limits each to its task allowed paths, and accepts the change only when the mechanical gate passes and a separate reviewer approves.',
     proExplain_zh:
-      '一类代理，其工具包括在工作树内读写文件和执行 shell，循环以验证命令为边界。VibeBaton 把代码代理放在隔离的 worktree 中运行，把每个代理限制在任务的允许路径内，并且只有机械闸门通过且独立评审者批准后才接受改动。',
+      '一类智能体，其工具包括在工作树内读写文件和执行 shell，循环以验证命令为边界。VibeBaton 把代码智能体放在隔离的 worktree 中运行，把每个智能体限制在任务的允许路径内，并且只有机械门禁通过且独立评审者批准后才接受改动。',
     related: ['agent', 'worktree', 'allowed-paths', 'mechanical-gate', 'vibe-coding'],
   },
   {
     id: 'subscription-plan',
-    term: 'Subscription plan',
+    term: 'Subscription Plan',
     category: 'ai',
     oneLiner_en:
       'A fixed monthly price for a service that includes a usage allowance, instead of paying per token.',
@@ -327,15 +328,15 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Provider billing where a flat fee covers a quota of requests or compute over a period. VibeBaton records the billing kind for each provider account so budget checks compare against the right unit, and a quota-cooldown pauses work instead of failing when a plan allowance runs out.',
     proExplain_zh:
-      '服务商的一种计费方式：固定费用覆盖一段时间内的请求或计算额度。VibeBaton 会记录每个服务商账户的计费类型，使预算检查使用正确的单位；当套餐额度耗尽时，配额冷却会暂停工作，而不是直接让任务失败。',
+      '供应方的一种计费方式：固定费用覆盖一段时间内的请求或计算额度。VibeBaton 会记录每个供应方账户的计费类型，使预算检查使用正确的单位；当套餐额度耗尽时，配额冷却会暂停工作，而不是直接让任务失败。',
     related: ['api-key', 'provider', 'budget-profile', 'quota-cooldown', 'rate-limit'],
   },
   {
     id: 'api-key',
-    term: 'API key',
+    term: 'API Key',
     category: 'ai',
     oneLiner_en: 'A secret string that identifies your account and authorizes calls to a provider API.',
-    oneLiner_zh: '标识你的账户并授权调用服务商接口的一串密钥。',
+    oneLiner_zh: '标识你的账户并授权调用供应方接口的一串密钥。',
     plainExplain_en:
       'Like a keycard for a building: it identifies you and gives you access, so anyone holding it can spend your account and see your data. Keep it out of the code and out of the repository, and rotate it if it ever gets printed in a log.',
     plainExplain_zh:
@@ -343,12 +344,12 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A bearer credential sent in headers or environment variables and scoped to a provider project. VibeBaton reads keys from environment variables or the OS credential store, never writes them to the RFC or logs, and records only masked fingerprints so a leaked key can be traced without exposing it.',
     proExplain_zh:
-      '通过请求头或环境变量发送、作用域限定到服务商项目的持有者凭证。VibeBaton 从环境变量或操作系统凭据存储读取密钥，绝不写入 RFC 或日志，只记录脱敏指纹，以便在密钥泄露时追溯而不暴露密钥本身。',
+      '通过请求头或环境变量发送、作用域限定到供应方项目的持有者凭证。VibeBaton 从环境变量或操作系统凭据存储读取密钥，绝不写入 RFC 或日志，只记录脱敏指纹，以便在密钥泄露时追溯而不暴露密钥本身。',
     related: ['provider', 'environment-variable', 'auth-error', 'permission-denied'],
   },
   {
     id: 'prompt-caching',
-    term: 'Prompt caching',
+    term: 'Prompt Caching',
     category: 'ai',
     oneLiner_en:
       'Reusing the saved computation a provider keeps for a repeated prompt prefix, which lowers cost and latency.',
@@ -360,12 +361,12 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A provider-side key-value cache keyed on an exact token prefix, usually billed at a fraction of normal input tokens on a hit and expiring after minutes. VibeBaton puts the system prompt and RFC context first and task-specific text last, so agents across a DAG share cache hits; the battle report separates cached and fresh input tokens.',
     proExplain_zh:
-      '服务商侧的键值缓存，按完全相同的 token 前缀命中，通常按正常输入 token 价格的一小部分计费，并在数分钟后过期。VibeBaton 把系统提示词和 RFC 背景放在最前、任务专属文字放在最后，使同一 DAG 中的多个代理共享缓存命中；战报会区分缓存输入与新增输入 token。',
+      '供应方侧的键值缓存，按完全相同的 token 前缀命中，通常按正常输入 token 价格的一小部分计费，并在数分钟后过期。VibeBaton 把系统提示词和 RFC 背景放在最前、任务专属文字放在最后，使同一 DAG 中的多个智能体共享缓存命中；战报会区分缓存输入与新增输入 token。',
     related: ['token', 'input-tokens', 'context-window', 'latency', 'provider'],
   },
   {
     id: 'input-tokens',
-    term: 'Input tokens',
+    term: 'Input Tokens',
     category: 'ai',
     oneLiner_en: 'The tokens you send to a model: instructions, context, and conversation so far.',
     oneLiner_zh: '你发送给模型的 token：指令、背景以及已有对话。',
@@ -376,19 +377,19 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Prompt tokens counted on each inference request, priced separately from output and usually the larger share of cost in agent loops. VibeBaton estimates them before dispatch, records actual counts per task, and charges cached input at the lower rate when the provider reports it.',
     proExplain_zh:
-      '每次推理请求中计入的提示词 token，与输出分别计价，在代理循环中往往占总成本的大头。VibeBaton 在派发前估算用量，逐任务记录实际数量，并在服务商报告缓存命中时按较低单价计算缓存输入。',
+      '每次推理请求中计入的提示词 token，与输出分别计价，在智能体循环中往往占总成本的大头。VibeBaton 在派发前估算用量，逐任务记录实际数量，并在供应方报告缓存命中时按较低单价计算缓存输入。',
     related: ['token', 'output-tokens', 'context-window', 'prompt-caching', 'budget-profile'],
   },
   {
     id: 'output-tokens',
-    term: 'Output tokens',
+    term: 'Output Tokens',
     category: 'ai',
     oneLiner_en: 'The tokens a model generates in its reply, usually priced higher than input tokens.',
     oneLiner_zh: '模型在回复中生成的 token，单价通常高于输入 token。',
     plainExplain_en:
       'Writing is slower and more expensive than reading. Output tokens are produced one at a time, so they dominate latency, and providers often charge several times the input rate. Asking for a concise diff or a short report is both faster and cheaper.',
     plainExplain_zh:
-      '写比读更慢也更贵。输出 token 是一个一个生成的，因此主导了延迟，服务商的收费常常是输入单价的数倍。要求模型给出简洁的 diff 或简短报告，既快又省钱。',
+      '写比读更慢也更贵。输出 token 是一个一个生成的，因此主导了延迟，供应方的收费常常是输入单价的数倍。要求模型给出简洁的 diff 或简短报告，既快又省钱。',
     proExplain_en:
       'Generated tokens, including hidden reasoning tokens on models that bill them, bounded by the max-output setting. VibeBaton caps output per role, asks for patches and structured summaries instead of essays, and sums output tokens per task to compare cost against the budget profile.',
     proExplain_zh:
@@ -414,7 +415,7 @@ export const AI_TERMS: GlossaryEntry[] = [
   },
   {
     id: 'structured-output',
-    term: 'Structured output',
+    term: 'Structured Output',
     category: 'ai',
     oneLiner_en:
       'A model reply constrained to a predefined shape, such as JSON matching a schema, instead of free text.',
@@ -426,7 +427,7 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Constrained decoding or a validated response schema (JSON Schema, typed tool arguments) where the provider guarantees the shape or the client rejects and retries. VibeBaton requires planner and reviewer replies to match a schema, so the engine can schedule tasks and read verdicts without brittle text parsing.',
     proExplain_zh:
-      '约束解码或经过校验的响应 schema（JSON Schema、带类型的工具参数），由服务商保证结构，或由客户端拒绝并重试。VibeBaton 要求规划者和评审者的回复符合 schema，使引擎无需脆弱的文本解析就能调度任务、读取结论。',
+      '约束解码或经过校验的响应 schema（JSON Schema、带类型的工具参数），由供应方保证结构，或由客户端拒绝并重试。VibeBaton 要求规划者和评审者的回复符合 schema，使引擎无需脆弱的文本解析就能调度任务、读取结论。',
     related: ['json-mode', 'json', 'schema', 'tool-call', 'guardrails'],
   },
   {
@@ -434,7 +435,7 @@ export const AI_TERMS: GlossaryEntry[] = [
     term: 'JSON mode',
     category: 'ai',
     oneLiner_en: 'A provider setting that asks the model to reply with valid JSON.',
-    oneLiner_zh: '服务商提供的一种设置，要求模型以合法 JSON 回复。',
+    oneLiner_zh: '供应方提供的一种设置，要求模型以合法 JSON 回复。',
     plainExplain_en:
       'It is a step stronger than a polite instruction: the model is told, by a setting, to produce JSON that parses. That is useful for data exchange, but JSON mode alone may not enforce your exact fields, so checking against a schema is still wise.',
     plainExplain_zh:
@@ -447,7 +448,7 @@ export const AI_TERMS: GlossaryEntry[] = [
   },
   {
     id: 'few-shot',
-    term: 'Few-shot',
+    term: 'Few-Shot',
     category: 'ai',
     oneLiner_en:
       'Showing a model a few examples of the task inside the prompt so it copies the pattern.',
@@ -464,7 +465,7 @@ export const AI_TERMS: GlossaryEntry[] = [
   },
   {
     id: 'chain-of-thought',
-    term: 'Chain of thought',
+    term: 'Chain of Thought',
     category: 'ai',
     oneLiner_en:
       'Asking a model to work through intermediate steps before giving its final answer.',
@@ -492,12 +493,12 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Layered controls including input validation, tool permission scopes, path allowlists, output schema checks, budget caps, and approval gates. VibeBaton enforces guardrails in code rather than in prompts, because a model can be argued out of a prompt but not out of a filesystem sandbox.',
     proExplain_zh:
-      '分层控制，包括输入校验、工具权限范围、路径白名单、输出 schema 检查、预算上限和审批闸门。VibeBaton 把护栏落实在代码里而不是提示词里，因为模型可能被说服绕过提示词，却无法绕过文件系统沙箱。',
+      '分层控制，包括输入校验、工具权限范围、路径白名单、输出 schema 检查、预算上限和审批门禁。VibeBaton 把护栏落实在代码里而不是提示词里，因为模型可能被说服绕过提示词，却无法绕过文件系统沙箱。',
     related: ['allowed-paths', 'sandbox', 'critical-task', 'mechanical-gate', 'rate-limit'],
   },
   {
     id: 'model-routing',
-    term: 'Model routing',
+    term: 'Model Routing',
     category: 'ai',
     oneLiner_en:
       'Choosing which model handles a request, based on task difficulty, cost, and availability.',
@@ -509,7 +510,7 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A policy mapping task tier, role, and budget profile to a provider and model, with health and quota checks before dispatch. VibeBaton routes routine tasks to budget models and critical tasks to stronger ones, and falls through a fallback chain when a provider is rate-limited or down.',
     proExplain_zh:
-      '把任务层级、角色和预算方案映射到服务商与模型的策略，并在派发前检查健康状态和配额。VibeBaton 将常规任务路由到经济模型、关键任务路由到更强的模型，并在服务商限流或故障时沿回退链降级。',
+      '把任务层级、角色和预算方案映射到供应方与模型的策略，并在派发前检查健康状态和配额。VibeBaton 将常规任务路由到经济模型、关键任务路由到更强的模型，并在供应方限流或故障时沿回退链降级。',
     related: ['model', 'budget-profile', 'fallback-chain', 'routine-task', 'critical-task'],
   },
   {
@@ -547,7 +548,7 @@ export const AI_TERMS: GlossaryEntry[] = [
   },
   {
     id: 'knowledge-cutoff',
-    term: 'Knowledge cutoff',
+    term: 'Knowledge Cutoff',
     category: 'ai',
     oneLiner_en:
       'The date after which a model has no training data and therefore cannot know recent events.',
@@ -576,12 +577,12 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'An architecture that encodes images, audio, or video into the same token stream as text so one model conditions on several modalities. VibeBaton can attach screenshots from a failing browser test to a reviewer prompt, while keeping the mechanical gate and diff review based on text artifacts.',
     proExplain_zh:
-      '一种把图像、音频或视频编码进与文本相同的 token 流的架构，使单个模型能同时利用多种模态。VibeBaton 可以把失败的浏览器测试截图附加到评审提示词中，同时保持机械闸门和 diff 评审基于文本产物。',
+      '一种把图像、音频或视频编码进与文本相同的 token 流的架构，使单个模型能同时利用多种模态。VibeBaton 可以把失败的浏览器测试截图附加到评审提示词中，同时保持机械门禁和 diff 评审基于文本产物。',
     related: ['llm', 'model', 'context-window', 'structured-output'],
   },
   {
     id: 'vibe-coding',
-    term: 'Vibe coding',
+    term: 'Vibe Coding',
     category: 'ai',
     oneLiner_en:
       'Building software by describing what you want and letting an AI write the code, iterating from the result.',
@@ -593,12 +594,12 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A workflow where the human supplies intent and feedback while the model produces most of the code, a term popularized in early 2025. VibeBaton is built for it: the RFC captures intent, executors do the typing, and the mechanical gate plus independent review keep speed from turning into unverified code.',
     proExplain_zh:
-      '一种由人提供意图和反馈、由模型产出大部分代码的工作方式，这一说法在 2025 年初流行开来。VibeBaton 正为此而建：RFC 固定意图，执行者负责敲代码，机械闸门和独立评审则防止速度变成未经检验的代码。',
+      '一种由人提供意图和反馈、由模型产出大部分代码的工作方式，这一说法在 2025 年初流行开来。VibeBaton 正为此而建：RFC 固定意图，执行者负责敲代码，机械门禁和独立评审则防止速度变成未经检验的代码。',
     related: ['coding-agent', 'rfc', 'mechanical-gate', 'ai-review', 'guided-mode'],
   },
   {
     id: 'human-in-the-loop',
-    term: 'Human in the loop',
+    term: 'Human in the Loop',
     category: 'ai',
     oneLiner_en:
       'A workflow where a person reviews or approves key AI decisions before they take effect.',
@@ -610,12 +611,12 @@ export const AI_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'An approval gate in an otherwise automated pipeline, triggered by risk tier or policy. VibeBaton sends critical tasks and final-gate merges to the waiting-human state, presents the diff and gate evidence, and resumes only after an explicit sign-off from the operator.',
     proExplain_zh:
-      '在整体自动化的流程中，由风险层级或策略触发的审批闸门。VibeBaton 会把关键任务和最终闸门合并送入等待人工状态，展示 diff 与闸门证据，只有在操作者明确签核后才继续。',
+      '在整体自动化的流程中，由风险层级或策略触发的审批门禁。VibeBaton 会把关键任务和终审门禁合并送入等待人工状态，展示 diff 与门禁证据，只有在操作者明确签核后才继续。',
     related: ['final-gate', 'sign-off', 'waiting-human', 'critical-task', 'mechanical-gate'],
   },
   {
     id: 'headless-mode',
-    term: 'Headless mode',
+    term: 'Headless Mode',
     category: 'ai',
     oneLiner_en:
       'Running an AI tool without its interactive interface, driven by commands or a scheduler.',
@@ -623,7 +624,7 @@ export const AI_TERMS: GlossaryEntry[] = [
     plainExplain_en:
       'A headless browser has no window but still loads pages; a headless AI run has no chat box but still does the work. It is how an agent can run overnight or inside CI: input comes from a prompt and configuration, output goes to logs and files.',
     plainExplain_zh:
-      '无头浏览器没有窗口，但照样加载网页；无头 AI 运行没有聊天框，但照样完成任务。代理能整夜运行或嵌入 CI 就靠这种方式：输入来自提示词和配置，输出写入日志和文件。',
+      '无头浏览器没有窗口，但照样加载网页；无头 AI 运行没有聊天框，但照样完成任务。智能体能整夜运行或嵌入 CI 就靠这种方式：输入来自提示词和配置，输出写入日志和文件。',
     proExplain_en:
       'A non-interactive execution mode, typically CLI flags plus structured input and output, with no terminal session or human prompts. VibeBaton uses headless runs for daemon and overnight execution, and requires an explicit policy for any step that would otherwise wait for a human.',
     proExplain_zh:

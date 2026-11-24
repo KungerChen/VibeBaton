@@ -76,9 +76,9 @@ export const WEB_HTTP_TERMS: GlossaryEntry[] = [
     plainExplain_zh:
       '就像收听广播：浏览器只需接入一次，服务器便持续播报，不必每次重新询问。连接会一直保持，直到某一方主动结束。',
     proExplain_en:
-      'Server-Sent Events: a response with `Content-Type: text/event-stream` carrying `data:` messages, with optional `id:` and `event:` fields; `EventSource` reconnects automatically. It suits one-way progress feeds, though the VibeBaton Studio currently refreshes run state through ordinary API calls.',
+      'Server-Sent Events: a response with `Content-Type: text/event-stream` carrying `data:` messages, with optional `id:` and `event:` fields; `EventSource` reconnects automatically. VibeBaton Studio uses SSE on `/api/runs/stream` to push live run snapshots and events in real time.',
     proExplain_zh:
-      'SSE 即 Server-Sent Events（服务器发送事件）：响应头为 `Content-Type: text/event-stream`，内容是按 `data:` 组织的事件消息，还可带 `id:` 与 `event:` 字段，`EventSource` 会自动重连。它适合单向进度推送；目前 VibeBaton Studio 仍通过普通 API 调用刷新运行状态。',
+      'SSE 即 Server-Sent Events（服务器发送事件）：响应头为 `Content-Type: text/event-stream`，内容是按 `data:` 组织的事件消息，还可带 `id:` 与 `event:` 字段，`EventSource` 会自动重连。VibeBaton Studio 通过 `/api/runs/stream` 的 SSE 流实时推送运行快照与事件。',
     related: ['http', 'websocket', 'streaming', 'response', 'server'],
   },
   {
@@ -132,6 +132,7 @@ export const WEB_HTTP_TERMS: GlossaryEntry[] = [
   {
     id: 'port',
     term: 'Port',
+    matchCase: true,
     category: 'web_http',
     oneLiner_en: 'A numbered channel that identifies which service on a machine should receive a network connection.',
     oneLiner_zh: '带编号的通道，用来确定机器上哪个服务应当接收网络连接。',
@@ -212,6 +213,7 @@ export const WEB_HTTP_TERMS: GlossaryEntry[] = [
   {
     id: 'request',
     term: 'Request',
+    matchCase: true,
     category: 'web_http',
     oneLiner_en: 'A message a client sends to a server asking it to do something.',
     oneLiner_zh: '客户端发送给服务器、请求其执行某项操作的消息。',
@@ -228,6 +230,7 @@ export const WEB_HTTP_TERMS: GlossaryEntry[] = [
   {
     id: 'response',
     term: 'Response',
+    matchCase: true,
     category: 'web_http',
     oneLiner_en: 'The server message that answers a request, with a status, headers, and usually a body.',
     oneLiner_zh: '服务器用来回应请求的消息，包含状态、响应头，通常还有响应体。',
@@ -244,6 +247,7 @@ export const WEB_HTTP_TERMS: GlossaryEntry[] = [
   {
     id: 'header',
     term: 'Header',
+    matchCase: true,
     category: 'web_http',
     oneLiner_en: 'A named field in a request or response that carries metadata about the message.',
     oneLiner_zh: '请求或响应中带名称的字段，用来携带关于这条消息的元数据。',
@@ -260,6 +264,7 @@ export const WEB_HTTP_TERMS: GlossaryEntry[] = [
   {
     id: 'body',
     term: 'Body',
+    matchCase: true,
     category: 'web_http',
     oneLiner_en: 'The main content of an HTTP message, such as JSON data or a file.',
     oneLiner_zh: 'HTTP 消息的主体内容，例如 JSON 数据或文件。',
@@ -558,7 +563,7 @@ export const WEB_HTTP_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'HTTP over TLS, defaulting to port 443, which authenticates the server certificate and encrypts the connection. VibeBaton talks to its local server over plain HTTP on loopback, while external provider APIs are called over HTTPS.',
     proExplain_zh:
-      'HTTPS 即运行在 TLS 之上的 HTTP，默认使用 443 端口，通过服务器证书完成身份验证并加密连接。VibeBaton 与本机服务器之间在回环地址上使用普通 HTTP，而调用外部模型提供方 API 时使用 HTTPS。',
+      'HTTPS 即运行在 TLS 之上的 HTTP，默认使用 443 端口，通过服务器证书完成身份验证并加密连接。VibeBaton 与本机服务器之间在回环地址上使用普通 HTTP，而调用外部模型供应方 API 时使用 HTTPS。',
     related: ['http', 'url', 'server', 'browser', 'dns'],
   },
   {

@@ -9,6 +9,7 @@ import {
 import { MESSAGES, type Locale } from '../../i18n/messages';
 import { Button } from '../ui/button';
 import { Textarea } from '../ui/input';
+import { localizeGuidedError } from './guidedErrors';
 
 /** Everything the final verification card needs to render one run. */
 export interface SignOffSummary {
@@ -42,7 +43,7 @@ export function summarizeSignOff(summary: SignOffSummary, locale: Locale): SignO
   const allPassed = summary.testsTotal > 0 && summary.testsPassed === summary.testsTotal;
   const testCount = `${summary.testsPassed}/${summary.testsTotal}`;
   return {
-    tests: allPassed ? `${testCount} · ${copy.testsPassed}` : testCount,
+    tests: allPassed ? `${testCount} · ${copy.testsPassed}` : copy.testsSummary(summary.testsPassed, summary.testsTotal),
     changedFiles: `${copy.changedFiles} (${summary.changedFiles.length})`,
     reportUrl: summary.reportUrl,
     allPassed,
@@ -63,6 +64,8 @@ async function finalizeRun(runId: string, payload: FinalizeRequest): Promise<Fin
 
 export interface GuidedSignOffPanelProps {
   runId: string;
+  /** Current run status (e.g. READY_FOR_FINAL_GATE or COMPLETED) so actions track backend rules. */
+  runStatus?: string;
   summary: SignOffSummary;
   onFinalized: (result: FinalizeResult) => void;
   locale: Locale;
@@ -76,6 +79,7 @@ export interface GuidedSignOffPanelProps {
  */
 export function GuidedSignOffPanel({
   runId,
+  runStatus,
   summary,
   onFinalized,
   locale,
@@ -90,11 +94,18 @@ export function GuidedSignOffPanel({
   const [completed, setCompleted] = useState<FinalizeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
-  const locked = busy || completed !== null;
+  const effectiveStatus = completed?.status ?? runStatus;
+  const isApproved = effectiveStatus === 'COMPLETED' || completed?.action === 'approve';
+  const isTerminal = completed !== null && completed.action !== 'approve';
+  const canApproveOrRevise = !busy && !isTerminal && !isApproved
+    && (runStatus === undefined || effectiveStatus === 'READY_FOR_FINAL_GATE');
+  const canRollback = !busy && !isTerminal
+    && (effectiveStatus === 'COMPLETED' || (runStatus === undefined && completed === null));
   const reportHref = digest.reportUrl.trim() || `/api/runs/${encodeURIComponent(runId)}/report`;
 
   async function finalize(action: FinalizeAction) {
-    if (inFlight.current || locked) return;
+    const allowed = action === 'rollback' ? canRollback : canApproveOrRevise;
+    if (inFlight.current || !allowed) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
@@ -108,7 +119,7 @@ export function GuidedSignOffPanel({
       setReviseOpen(false);
       onFinalized(result);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(localizeGuidedError(failure, locale));
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -152,8 +163,14 @@ export function GuidedSignOffPanel({
         </div>
       </div>
 
-      {completed?.action === 'approve' ? (
+      {completed?.action === 'approve' || (completed === null && runStatus === 'COMPLETED') ? (
         <p className="guided-sign-off__done" role="status">{copy.done}</p>
+      ) : null}
+      {completed?.action === 'revise' ? (
+        <p className="guided-sign-off__done" role="status">{copy.revisedDone}</p>
+      ) : null}
+      {completed?.action === 'rollback' ? (
+        <p className="guided-sign-off__done" role="status">{copy.rolledBackDone}</p>
       ) : null}
 
       {error ? (
@@ -164,7 +181,7 @@ export function GuidedSignOffPanel({
         <Button
           variant="default"
           size="sm"
-          disabled={locked}
+          disabled={!canApproveOrRevise}
           onClick={() => void finalize('approve')}
         >
           {copy.approve}
@@ -184,15 +201,15 @@ export function GuidedSignOffPanel({
               className="guided-sign-off__note"
               value={note}
               aria-label={copy.revise}
-              placeholder={copy.revise}
-              disabled={locked}
+              placeholder={copy.reviseNote}
+              disabled={!canApproveOrRevise}
               autoFocus
               onChange={(event) => setNote(event.currentTarget.value)}
             />
             <Button
               variant="secondary"
               size="sm"
-              disabled={locked || !note.trim()}
+              disabled={!canApproveOrRevise || !note.trim()}
               onClick={() => void finalize('revise')}
             >
               {copy.revise}
@@ -202,7 +219,7 @@ export function GuidedSignOffPanel({
           <Button
             variant="secondary"
             size="sm"
-            disabled={locked}
+            disabled={!canApproveOrRevise}
             onClick={() => {
               setError(null);
               setConfirmingRollback(false);
@@ -217,7 +234,8 @@ export function GuidedSignOffPanel({
           <Button
             variant="destructive"
             size="sm"
-            disabled={locked}
+            disabled={!canRollback}
+            title={!canRollback && !busy && !isTerminal ? copy.rollbackHint : undefined}
             onClick={() => {
               if (confirmingRollback) {
                 void finalize('rollback');

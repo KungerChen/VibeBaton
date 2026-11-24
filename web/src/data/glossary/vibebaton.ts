@@ -28,6 +28,7 @@ export const VIBEBATON_TERMS: GlossaryEntry[] = [
   {
     id: 'plan-dag',
     term: 'Plan DAG',
+    aliases: ['task map', '任务地图'],
     category: 'vibebaton',
     oneLiner_en: 'The task map the planner builds from your RFC, showing which steps depend on which.',
     oneLiner_zh: '规划者根据 RFC 生成的任务地图，标明每一步依赖哪些前置步骤。',
@@ -96,7 +97,7 @@ export const VIBEBATON_TERMS: GlossaryEntry[] = [
     oneLiner_en: 'Standard, well-scoped work that parallel bulk workers can complete quickly.',
     oneLiner_zh: '边界清晰、可由多个批量执行者并行完成的常规工作。',
     plainExplain_en:
-      'Most of a build is repeatable craft: another endpoint, another test, another form. Routine tasks are the standard work units handed to fast, economical workers so the expensive specialists stay free for the hard parts.',
+      'Most of a build is repeatable craft: another API route, another test, another form. Routine tasks are the standard work units handed to fast, economical workers so the expensive specialists stay free for the hard parts.',
     plainExplain_zh:
       '项目里大部分是可重复的工序：再加一个接口、一组测试、一个表单。常规任务就是交给快速、经济的执行者完成的标准化工作单元，让昂贵的专家把精力留给真正的难点。',
     proExplain_en:
@@ -124,6 +125,7 @@ export const VIBEBATON_TERMS: GlossaryEntry[] = [
   {
     id: 'waiting-human',
     term: 'Waiting Human',
+    aliases: ['Awaiting Your Decision', '等待你的决定', '需要你的决定'],
     category: 'vibebaton',
     oneLiner_en: 'The paused run status that asks you to make a decision before work continues.',
     oneLiner_zh: '一种暂停状态：运行停下来，等你做出决定后再继续。',
@@ -176,9 +178,9 @@ export const VIBEBATON_TERMS: GlossaryEntry[] = [
     oneLiner_en: 'A lightweight Git tag that snapshots the base branch before a run or merge.',
     oneLiner_zh: '运行或合并前，为主分支拍下的轻量 Git 标签快照。',
     plainExplain_en:
-      'Before renovating a room, you photograph how it looked. A baton backup is that photo for your base branch: a named tag that makes it possible to return to the exact commit from before the work, without hunting through the reflog.',
+      'Before renovating a room, you photograph how it looked. A baton backup is that photo for your base branch: a named tag that makes it possible to return to the exact commit from before the work, without hunting through raw history logs.',
     plainExplain_zh:
-      '装修前先给房间拍照存档。baton 备份标签就是主分支的这张照片：一个带名字的标签，记录开工前的确切提交，需要回退时不必在 reflog 里翻找。',
+      '装修前先给房间拍照存档。baton 备份标签就是主分支的这张照片：一个带名字的标签，记录开工前的确切提交，需要回退时不必在历史记录里逐条翻找。',
     proExplain_en:
       'A lightweight tag named `baton-backup/<run_id>` created on the base branch when a run starts and again immediately before final approval. It is idempotent: an existing tag is kept. `restore_backup_tag` hard-resets the base branch to it, and the Studio rollback action only does so while the approved merge is still the branch head.',
     proExplain_zh:
@@ -262,7 +264,7 @@ export const VIBEBATON_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A `*.baton.json` file under `presets/` that parses into a `WorkflowGraph` and passes `validate_graph`. VibeBaton ships eight, from `starter_2tier` to `flagship_4tier` and `specialist_panel`; each declares difficulty, recommended use, required providers, and cost tier. Studio lists them in Recipe Plaza.',
     proExplain_zh:
-      '`presets/` 目录下的 `*.baton.json` 文件，可解析为 `WorkflowGraph` 并通过 `validate_graph` 校验。VibeBaton 内置八个预设，从 `starter_2tier` 到 `flagship_4tier` 与 `specialist_panel`，各自声明难度、适用场景、所需供应方和成本档位。Studio 会在配方广场列出它们。',
+      '`presets/` 目录下的 `*.baton.json` 文件，可解析为 `WorkflowGraph` 并通过 `validate_graph` 校验。VibeBaton 内置八个预设，从 `starter_2tier` 到 `flagship_4tier` 与 `specialist_panel`，各自声明难度、适用场景、所需供应方和成本档位。Studio 会在工作流广场列出它们。',
     related: ['recipe', 'canvas', 'lineup', 'budget-profile'],
   },
   {
@@ -300,6 +302,7 @@ export const VIBEBATON_TERMS: GlossaryEntry[] = [
   {
     id: 'role',
     term: 'Role',
+    matchCase: true,
     category: 'vibebaton',
     oneLiner_en: 'A named job in the relay that maps to a provider, model, and prompt.',
     oneLiner_zh: '接力中的一个具名职责，映射到具体的供应方、模型与提示词。',
@@ -400,9 +403,9 @@ export const VIBEBATON_TERMS: GlossaryEntry[] = [
     oneLiner_en: 'A deterministic command that proves the code builds or passes tests before review.',
     oneLiner_zh: '在评审之前，用确定性命令证明代码能构建或测试通过的门禁。',
     plainExplain_en:
-      'Before asking an expensive inspector to judge the work, run the free checklist: does it compile, do the tests pass? A mechanical gate is that checklist. It costs no model tokens and gives an exact exit code and error log when something is wrong.',
+      'Before asking an expensive inspector to judge the work, run the free checklist: does it compile, do the tests pass? A mechanical gate is that checklist. It costs no model tokens and gives an exact pass/fail result and error log when something is wrong.',
     plainExplain_zh:
-      '在请昂贵的评审员判断之前，先跑一遍免费清单：能编译吗？测试过了吗？机械门禁就是这份清单。它不消耗模型 token，出问题时给出确切的退出码和错误日志。',
+      '在请昂贵的评审员判断之前，先跑一遍免费清单：能编译吗？测试过了吗？机械门禁就是这份清单。它不消耗模型 token，出问题时给出明确的通过/失败结果和错误日志。',
     proExplain_en:
       'A `verify_cmd` per task or `gate_commands` per milestone, executed by `run_gate_suite` in the relevant task or milestone worktree. Commands run in order, stop at the first non-zero exit, and return stdout, stderr, duration, and exit code. When `machine_gate_before_ai_review` is true and a `verify_cmd` exists, the task cannot reach AI review until it passes; failures feed the self-heal loop.',
     proExplain_zh:
@@ -450,7 +453,7 @@ export const VIBEBATON_TERMS: GlossaryEntry[] = [
     plainExplain_en:
       'A sign-off is a signature with consequences: approve to land the work, request changes to send it back with notes, or roll back to restore the branch. The panel puts the evidence in front of you first, so the decision is informed rather than assumed.',
     plainExplain_zh:
-      '签收是一份会产生后果的签字：批准让成果落地，要求修改则带着意见退回，回滚则恢复分支。面板会先把证据摆在你面前，让决定建立在事实之上，而不是默认放行。',
+      '验收就像一份郑重的签字确认：批准让成果落地，要求修改则带着意见退回，回滚则恢复分支。面板会先把证据摆在你面前，让决定建立在事实之上，而不是默认放行。',
     proExplain_en:
       'The Guided sign-off panel calls `POST /api/runs/<id>/finalize` with `approve`, `revise`, or `rollback`. Approve requires `READY_FOR_FINAL_GATE` and a clean working tree; revise requires a note and pauses the run with a revisions file; rollback only undoes its own still-current merge. Every decision is stored as a human event.',
     proExplain_zh:
@@ -486,7 +489,7 @@ export const VIBEBATON_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'The engine counts self-heal attempts and review rejections against `max_self_heal_attempts` and `max_review_rejects`. When the limit is reached, it calls `compute_step_up_target` to raise effort or switch to a flagship model; if no stronger rung remains, it escalates the task to `escalate_role` (default `critical_executor`) with the failure evidence attached.',
     proExplain_zh:
-      '引擎依据 `max_self_heal_attempts` 与 `max_review_rejects` 统计自修复次数和评审拒绝次数。达到上限后，它调用 `compute_step_up_target` 提高推理强度或切换到旗舰模型，然后把任务升级到 `escalate_role`（默认 `critical_executor`），并附带失败证据。',
+      '引擎依据 `max_self_heal_attempts` 与 `max_review_rejects` 统计自修复次数和评审拒绝次数。达到上限后，它调用 `compute_step_up_target` 提高推理强度或切换到旗舰模型；若已无更高档位，则把任务升级到 `escalate_role`（默认 `critical_executor`），并附带失败证据。',
     related: ['critical-task', 'ai-review', 'fallback-chain', 'role'],
   },
   {

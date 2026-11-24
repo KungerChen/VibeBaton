@@ -35,15 +35,16 @@ export const CATEGORY_LABELS: Readonly<Record<GlossaryCategory, Record<Locale, s
   errors: { en: 'Errors', zh: '常见错误' },
 };
 
-/** Entries whose term, id, or localized text contains `query`; term matches rank first. */
+/** Entries whose term, aliases, id, or localized text contains `query`; term matches rank first. */
 export function searchGlossary(query: string, locale: Locale): GlossaryEntry[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [...GLOSSARY];
   const rank = (entry: GlossaryEntry): number => {
     const term = entry.term.toLowerCase();
-    if (term === needle || entry.id === needle) return 0;
-    if (term.startsWith(needle)) return 1;
-    if (term.includes(needle) || entry.id.includes(needle)) return 2;
+    const aliases = (entry.aliases ?? []).map((item) => item.toLowerCase());
+    if (term === needle || entry.id === needle || aliases.includes(needle)) return 0;
+    if (term.startsWith(needle) || aliases.some((item) => item.startsWith(needle))) return 1;
+    if (term.includes(needle) || entry.id.includes(needle) || aliases.some((item) => item.includes(needle))) return 2;
     const text = locale === 'zh'
       ? `${entry.oneLiner_zh}\n${entry.plainExplain_zh}`
       : `${entry.oneLiner_en}\n${entry.plainExplain_en}`;
@@ -80,13 +81,21 @@ const matcherCache = new Map<Locale, TermMatcher[]>();
 function termMatchers(locale: Locale): TermMatcher[] {
   let matchers = matcherCache.get(locale);
   if (!matchers) {
-    matchers = GLOSSARY.map(({ id, term }) => {
-      // English prose also matches simple plurals ("commits", "RFCs"); Chinese has none.
-      const plural = locale === 'en' && /[a-z]$/i.test(term) ? '(?:e?s)?' : '';
-      const source = `(?<![A-Za-z0-9])${escapeRegExp(term)}${plural}(?![A-Za-z0-9])`;
-      // Acronyms match case-sensitively so "REST" does not light up "the rest of".
-      const acronym = /[A-Z]/.test(term) && term === term.toUpperCase();
-      return { id, termLength: term.length, pattern: new RegExp(source, acronym ? 'g' : 'gi') };
+    matchers = GLOSSARY.flatMap((entry) => {
+      const phrases = [entry.term, ...(entry.aliases ?? [])];
+      return phrases.map((phrase) => {
+        const isHan = /[\p{Script=Han}]/u.test(phrase);
+        if (isHan) {
+          return { id: entry.id, termLength: phrase.length, pattern: new RegExp(escapeRegExp(phrase), 'g') };
+        }
+        // English prose also matches simple plurals ("commits", "RFCs"); Chinese has none.
+        const plural = locale === 'en' && /[a-z]$/i.test(phrase) ? '(?:e?s)?' : '';
+        const source = `(?<![A-Za-z0-9])${escapeRegExp(phrase)}${plural}(?![A-Za-z0-9])`;
+        // Acronyms and flagged common words (`matchCase`) match case-sensitively so everyday verbs do not mis-trigger.
+        const acronym = /[A-Z]/.test(phrase) && phrase === phrase.toUpperCase();
+        const caseSensitive = Boolean(entry.matchCase) || acronym;
+        return { id: entry.id, termLength: phrase.length, pattern: new RegExp(source, caseSensitive ? 'g' : 'gi') };
+      });
     });
     matcherCache.set(locale, matchers);
   }

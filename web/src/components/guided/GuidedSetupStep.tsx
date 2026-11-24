@@ -10,6 +10,7 @@ import {
 } from '../../api/client';
 import { MESSAGES, type Locale } from '../../i18n/messages';
 import { formatProviderDisplay, translateRole } from '../../i18n/presets';
+import { localizeGuidedError } from './guidedErrors';
 
 /** The client methods this step needs; inject a fake in tests. */
 export type GuidedSetupApi = Pick<
@@ -80,8 +81,8 @@ export function confirmLineup(lineup: RecommendedLineup | null, onReady: (lineup
   return true;
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function errorText(error: unknown, locale: Locale): string {
+  return localizeGuidedError(error, locale);
 }
 
 export interface GuidedDriverRowProps {
@@ -103,14 +104,15 @@ export function GuidedDriverRow({
   const copy = MESSAGES[locale].guided.setup;
   const status = entry?.status ?? 'missing';
   const reason = entry ? driverText(driver, locale === 'zh' ? entry.reason_zh : entry.reason_en) : '';
-  const pill = status === 'ready' ? copy.ready : status === 'installed_unauthenticated' ? copy.login : copy.missing;
+  const tierLabel = copy.tiers[driver.tier as keyof typeof copy.tiers] ?? driver.tier;
+  const pill = status === 'ready' ? copy.ready : status === 'installed_unauthenticated' ? copy.needsLogin : copy.missing;
   const loginNote = login ? driverText(driver, locale === 'zh' ? login.message_zh : login.message_en) : '';
 
   return (
     <li className="guided-setup__driver" data-status={status}>
       <div className="guided-setup__driver-head">
         <span className="guided-setup__driver-name">{driverDisplayName(driver)}</span>
-        <span className="guided-setup__tier" data-tier={driver.tier}>{driver.tier}</span>
+        <span className="guided-setup__tier" data-tier={driver.tier}>{tierLabel}</span>
         <span className="guided-setup__pill" data-status={status}>{pill}</span>
       </div>
       {status !== 'ready' && reason ? <p className="guided-setup__reason">{reason}</p> : null}
@@ -118,6 +120,7 @@ export function GuidedDriverRow({
         <div className="guided-setup__actions">
           <label className="guided-setup__consent">
             <input type="checkbox" checked={consent} onChange={(event) => onConsentChange(event.target.checked)} />
+            <span>{copy.installConsent}</span>
             <code>{driverText(driver, driver.install_cmd.join(' '))}</code>
           </label>
           <button type="button" className="guided-setup__button" disabled={busy || !canInstall(entry, consent)} onClick={onInstall}>
@@ -167,11 +170,11 @@ export function GuidedSetupStep({ locale, onReady, api: injectedApi }: GuidedSet
     try {
       await task();
     } catch (failure) {
-      setError(errorText(failure));
+      setError(errorText(failure, locale));
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [locale]);
 
   const scan = useCallback((repoPath?: string) => run('scan', async () => {
     const result = await api.scanCliRegistry(repoPath);

@@ -56,33 +56,34 @@ function formatBilledUsd(value: number, locale: Locale): string {
 
 /** Format every value the drawer renders, keeping the raw task payload out of the JSX. */
 export function summarizeDetail(detail: RunTaskDetail, locale: Locale): DetailSummary {
+  const copy = MESSAGES[locale].guided.nodeDetail;
   const provider = detail.provider ? formatProviderDisplay(detail.provider) : '';
   return {
-    status: displayToken(detail.status),
+    status: copy.statuses[detail.status] ?? displayToken(detail.status),
     summary: detail.summary,
     model: [provider, detail.model].filter(Boolean).join(' / ') || '—',
     elapsed: formatElapsed(detail.elapsed_sec, locale),
     cost: formatBilledUsd(detail.cost_usd, locale),
-    tests: displayToken(detail.test_status),
+    tests: copy.testStatuses[detail.test_status] ?? displayToken(detail.test_status),
     changedFiles: [...detail.changed_files],
-    verdict: detail.review_verdict ? displayToken(detail.review_verdict) : '—',
+    verdict: detail.review_verdict ? (copy.verdicts[detail.review_verdict] ?? displayToken(detail.review_verdict)) : '—',
   };
 }
 
 const fallbackClient = new BatonApiClient();
 
-async function defaultFetcher(runId: string, taskId: string): Promise<RunTaskDetail> {
+async function defaultFetcher(runId: string, taskId: string, locale?: Locale): Promise<RunTaskDetail> {
   // A standalone drawer has no access to App's initialized client, so leave demo mode first.
   if (fallbackClient.mode === 'demo') await fallbackClient.init();
-  return fallbackClient.getRunTaskDetail(runId, taskId);
+  return fallbackClient.getRunTaskDetail(runId, taskId, locale);
 }
 
 type LoadState =
   | { key: string; phase: 'ready'; detail: RunTaskDetail }
   | { key: string; phase: 'error'; message: string };
 
-function taskKey(runId: string, taskId: string): string {
-  return `${runId}\u0000${taskId}`;
+function taskKey(runId: string, taskId: string, locale: Locale): string {
+  return `${runId}\u0000${taskId}\u0000${locale}`;
 }
 
 /**
@@ -94,17 +95,19 @@ export function NodeDetailDrawer({
   taskId,
   onClose,
   locale,
-  fetcher = defaultFetcher,
+  fetcher,
 }: NodeDetailDrawerProps) {
   const copy = MESSAGES[locale].guided.nodeDetail;
   const headingId = useId();
   const [state, setState] = useState<LoadState | null>(null);
 
-  const loadDetail = useEffectEvent((id: string) => fetcher(runId, id));
+  const loadDetail = useEffectEvent((id: string) => (
+    fetcher ? fetcher(runId, id) : defaultFetcher(runId, id, locale)
+  ));
 
   useEffect(() => {
     if (!taskId) return;
-    const key = taskKey(runId, taskId);
+    const key = taskKey(runId, taskId, locale);
     let active = true;
     void loadDetail(taskId).then(
       (detail) => {
@@ -119,9 +122,9 @@ export function NodeDetailDrawer({
     return () => {
       active = false;
     };
-  }, [runId, taskId]);
+  }, [runId, taskId, locale]);
 
-  const key = taskId ? taskKey(runId, taskId) : null;
+  const key = taskId ? taskKey(runId, taskId, locale) : null;
   const current = key !== null && state?.key === key ? state : null;
   const detail = current !== null && current.phase === 'ready' ? current.detail : null;
   const errorMessage = current !== null && current.phase === 'error' ? current.message : null;

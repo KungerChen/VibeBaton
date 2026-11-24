@@ -243,12 +243,12 @@ isolation, and turnkey Windows installation.
   `codex`, `dsh`, `gemini`, `opencode`, `aider`, `qwen`, `copilot`). The Studio scans which CLIs
   are installed and usable, and only installs a CLI or starts its login flow after you authorize
   it. Each scan returns a recommended lineup for your installed CLIs.
-- **Guided Mode**: a 4-step closed loop in the Web Studio for beginners:
-  1. **Workspace**: pick a project folder and initialize Git there if needed.
-  2. **Brainstorm**: chat about your idea until VibeBaton produces a Blueprint Card, then confirm it.
-  3. **Run**: follow the run on the canvas, open a node detail drawer for each task, and answer
+- **Guided Mode**: a 4-step closed loop in the Web Studio — you direct, AI builds, with no CS background needed:
+  1. **Workspace**: pick a project folder and turn on Git version history if needed.
+  2. **Blueprint**: chat about your idea until VibeBaton produces a Blueprint Card, then confirm it.
+  3. **Build**: follow the task map on the canvas, open a node detail drawer for each task, and answer
      decisions in the app instead of the terminal.
-  4. **Sign-off**: approve, revise, or roll back the result. Rollback undoes this run's approved
+  4. **Sign-Off**: Approve & Merge, Request Changes, or Roll Back (available after approval). Rollback undoes this run's approved
      merge while it is still the base-branch head, restoring the base commit recorded at approval;
      the `baton-backup/<run_id>` tag (created at run start, re-verified at approval) is kept as a
      manual recovery anchor.

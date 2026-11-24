@@ -107,9 +107,11 @@ SCENARIOS: tuple[BrainstormScenario, ...] = (
 )
 
 _SYSTEM_PROMPT = """You are the architecture partner of the Lead Architect of this repository.
-Talk with them in plain, friendly language: summarise what you understood, then ask at most
-two focused questions about whatever is still open (goals, limits, out-of-scope items, or the
-exact command that proves the work is done).
+Reply in the same language the Lead Architect writes in (Chinese if they write in Chinese,
+English if they write in English). Talk with them in plain, warm language: summarise what you
+understood, then ask at most two focused questions about whatever is still open (goals, limits,
+out-of-scope items, or the exact command that proves the work is done). Keep the formal RFC
+section headings below in English so the readiness checker can parse them accurately.
 
 After your reply, include the complete, updated Master RFC inside a fenced block that opens
 with ````rfc and closes with ```` (four backticks), so inner ``` code blocks stay intact.
@@ -185,13 +187,13 @@ def _extract_command(sentence: str) -> str | None:
     return sentence[match.start():].strip().rstrip(".;,。；，").strip() or None
 
 
-def _offline_rfc(messages: list[ChatMessage]) -> str:
-    """Synthesise the RFC from user turns only: title from the first sentence, bullets from the rest."""
+def _compose_offline_rfc(messages: list[ChatMessage]) -> tuple[str, bool]:
+    """Synthesise the RFC from user turns only and report whether user constraints were given."""
     sentences = [s for m in messages if m["role"] == "user" for s in _sentences(m["content"])]
     first, rest = sentences[0], sentences[1:]
     title = first.rstrip(".!?。！？").strip()
     if len(title) > 80:
-        title = title[:77].rstrip() + "..."
+        title = title[:77].rstrip() + "…"
 
     goals: list[str] = []
     constraints: list[str] = []
@@ -256,19 +258,53 @@ def _offline_rfc(messages: list[ChatMessage]) -> str:
         *verification,
         "",
     ]
-    return "\n".join(lines)
+    return "\n".join(lines), bool(constraints)
 
 
-def _offline_reply(rfc_markdown: str, readiness: RFCReadiness, scenario: BrainstormScenario | None) -> str:
+def _offline_rfc(messages: list[ChatMessage]) -> str:
+    """Synthesise the RFC from user turns only: title from the first sentence, bullets from the rest."""
+    return _compose_offline_rfc(messages)[0]
+
+
+def _prefers_zh(messages: list[ChatMessage], locale: str | None) -> bool:
+    if isinstance(locale, str) and locale.strip().lower().startswith("zh"):
+        return True
+    if isinstance(locale, str) and locale.strip().lower().startswith("en"):
+        return False
+    latest_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+    return any("\u4e00" <= ch <= "\u9fff" for ch in latest_user)
+
+
+def _offline_reply(
+    rfc_markdown: str,
+    readiness: RFCReadiness,
+    scenario: BrainstormScenario | None,
+    *,
+    zh: bool = False,
+    has_custom_constraints: bool | None = None,
+) -> str:
     title = rfc_markdown.splitlines()[0][2:].strip()
-    lead = f"Scenario: {scenario['title_en']}. " if scenario else ""
-    parts = [f'{lead}Here is the current blueprint for "{title}".']
+    if has_custom_constraints is None:
+        has_custom_constraints = "- Keep current behaviour and public interfaces stable" not in rfc_markdown
+    if zh:
+        lead = f"从「{scenario['title_zh']}」出发，" if scenario else ""
+        parts = [f"{lead}这是「{title}」的最新蓝图草案。"]
+        if not readiness["detected_commands"]:
+            parts.append("要如何证明它已经生效？请写一条用来验证的命令（例如 npm test 或 pytest）。")
+        if not has_custom_constraints:
+            parts.append("是否有需要遵守的边界条件（例如限制使用的依赖库或不要修改的文件）？")
+        if len(parts) == 1:
+            parts.append("目标、边界和验证命令均已齐备；核对无误后点击「确认蓝图并开始施工」即可出发。")
+        return " ".join(parts)
+
+    lead = f'Starting from "{scenario["title_en"]}", ' if scenario else ""
+    parts = [f'{lead}here is the current blueprint for "{title}".']
     if not readiness["detected_commands"]:
-        parts.append("Which command should prove the work is done (for example your test suite)?")
-    if "- Keep current behaviour and public interfaces stable" in rfc_markdown:
+        parts.append("How should we prove it works? Name the command you run to test it (for example npm test or pytest).")
+    if not has_custom_constraints:
         parts.append("Are there limits to respect, such as libraries to avoid or files to leave untouched?")
     if len(parts) == 1:
-        parts.append("It has goals, limits and a verification command; review it and confirm when it reads right.")
+        parts.append('It has goals, limits, and a verification command; review it and click "Confirm Blueprint & Start Building" when it reads right.')
     return " ".join(parts)
 
 
@@ -336,8 +372,15 @@ def _blueprint(rfc_markdown: str) -> BlueprintCard:
     }
 
 
-def _build_prompt(messages: list[ChatMessage], scenario: BrainstormScenario | None) -> str:
+def _build_prompt(
+    messages: list[ChatMessage],
+    scenario: BrainstormScenario | None,
+    *,
+    locale: str | None = None,
+) -> str:
     parts = [_SYSTEM_PROMPT, ""]
+    if _prefers_zh(messages, locale):
+        parts += ["Respond in natural Chinese (while keeping formal RFC headings in English).", ""]
     if scenario is not None:
         parts += [f"Starting scenario: {scenario['title_en']} - {scenario['prompt_en']}", ""]
     parts.append("Conversation so far:")
@@ -430,6 +473,7 @@ def brainstorm_turn(
     cfg: BatonConfig | None = None,
     *,
     dispatch: BrainstormDispatch | None = None,
+    locale: str | None = None,
 ) -> BrainstormTurnResult:
     """Run one brainstorm turn and return the reply, a full RFC draft and its Blueprint Card.
 
@@ -454,7 +498,7 @@ def brainstorm_turn(
             if dispatch is None and cfg is not None:
                 dispatch = _provider_dispatch(cfg)
             if dispatch is not None:
-                provider_used, text = dispatch(_build_prompt(messages, chosen))
+                provider_used, text = dispatch(_build_prompt(messages, chosen, locale=locale))
                 reply, rfc_markdown = _split_live_response(text)
                 return {
                     "reply": reply,
@@ -466,9 +510,15 @@ def brainstorm_turn(
         except Exception:  # noqa: BLE001 - any live failure degrades to the offline composer
             pass
 
-    rfc_markdown = _offline_rfc(messages)
+    rfc_markdown, has_custom_constraints = _compose_offline_rfc(messages)
     return {
-        "reply": _offline_reply(rfc_markdown, check_rfc_readiness(rfc_markdown), chosen),
+        "reply": _offline_reply(
+            rfc_markdown,
+            check_rfc_readiness(rfc_markdown),
+            chosen,
+            zh=_prefers_zh(messages, locale),
+            has_custom_constraints=has_custom_constraints,
+        ),
         "rfc_markdown": rfc_markdown,
         "blueprint": _blueprint(rfc_markdown),
         "provider_used": None,

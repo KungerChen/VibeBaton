@@ -170,6 +170,7 @@ export interface BrainstormChatRequest {
   messages: BrainstormMessage[];
   scenario?: string | null;
   offline?: boolean;
+  locale?: 'en' | 'zh';
 }
 
 export interface BlueprintCard {
@@ -643,8 +644,9 @@ export class BatonApiClient {
     return this.requestJson('/api/brainstorm/confirm', { method: 'POST', body: { rfc_markdown: rfcMarkdown } });
   }
 
-  getRunTaskDetail(runId: string, taskId: string): Promise<RunTaskDetail> {
-    return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}`);
+  getRunTaskDetail(runId: string, taskId: string, locale?: 'en' | 'zh'): Promise<RunTaskDetail> {
+    const query = locale === 'zh' ? '?lang=zh' : '';
+    return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}${query}`);
   }
 
   resolveRunTask(runId: string, { taskId, choice, note = '' }: ResolveRunTaskRequest): Promise<ResolveRunTaskResult> {

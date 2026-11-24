@@ -11,6 +11,7 @@ import {
 } from '../../api/client';
 import { MESSAGES, type Locale } from '../../i18n/messages';
 import type { LaunchRunRequest } from '../../types/graph';
+import { localizeGuidedError } from './guidedErrors';
 
 /** The three backend calls this step needs; inject a fake in tests or the App's shared client. */
 export interface GuidedBrainstormApi {
@@ -87,9 +88,10 @@ export async function sendBrainstormTurn(
   messages: readonly BrainstormMessage[],
   input: string,
   scenario: string | null,
+  locale?: Locale,
 ): Promise<{ messages: BrainstormMessage[]; turn: BrainstormTurnResult }> {
   const withUser = appendTurn(messages, 'user', input);
-  const turn = await api.brainstormChat({ messages: withUser, scenario });
+  const turn = await api.brainstormChat(locale ? { messages: withUser, scenario, locale } : { messages: withUser, scenario });
   return { messages: appendTurn(withUser, 'assistant', turn.reply), turn };
 }
 
@@ -146,7 +148,7 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
     try {
       await action();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(localizeGuidedError(err, locale));
     } finally {
       setBusy(false);
     }
@@ -157,7 +159,7 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
     const text = input.trim();
     if (!text || busy) return;
     void run(async () => {
-      const result = await sendBrainstormTurn(api ?? defaultApi(), messages, text, scenario);
+      const result = await sendBrainstormTurn(api ?? defaultApi(), messages, text, scenario, locale);
       setMessages(result.messages);
       setTurn(result.turn);
       setInput('');
@@ -214,6 +216,9 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
 
       <aside className="guided-brainstorm__card" aria-label={labels.blueprintTitle}>
         <h3 className="guided-brainstorm__heading">{labels.blueprintTitle}</h3>
+        {turn?.offline ? (
+          <p className="guided-brainstorm__offline" role="note">{labels.offlineNotice}</p>
+        ) : null}
         {card ? (
           <>
             <p className="guided-brainstorm__title">{card.title}</p>
@@ -223,7 +228,9 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
             <BlueprintList label={labels.touchedAreas} items={card.touched_areas} />
             <BlueprintList label={labels.verificationPlan} items={card.verification_plan} />
           </>
-        ) : null}
+        ) : (
+          <p className="guided-brainstorm__empty">{labels.emptyCard}</p>
+        )}
         <h4 className="guided-brainstorm__label">{labels.readiness}</h4>
         <meter
           className={`guided-brainstorm__meter guided-brainstorm__meter--${readinessTone(card?.readiness_score ?? 0)}`}
@@ -236,6 +243,9 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
           aria-label={labels.readiness}
         />
         <span className="guided-brainstorm__score">{card?.readiness_score ?? 0}/100</span>
+        {card && !canLaunch(card) ? (
+          <p className="guided-brainstorm__hint">{labels.notReadyHint}</p>
+        ) : null}
         {turn ? (
           <>
             <button

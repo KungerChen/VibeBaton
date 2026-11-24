@@ -81,12 +81,27 @@ describe('summarizeSignOff', () => {
   test('never claims success when checks failed or no test ran', () => {
     const partial = summarizeSignOff({ ...summary, testsPassed: 9 }, 'en');
     expect(partial.allPassed).toBe(false);
-    expect(partial.tests).toContain('9/12');
+    expect(partial.tests).toBe(EN.testsSummary(9, 12));
     expect(partial.tests).not.toContain(EN.testsPassed);
 
     const empty = summarizeSignOff({ ...summary, testsPassed: 0, testsTotal: 0 }, 'en');
     expect(empty.allPassed).toBe(false);
     expect(empty.tests).not.toContain(EN.testsPassed);
+  });
+});
+
+describe('GuidedSignOffPanel runStatus state machine', () => {
+  test('disables rollback while runStatus is READY_FOR_FINAL_GATE and enables rollback in COMPLETED', () => {
+    const gateHtml = renderPanel({ runStatus: 'READY_FOR_FINAL_GATE' });
+    expect(gateHtml).toContain(`disabled="" title="${EN.rollbackHint}"`);
+    expect(gateHtml).toMatch(/<button[^>]*disabled=""[^>]*>Roll Back<\/button>/);
+    expect(gateHtml).not.toMatch(/<button[^>]*disabled=""[^>]*>Approve &amp; Merge<\/button>/);
+
+    const doneHtml = renderPanel({ runStatus: 'COMPLETED' });
+    expect(doneHtml).toContain(EN.done);
+    expect(doneHtml).toMatch(/<button[^>]*disabled=""[^>]*>Approve &amp; Merge<\/button>/);
+    expect(doneHtml).toMatch(/<button[^>]*disabled=""[^>]*>Request Changes<\/button>/);
+    expect(doneHtml).not.toMatch(/<button[^>]*disabled=""[^>]*>Roll Back<\/button>/);
   });
 });
 

@@ -125,4 +125,12 @@ describe('glossary helpers', () => {
     const zh = '先写好RFC，再提交 Commit。';
     expect(findFirstOccurrences(zh, 'zh').map(({ start, end }) => zh.slice(start, end))).toEqual(['RFC', 'Commit']);
   });
+
+  test('findFirstOccurrences skips lowercase ambiguous words and matches guided aliases', () => {
+    expect(findFirstOccurrences('You can switch to another request or build a model later.', 'en')).toEqual([]);
+    expect(findFirstOccurrences('查看任务地图与版本记录。', 'zh').map(({ id }) => id)).toEqual([
+      'plan-dag',
+      'repository',
+    ]);
+  });
 });

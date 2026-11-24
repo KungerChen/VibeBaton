@@ -72,9 +72,9 @@ flowchart LR
 
 ## 引导模式与 CLI 注册表（v1.2.0）
 
-`v1.2.0` 把 Studio 串成从空目录到签核完成的一条引导路径，识别本机已装的编码 CLI，并在界面内解释每个术语。
+`v1.2.0` 把 Studio 串成从空目录到验收完成的一条引导路径，识别本机已装的编码 CLI，并在界面内解释每个术语。
 
-- **引导模式（Guided Mode）：** 四步闭环——**工作区**选择项目目录并按需初始化 Git；**头脑风暴**围绕想法对话，直到 VibeBaton 生成 Blueprint Card 再确认；**运行**时在画布上跟随进度、打开任务详情抽屉并在应用内完成决策；**签核**时选择通过、返修或回滚。回滚只撤销仍位于基线分支最新的本次获批合并，恢复到批准前记录的基准提交；`baton-backup/<run_id>` 标签保留作手动恢复锚点。
+- **引导模式（Guided Mode）：** 四步闭环——**工作区**选择项目目录并按需开启版本记录；**蓝图**围绕想法对话，直到 VibeBaton 生成蓝图卡再确认；**施工**时在任务地图上跟随进度、打开任务详情抽屉并在应用内完成决策；**验收**时选择批准并合并、要求修改或回滚（批准并合并后可用）。回滚只撤销仍位于基线分支最新的本次获批合并，恢复到批准前记录的基准提交；`baton-backup/<run_id>` 标签保留作手动恢复锚点。
 - **通用 CLI 注册表：** `presets/cli_registry.json` 描述 8 种编码 CLI 驱动（`claude`、`codex`、`dsh`、`gemini`、`opencode`、`aider`、`qwen`、`copilot`）。Studio 扫描本机已安装且可用的 CLI，为当前环境推荐一套阵容，并且只有在你授权后才执行安装或启动登录流程。
 - **双语技术术语表：** 覆盖 AI、工程、错误、Git、Web/HTTP 与 VibeBaton 概念的 220+ 条 `EN | 中文` 术语，以行内术语提示与可搜索的术语抽屉呈现。
 - **新增 REST 接口：** `GET /api/cli-registry`、`POST /api/cli-registry/scan`、`POST /api/cli-registry/install`、`POST /api/cli-registry/login`、`GET /api/workspace/info`、`POST /api/workspace/select`、`POST /api/workspace/init-git`、`POST /api/brainstorm/chat`、`POST /api/brainstorm/confirm`、`GET /api/runs/{id}/tasks/{task_id}` 与 `POST /api/runs/{id}/finalize`。

@@ -46,7 +46,7 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Continuous Integration: a pipeline that installs dependencies, builds, lints, type-checks, and runs the test suite on each push or pull request. VibeBaton puts those same install, check, and test steps into each task verification command, so what the mechanical gate runs locally matches what CI enforces on the branch.',
     proExplain_zh:
-      'Continuous Integration（持续集成）：在每次推送或拉取请求时自动安装依赖、构建、运行 lint、类型检查和测试套件的流水线。VibeBaton 会把同样的安装、检查和测试步骤写进每个任务的验证命令，因此机械闸门在本地执行的内容与 CI 在分支上强制的检查保持一致。',
+      'Continuous Integration（持续集成）：在每次推送或拉取请求时自动安装依赖、构建、运行 lint、类型检查和测试套件的流水线。VibeBaton 会把同样的安装、检查和测试步骤写进每个任务的验证命令，因此机械门禁在本地执行的内容与 CI 在分支上强制的检查保持一致。',
     related: ['lint', 'type-check', 'build', 'unit-test', 'mechanical-gate'],
   },
   {
@@ -78,7 +78,7 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Static verification that every expression matches its expected type, using TypeScript, mypy, or an equivalent checker. The VibeBaton mechanical gate runs `tsc --noEmit` for the web app, so a type error blocks sign-off even when all tests happen to pass.',
     proExplain_zh:
-      '使用 TypeScript、mypy 或同类检查器静态验证每个表达式的类型是否符合预期。VibeBaton 的机械闸门会为 Web 应用运行 `tsc --noEmit`，因此即使所有测试碰巧通过，类型错误仍然会阻止签收。',
+      '使用 TypeScript、mypy 或同类检查器静态验证每个表达式的类型是否符合预期。VibeBaton 的机械门禁会为 Web 应用运行 `tsc --noEmit`，因此即使所有测试碰巧通过，类型错误仍然会阻止签收。',
     related: ['lint', 'ci', 'build', 'type-error', 'typescript'],
   },
   {
@@ -117,8 +117,8 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
     id: 'dag',
     term: 'DAG',
     category: 'engineering',
-    oneLiner_en: 'A directed acyclic graph: nodes connected by one-way edges with no loop back to the start.',
-    oneLiner_zh: '有向无环图：节点之间由单向边连接，且不存在回到起点的环。',
+    oneLiner_en: 'A one-way task map where arrows show order and never loop back to an earlier step.',
+    oneLiner_zh: '一张只往前走、绝不绕回起点的单向任务流程图（有向无环图）。',
     plainExplain_en:
       'Think of a family tree or a course syllabus: arrows show what must come before what, and nothing points back to its own ancestor. That "no loops" rule is what lets a scheduler know which tasks are ready right now.',
     plainExplain_zh:
@@ -174,7 +174,7 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A test that exercises the full stack, for example launching the web UI against a real server and asserting on the rendered result. VibeBaton reserves them for critical paths such as starting a run and reaching the final gate, because they are slower and more brittle than unit tests.',
     proExplain_zh:
-      '覆盖完整链路的测试，例如启动 Web 界面并连接真实服务器，再对渲染结果做断言。由于比单元测试更慢、更脆弱，VibeBaton 只把它们用在启动运行、到达最终闸门等关键路径上。',
+      '覆盖完整链路的测试，例如启动 Web 界面并连接真实服务器，再对渲染结果做断言。由于比单元测试更慢、更脆弱，VibeBaton 只把它们用在启动运行、到达终审门禁等关键路径上。',
     related: ['integration-test', 'unit-test', 'regression', 'critical-task'],
   },
   {
@@ -190,7 +190,7 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A defect introduced when previously passing behavior stops working after a change. VibeBaton guards against it by running the affected suite on every task and by keeping the full suite in the mechanical gate, so a regression is attributed to the change that caused it.',
     proExplain_zh:
-      '改动之后，原本通过的行为不再工作而引入的缺陷。VibeBaton 要求每个任务都运行受影响的测试套件，并把完整套件放进机械闸门，因此回归缺陷能被归因到真正引入它的那次改动。',
+      '改动之后，原本通过的行为不再工作而引入的缺陷。VibeBaton 要求每个任务都运行受影响的测试套件，并把完整套件放进机械门禁，因此回归缺陷能被归因到真正引入它的那次改动。',
     related: ['unit-test', 'test-coverage', 'mechanical-gate', 'flaky-test'],
   },
   {
@@ -212,6 +212,7 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
   {
     id: 'mock',
     term: 'Mock',
+    matchCase: true,
     category: 'engineering',
     oneLiner_en: 'A stand-in object that imitates a real dependency so a test can control its behavior.',
     oneLiner_zh: '在测试中替代真实依赖、并可控制其行为的替身对象。',
@@ -260,6 +261,7 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
   {
     id: 'build',
     term: 'Build',
+    matchCase: true,
     category: 'engineering',
     oneLiner_en: 'The process that turns source files into a runnable or deployable artifact.',
     oneLiner_zh: '把源文件转换成可运行或可部署产物的过程。',
@@ -372,6 +374,7 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
   {
     id: 'interface',
     term: 'Interface',
+    matchCase: true,
     category: 'engineering',
     oneLiner_en: 'The agreed boundary through which one part of a system can be used by another.',
     oneLiner_zh: '系统的一部分可被另一部分使用的约定边界。',
@@ -430,12 +433,13 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A required section of the VibeBaton RFC and plan, listing the observable outcomes that prove a task succeeded, usually paired with a verification command. The mechanical gate checks those outcomes before review, and a task without testable criteria is flagged during planning rather than after implementation.',
     proExplain_zh:
-      'VibeBaton 的 RFC 与计划中的必需章节，列出能证明任务成功的可观察结果，通常还会配上验证命令。机械闸门会在评审前检查这些结果；如果任务没有可测试的标准，会在规划阶段而不是实现完成后被标记出来。',
+      'VibeBaton 的 RFC 与计划中的必需章节，列出能证明任务成功的可观察结果，通常还会配上验证命令。机械门禁会在评审前检查这些结果；如果任务没有可测试的标准，会在规划阶段而不是实现完成后被标记出来。',
     related: ['rfc', 'spec', 'mechanical-gate', 'final-gate'],
   },
   {
     id: 'spec',
     term: 'Spec',
+    matchCase: true,
     category: 'engineering',
     oneLiner_en: 'A written description of what a system should do and the rules it must follow.',
     oneLiner_zh: '说明系统应当做什么、必须遵守哪些规则的书面描述。',
@@ -462,7 +466,7 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A review of the diff against acceptance criteria and repository conventions, performed by an independent reviewer role. VibeBaton runs `ai-review` after the mechanical gate passes, so style and test results alone do not substitute for judging whether the change is the right one.',
     proExplain_zh:
-      '由独立的评审者角色对照验收标准和仓库约定来检查 diff。VibeBaton 在机械闸门通过后执行 `ai-review`，因此风格检查和测试结果都不能替代“这处改动是否方向正确”的判断。',
+      '由独立的评审者角色对照验收标准和仓库约定来检查 diff。VibeBaton 在机械门禁通过后执行 `ai-review`，因此风格检查和测试结果都不能替代“这处改动是否方向正确”的判断。',
     related: ['diff', 'ai-review', 'acceptance-criteria', 'tech-debt'],
   },
   {
@@ -478,7 +482,7 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Shipping an artifact to an environment such as staging or production, including configuration, migrations, and health checks. VibeBaton keeps deployment outside the autonomous task loop unless explicitly gated, and requires a recorded rollback path so a failed release can be reversed.',
     proExplain_zh:
-      '把产物发布到预发或生产等环境，包括配置、迁移和健康检查。除非有明确闸门，VibeBaton 会把部署留在自主任务循环之外，并要求记录回滚路径，以便发布失败时能够撤销。',
+      '把产物发布到预发或生产等环境，包括配置、迁移和健康检查。除非有明确门禁，VibeBaton 会把部署留在自主任务循环之外，并要求记录回滚路径，以便发布失败时能够撤销。',
     related: ['build', 'environment-variable', 'rollback', 'final-gate'],
   },
   {
@@ -574,7 +578,7 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Command-Line Interface, a program driven by arguments, flags, stdin, and exit codes, such as `git`, `npm`, or `tsc`. The VibeBaton CLI drivers invoke coding agents this way and rely on exit codes plus captured output to decide whether a task passed.',
     proExplain_zh:
-      'Command-Line Interface（命令行界面），通过参数、选项、标准输入和退出码驱动的程序，例如 `git`、`npm` 或 `tsc`。VibeBaton 的 CLI 驱动就是这样调用编码代理的，并依靠退出码和捕获的输出判断任务是否通过。',
+      'Command-Line Interface（命令行界面），通过参数、选项、标准输入和退出码驱动的程序，例如 `git`、`npm` 或 `tsc`。VibeBaton 的 CLI 驱动就是这样调用编码智能体的，并依靠退出码和捕获的输出判断任务是否通过。',
     related: ['cli-driver', 'exit-code', 'sandbox', 'command-not-found'],
   },
   {
@@ -590,7 +594,7 @@ export const ENGINEERING_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'An isolation boundary such as a container, a restricted user, or an OS-level file sandbox that constrains file writes, network access, and spawned processes. VibeBaton runs workers inside a task worktree with an `allowed_paths` whitelist, which is a workspace sandbox rather than a security boundary against a hostile agent.',
     proExplain_zh:
-      '容器、受限用户或操作系统级文件沙箱这类隔离边界，用来限制文件写入、网络访问和子进程。VibeBaton 让执行者在带 `allowed_paths` 白名单的任务 worktree 中工作，这属于工作区沙箱，而不是用于抵御恶意代理的安全边界。',
+      '容器、受限用户或操作系统级文件沙箱这类隔离边界，用来限制文件写入、网络访问和子进程。VibeBaton 让执行者在带 `allowed_paths` 白名单的任务 worktree 中工作，这属于工作区沙箱，而不是用于抵御恶意智能体的安全边界。',
     related: ['allowed-paths', 'worktree', 'permission-denied', 'cli'],
   },
   {

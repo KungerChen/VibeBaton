@@ -163,8 +163,27 @@
   letter-spacing: 0.04em;
 }
 
-.guided-brainstorm__text {
+.guided-brainstorm__text,
+.guided-brainstorm__empty,
+.guided-brainstorm__hint {
   margin: 0;
+}
+
+.guided-brainstorm__empty,
+.guided-brainstorm__hint {
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
+.guided-brainstorm__offline {
+  margin: 0;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, var(--border));
+  border-radius: 0.5rem;
+  background: var(--amber-soft);
+  color: var(--text-strong);
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
 .guided-brainstorm__list {

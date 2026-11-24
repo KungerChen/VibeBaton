@@ -441,6 +441,15 @@ class TestBrainstormApi(GuidedApiTestCase):
         self.assertEqual(status, 200, body)
         self.assertTrue(body["rfc_markdown"].startswith("# "))
 
+    def test_offline_chat_supports_chinese_locale_and_zh_input(self) -> None:
+        status, body = self._post(
+            "/api/brainstorm/chat",
+            {"messages": [{"role": "user", "content": "新增一个健康检查接口"}], "scenario": "new_feature", "offline": True, "locale": "zh"},
+        )
+        self.assertEqual(status, 200, body)
+        self.assertIn("蓝图", body["reply"])
+        self.assertIn("交付一个新功能", body["reply"])
+
     def test_chat_rejects_bad_payloads(self) -> None:
         for payload in (
             {},
@@ -495,6 +504,12 @@ class TestRunGuidedApi(GuidedApiTestCase):
         self.assertIsInstance(body["changed_files"], list)
         for field in ("provider", "model", "review_verdict"):
             self.assertIsInstance(body[field], (str, type(None)), field)
+
+        status_zh, body_zh = self._get(f"/api/runs/{run_id}/tasks/M1-T1?lang=zh")
+        self.assertEqual(status_zh, 200, body_zh)
+        self.assertEqual(set(body_zh), TASK_DETAIL_FIELDS)
+        self.assertIn("Write the greeting", body_zh["summary"])
+        self.assertIn("已完成", body_zh["summary"])
 
     def test_task_detail_reports_changed_files_from_engine_events(self) -> None:
         run_id = self.seed_run()

@@ -6,6 +6,7 @@ import { Button } from '../ui/button';
 import { Label, Textarea } from '../ui/input';
 import { Modal } from '../ui/Modal';
 import { GlossaryTerm, useGlossaryHighlights } from './GlossaryTerm';
+import { localizeGuidedError } from './guidedErrors';
 
 export interface GuidedDecisionOption {
   /** Only choices the backend /resolve endpoint accepts. */
@@ -41,15 +42,15 @@ const DEFAULT_OPTIONS: readonly GuidedDecisionOption[] = [
     id: 'approve',
     label_en: 'Approve',
     label_zh: '批准',
-    hint_en: 'Continue and apply this task.',
-    hint_zh: '继续并采用这项任务。',
+    hint_en: 'Accept this result and let the team continue.',
+    hint_zh: '接受这个结果，让团队继续。',
   },
   {
     id: 'reject',
     label_en: 'Reject',
     label_zh: '拒绝',
-    hint_en: 'Stop without applying this task.',
-    hint_zh: '停止并放弃这项任务。',
+    hint_en: 'Discard this result; the team stops this task.',
+    hint_zh: '放弃这个结果，团队停止这项任务。',
   },
 ];
 
@@ -197,7 +198,7 @@ export function GuidedDecisionModal({
       await resolver(buildResolvePayload(runId, taskId, choice, note));
       onResolved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(localizeGuidedError(cause, locale));
     } finally {
       submittingRef.current = false;
       setSubmitting(false);

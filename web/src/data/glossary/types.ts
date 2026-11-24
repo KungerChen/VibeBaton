@@ -12,6 +12,10 @@ export interface GlossaryEntry {
   id: string;
   /** Display name shown in both locales and matched in running text (e.g. "RFC", "Commit"). */
   term: string;
+  /** Optional extra phrases (EN or ZH) highlighted in prose and searchable in the drawer. */
+  aliases?: readonly string[];
+  /** When true, require exact casing for inline matching so common lowercase words do not mis-trigger. */
+  matchCase?: boolean;
   category: GlossaryCategory;
   oneLiner_en: string;
   oneLiner_zh: string;

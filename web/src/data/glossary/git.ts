@@ -4,6 +4,7 @@ export const GIT_TERMS: GlossaryEntry[] = [
   {
     id: 'repository',
     term: 'Repository',
+    aliases: ['version history', '版本记录'],
     category: 'git',
     oneLiner_en: 'A project folder whose complete change history is tracked by Git.',
     oneLiner_zh: '一个由 Git 记录完整修改历史的项目文件夹。',
@@ -28,9 +29,9 @@ export const GIT_TERMS: GlossaryEntry[] = [
     plainExplain_zh:
       '就像游戏里的存档：一次提交会记下那一刻所有文件的准确状态，以后随时可以读档回来。提交越小、说明越清楚，就越容易看出每个 AI 执行者做了什么。',
     proExplain_en:
-      'An immutable object identified by a SHA hash that points to a tree snapshot, its parent commit(s), the author, and a message. Each passing VibeBaton task lands as a commit on its task branch before being merged into the dev branch, which keeps every change reviewable and revertible.',
+      'An immutable object identified by a SHA hash that points to a tree snapshot, its parent commit(s), the author, and a message. Each passing VibeBaton task lands as a commit on its task branch and merges into its milestone branch before reaching the dev branch, keeping every change reviewable and revertible.',
     proExplain_zh:
-      '一个由 SHA 哈希标识的不可变对象，指向一份目录树快照、父提交、作者和提交说明。VibeBaton 中每个通过的任务都会先在自己的任务分支上形成提交，再合并进开发分支，因此每处改动都可以审阅和回退。',
+      '一个由 SHA 哈希标识的不可变对象，指向一份目录树快照、父提交、作者和提交说明。VibeBaton 中每个通过的任务都会先在自己的任务分支上形成提交，经过验收后合并进所属里程碑分支，最后汇入 dev 分支，因此每处改动都可以审阅和回退。',
     related: ['commit-message', 'commit-hash', 'branch', 'revert', 'diff'],
   },
   {
@@ -46,7 +47,7 @@ export const GIT_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A movable pointer to a commit, stored under `refs/heads/`; new commits move only that branch forward while other branches keep their own tips. VibeBaton creates a task branch for each work unit, runs verification there, and squash-merges it into its milestone branch only after the gates pass.',
     proExplain_zh:
-      '指向某个提交的可移动指针，存放在 `refs/heads/` 下；新提交只让当前分支前移，其他分支保持各自的末端。VibeBaton 为每个工作单元创建任务分支，在其中运行验证，只有通过闸门后才压缩合并进所属的里程碑分支。',
+      '指向某个提交的可移动指针，存放在 `refs/heads/` 下；新提交只让当前分支前移，其他分支保持各自的末端。VibeBaton 为每个工作单元创建任务分支，在其中运行验证，只有通过门禁后才压缩合并进所属的里程碑分支。',
     related: ['main-branch', 'merge', 'checkout', 'commit', 'worktree'],
   },
   {
@@ -72,9 +73,9 @@ export const GIT_TERMS: GlossaryEntry[] = [
     oneLiner_en: 'Replaying your commits on top of another branch so the history appears as one straight line.',
     oneLiner_zh: '把你的提交重新应用到另一个分支之上，让历史看起来是一条直线。',
     plainExplain_en:
-      'Imagine restaging every scene of a play on a newer stage: the scenes are the same, but their positions and scene numbers change. Rebasing keeps history tidy, yet it gives each commit a new hash, so it is best reserved for branches nobody else has pulled.',
+      'Imagine restaging every scene of a play on a newer stage: the scenes are the same, but their positions and scene numbers change. Rebasing keeps history tidy, yet it gives every moved snapshot a brand-new ID, so it is best reserved for private branches nobody else has copied yet.',
     plainExplain_zh:
-      '可以想象把一出戏的每一幕搬到更新的舞台上重演：内容没变，但位置和场次编号变了。变基能让历史更整洁，不过每个提交都会得到新的哈希，因此最好只用于别人还没有拉取过的分支。',
+      '可以想象把一出戏的每一幕搬到更新的舞台上重演：内容没变，但位置和场次编号变了。变基能让历史更整洁，不过每次移动后的存档都会换上全新的编号，所以最好只用于还没有分享给别人的分支。',
     proExplain_en:
       'Rebase takes the commits unique to your branch and reapplies their patches onto a new base, creating new commit objects with new hashes; it can also edit, reorder, squash, or drop commits interactively. VibeBaton avoids rebasing shared branches and prefers merge-based integration so the audit trail stays truthful.',
     proExplain_zh:
@@ -94,12 +95,13 @@ export const GIT_TERMS: GlossaryEntry[] = [
     proExplain_en:
       '`git worktree add` creates a linked working tree with its own HEAD and index that shares the object database and refs; Git refuses to check out the same branch in two worktrees. VibeBaton creates one worktree per task under `.baton/worktrees`, runs gates inside it, and removes it after merge or abandonment.',
     proExplain_zh:
-      '`git worktree add` 会创建一个关联工作树，它拥有自己的 HEAD 和索引，但共享对象数据库与引用；Git 不允许同一分支同时检出到两个工作树。VibeBaton 在 `.baton/worktrees` 下为每个任务创建工作树，在其中运行闸门，并在合并或放弃后删除。',
+      '`git worktree add` 会创建一个关联工作树，它拥有自己的 HEAD 和索引，但共享对象数据库与引用；Git 不允许同一分支同时检出到两个工作树。VibeBaton 在 `.baton/worktrees` 下为每个任务创建工作树，在其中运行门禁，并在合并或放弃后删除。',
     related: ['repository', 'branch', 'head', 'checkout', 'working-tree'],
   },
   {
     id: 'tag',
     term: 'Tag',
+    matchCase: true,
     category: 'git',
     oneLiner_en: 'A fixed name attached to one commit, usually to mark a release or a known-good point.',
     oneLiner_zh: '固定在某个提交上的名称，通常用来标记发布版本或已知可用的时间点。',
@@ -196,6 +198,7 @@ export const GIT_TERMS: GlossaryEntry[] = [
   {
     id: 'push',
     term: 'Push',
+    matchCase: true,
     category: 'git',
     oneLiner_en: 'Sending your local commits to a remote repository so others can see them.',
     oneLiner_zh: '把本地提交发送到远程仓库，让其他人可以看到。',
@@ -206,12 +209,13 @@ export const GIT_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Push updates remote refs from local refs and transfers the missing objects; it is rejected when the update is not a fast-forward unless force is used. Force-pushing rewrites shared history and is never appropriate on a protected branch. VibeBaton keeps remote operations outside its task loop, so a push is always a deliberate step after the gates have passed.',
     proExplain_zh:
-      '推送会用本地引用更新远程引用，并传输缺失的对象；如果更新不是快进，除非强制推送，否则会被拒绝。强制推送会改写共享历史，在受保护分支上绝不合适。VibeBaton 把远程操作留在任务循环之外，因此推送始终是闸门通过后由你主动执行的一步。',
+      '推送会用本地引用更新远程引用，并传输缺失的对象；如果更新不是快进，除非强制推送，否则会被拒绝。强制推送会改写共享历史，在受保护分支上绝不合适。VibeBaton 把远程操作留在任务循环之外，因此推送始终是门禁通过后由你主动执行的一步。',
     related: ['remote', 'pull', 'fetch', 'upstream', 'branch'],
   },
   {
     id: 'pull',
     term: 'Pull',
+    matchCase: true,
     category: 'git',
     oneLiner_en: 'Fetching remote changes and integrating them into your current branch.',
     oneLiner_zh: '获取远程改动并整合进当前分支。',
@@ -270,7 +274,7 @@ export const GIT_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'The default branch that `HEAD` points to after a clone and the usual target of protected-branch rules; its name is a convention, not a Git requirement. VibeBaton calls the configured one the base branch, keeps its own dev branch separate, and merges dev into base only at the final gate.',
     proExplain_zh:
-      '它是克隆后 `HEAD` 默认指向的分支，通常也是受保护分支规则的目标；其名称只是约定，并非 Git 的硬性要求。VibeBaton 把配置的主分支称为基础分支，单独维护开发分支，并且只在最终闸门时才把开发分支合并进基础分支。',
+      '它是克隆后 `HEAD` 默认指向的分支，通常也是受保护分支规则的目标；其名称只是约定，并非 Git 的硬性要求。VibeBaton 把配置的主分支称为基础分支，单独维护开发分支，并且只在终审门禁时才把开发分支合并进基础分支。',
     related: ['branch', 'merge', 'dev-branch', 'head', 'fast-forward'],
   },
   {
@@ -278,7 +282,7 @@ export const GIT_TERMS: GlossaryEntry[] = [
     term: 'HEAD',
     category: 'git',
     oneLiner_en: 'The reference that points to the commit currently checked out in a working tree.',
-    oneLiner_zh: '指向当前工作树中已检出提交的引用。',
+    oneLiner_zh: '指向你当前正在查看的那个存档位置的标记。',
     plainExplain_en:
       'HEAD is the you-are-here marker on the project map; it decides which version of the files appears on your desk. When it moves to another branch, the visible files change with it.',
     plainExplain_zh:
@@ -382,12 +386,13 @@ export const GIT_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Git hashes a header plus the commit body (tree, parents, author, committer, message), producing a SHA-1 id by default and SHA-256 in repositories created with that object format. Abbreviated hashes are unique within a repository. VibeBaton records the merged commit hash at the final gate so a later rollback can confirm that the base branch has not moved.',
     proExplain_zh:
-      'Git 会对提交头与提交正文（目录树、父提交、作者、提交者、提交信息）一起做哈希，默认生成 SHA-1 ID，而采用新对象格式的仓库会生成 SHA-256 ID。缩写哈希在单个仓库内保持唯一。VibeBaton 在最终闸门记录合并后的提交哈希，使后续回退能够确认基础分支没有被移动过。',
+      'Git 会对提交头与提交正文（目录树、父提交、作者、提交者、提交信息）一起做哈希，默认生成 SHA-1 ID，而采用新对象格式的仓库会生成 SHA-256 ID。缩写哈希在单个仓库内保持唯一。VibeBaton 在终审门禁记录合并后的提交哈希，使后续回退能够确认基础分支没有被移动过。',
     related: ['commit', 'commit-message', 'head', 'log', 'revert'],
   },
   {
     id: 'log',
     term: 'Log',
+    matchCase: true,
     category: 'git',
     oneLiner_en: 'The ordered record of commits that makes up a repository history.',
     oneLiner_zh: '按顺序记录仓库历史的提交清单。',
@@ -420,6 +425,7 @@ export const GIT_TERMS: GlossaryEntry[] = [
   {
     id: 'switch',
     term: 'Switch',
+    matchCase: true,
     category: 'git',
     oneLiner_en: 'The focused Git command for moving to a different branch.',
     oneLiner_zh: '专门用于切换到另一个分支的 Git 命令。',
@@ -437,8 +443,8 @@ export const GIT_TERMS: GlossaryEntry[] = [
     id: 'reset',
     term: 'Reset',
     category: 'git',
-    oneLiner_en: 'The command that moves the current branch pointer, optionally changing the index and working tree.',
-    oneLiner_zh: '移动当前分支指针的命令，可选择是否同时改动索引和工作区。',
+    oneLiner_en: 'The Git command that rewinds a branch to an earlier snapshot, with an option to keep or discard newer edits.',
+    oneLiner_zh: '把当前分支倒回某个旧存档的 Git 命令，可选择保留或丢弃之后的修改。',
     plainExplain_en:
       'Reset is a rewind control: how far you rewind decides whether your later edits stay on the desk or disappear. Because it can rewrite branch history, it is safest on changes that are still only local.',
     plainExplain_zh:
@@ -501,8 +507,8 @@ export const GIT_TERMS: GlossaryEntry[] = [
     id: 'fast-forward',
     term: 'Fast-forward',
     category: 'git',
-    oneLiner_en: 'A merge that simply advances a branch pointer because no divergent work exists.',
-    oneLiner_zh: '在不存在分叉工作的情况下，仅前移分支指针的合并方式。',
+    oneLiner_en: 'A merge that moves the branch forward when no divergent work exists.',
+    oneLiner_zh: '在没有分叉改动时，直接把分支往前推进到新存档的合并方式。',
     plainExplain_en:
       'If pages were added strictly in order, moving the bookmark forward is enough; no new combined page is needed. This is the simplest merge, and it leaves no merge commit behind.',
     plainExplain_zh:
@@ -542,12 +548,13 @@ export const GIT_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A pull request is a platform feature, not a Git primitive: it pairs a source branch with a target branch, tracks discussion and checks, and adds the merge commit when approved. VibeBaton mirrors that flow locally through task branches, mechanical gates, and AI review when configured; a hosted pull request is only needed when you choose to publish the branch.',
     proExplain_zh:
-      '拉取请求是平台功能，而不是 Git 原语：它把来源分支与目标分支配对，记录讨论和检查结果，并在批准后添加合并提交。VibeBaton 在本地用任务分支、机械闸门和按需启用的 AI 评审复现这一流程；只有当你选择发布分支时，才需要托管平台的拉取请求。',
+      '拉取请求是平台功能，而不是 Git 原语：它把来源分支与目标分支配对，记录讨论和检查结果，并在批准后添加合并提交。VibeBaton 在本地用任务分支、机械门禁和按需启用的 AI 评审复现这一流程；只有当你选择发布分支时，才需要托管平台的拉取请求。',
     related: ['branch', 'merge', 'code-review', 'remote', 'fork'],
   },
   {
     id: 'fork',
     term: 'Fork',
+    matchCase: true,
     category: 'git',
     oneLiner_en: 'A separate copy of another repository that you can change independently.',
     oneLiner_zh: '他人仓库的一份独立副本，你可以自行修改。',
@@ -596,6 +603,7 @@ export const GIT_TERMS: GlossaryEntry[] = [
   {
     id: 'hook',
     term: 'Hook',
+    matchCase: true,
     category: 'git',
     oneLiner_en: 'A script Git runs automatically at a specific point, such as before a commit is created.',
     oneLiner_zh: 'Git 在特定时机（例如创建提交之前）自动运行的脚本。',
@@ -606,7 +614,7 @@ export const GIT_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Executable files in `.git/hooks` (or the directory set by `core.hooksPath`) named after events such as `pre-commit`, `commit-msg`, `pre-push`, and `post-merge`; they are local, not versioned, and can be skipped with `--no-verify`. VibeBaton runs verification as explicit gate commands outside hooks so results are recorded independently of the local hook setup on each machine.',
     proExplain_zh:
-      '它们是 `.git/hooks`（或 `core.hooksPath` 指定的目录）中按事件命名的可执行文件，例如 `pre-commit`、`commit-msg`、`pre-push`、`post-merge`；这些脚本只存在于本地、不受版本控制，也能被 `--no-verify` 跳过。VibeBaton 把验证作为显式的闸门命令在钩子之外运行，因此结果会被记录，不受每台机器本地钩子配置的影响。',
+      '它们是 `.git/hooks`（或 `core.hooksPath` 指定的目录）中按事件命名的可执行文件，例如 `pre-commit`、`commit-msg`、`pre-push`、`post-merge`；这些脚本只存在于本地、不受版本控制，也能被 `--no-verify` 跳过。VibeBaton 把验证作为显式的门禁命令在钩子之外运行，因此结果会被记录，不受每台机器本地钩子配置的影响。',
     related: ['commit', 'push', 'staging-area', 'ci', 'mechanical-gate'],
   },
 ];

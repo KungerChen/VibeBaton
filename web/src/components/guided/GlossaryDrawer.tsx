@@ -117,8 +117,7 @@ export function GlossaryDrawer({ open, onClose, initialTermId, locale }: Glossar
       <div className="glossary-drawer__panel">
         <header className="glossary-drawer__header">
           <h2 className="glossary-drawer__title" id={titleId}>{labels.title}</h2>
-          {/* No dedicated close copy exists under glossary.*, so reuse the nearest label. */}
-          <Button variant="ghost" size="icon-sm" aria-label={labels.open} onClick={onClose}>
+          <Button variant="ghost" size="icon-sm" aria-label={labels.close} onClick={onClose}>
             <svg
               width="16"
               height="16"
@@ -153,7 +152,7 @@ export function GlossaryDrawer({ open, onClose, initialTermId, locale }: Glossar
                 aria-pressed={category === 'all'}
                 onClick={() => setCategory('all')}
               >
-                {labels.title}
+                {labels.all}
               </Button>
               {GLOSSARY_CATEGORIES.map((item) => (
                 <Button

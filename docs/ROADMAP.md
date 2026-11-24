@@ -1,6 +1,6 @@
 # VibeBaton 产品与工程路线图（Roadmap）
 
-> **核心定位 / Positioning**: 跨厂商异构多 Agent 软件工厂（Heterogeneous Multi-Agent Orchestrator）——在本地工作流中自由混编 **Antigravity / Claude / Codex / OpenCode Go / DSH** 与任意开源或自托管模型，以 **Contract-First + 机械门禁前置 + Git Worktree 并发隔离 + 可分享 `.baton.json` 开放配方生态** 作为核心护城河。
+> **核心定位 / Positioning**: 跨厂商异构多 Agent 软件工厂（Heterogeneous Multi-Agent Orchestrator）——在本地工作流中自由混编 **Antigravity / Claude / Codex / DSH** 与任意开源或自托管模型，以 **Contract-First + 机械门禁前置 + Git Worktree 并发隔离 + 可分享 `.baton.json` 开放配方生态** 作为核心护城河。
 
 ---
 
@@ -32,7 +32,7 @@
 
 ## ✅ Stage 3 · `v0.9.0-beta`（已正式合入 `main`：`0287990`）
 
-详见技术规格与新手教程：[RFC_STAGE3_DRAFT.md](RFC_STAGE3_DRAFT.md) · [新手保姆级教程 TUTORIAL.md](TUTORIAL.md)。核心落地特性与精修：
+详见技术规格与上手指南：[RFC_STAGE3_DRAFT.md](RFC_STAGE3_DRAFT.md) · [完整图文教程 TUTORIAL.md](TUTORIAL.md)。核心落地特性与精修：
 
 1. **场景化 & 单厂商全家桶配方广场（Recipe Plaza · 7 套预设）**
    - 支持 `same_family`（`claude_only_3tier` / `codex_only_3tier` / `deepseek_bulk_factory`）、`bulk_batch`、`small_project`、`audit` 分类，结合 `baton doctor` 自动标绿「本机就绪」预设。

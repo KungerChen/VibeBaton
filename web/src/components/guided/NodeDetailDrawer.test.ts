@@ -226,7 +226,17 @@ describe('summarizeDetail', () => {
       changedFiles: [],
       verdict: '—',
     });
-    expect(summarizeDetail({ ...sparse, cost_usd: 0.04 }, 'zh').cost).toBe('$0.04');
+    expect(summarizeDetail({ ...sparse, cost_usd: 0.04 }, 'zh')).toMatchObject({
+      status: MESSAGES.zh.guided.nodeDetail.statuses.PASSED,
+      tests: MESSAGES.zh.guided.nodeDetail.testStatuses.not_run,
+      cost: '$0.04',
+      verdict: '—',
+    });
+    expect(summarizeDetail(detail, 'zh')).toMatchObject({
+      status: MESSAGES.zh.guided.nodeDetail.statuses.PASSED,
+      tests: MESSAGES.zh.guided.nodeDetail.testStatuses.passed,
+      verdict: MESSAGES.zh.guided.nodeDetail.verdicts.PASS,
+    });
   });
 });
 

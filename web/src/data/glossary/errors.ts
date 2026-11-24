@@ -110,7 +110,7 @@ export const ERRORS_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Raised when an operation receives an operand of the wrong type: JavaScript `TypeError` at runtime, Python `TypeError`, or a TypeScript compile-time diagnostic from `tsc`. Compile-time type errors are caught by the type-check step of the mechanical gate before code runs.',
     proExplain_zh:
-      '当运算收到类型不对的操作数时抛出：JavaScript 运行时的 `TypeError`、Python 的 `TypeError`，或 `tsc` 给出的 TypeScript 编译期诊断。编译期类型错误会在代码运行前被机械闸门中的类型检查步骤拦下。',
+      '当运算收到类型不对的操作数时抛出：JavaScript 运行时的 `TypeError`、Python 的 `TypeError`，或 `tsc` 给出的 TypeScript 编译期诊断。编译期类型错误会在代码运行前被机械门禁中的类型检查步骤拦下。',
     related: ['type-check', 'typescript', 'null-reference', 'mechanical-gate', 'stack-trace'],
   },
   {
@@ -142,7 +142,7 @@ export const ERRORS_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'A throttle that caps requests or tokens per time window, usually signaled with HTTP 429 and a `Retry-After` header. VibeBaton treats provider rate limits as quota signals: the role enters quota cooldown and work can move along the fallback chain.',
     proExplain_zh:
-      '一种按时间窗口限制请求数或 token 数的节流机制，通常以 HTTP 429 和 `Retry-After` 头表示。VibeBaton 把服务商的速率限制视为配额信号：对应角色进入配额冷却，工作可沿回退链转移。',
+      '一种按时间窗口限制请求数或 token 数的节流机制，通常以 HTTP 429 和 `Retry-After` 头表示。VibeBaton 把供应方的速率限制视为配额信号：对应角色进入配额冷却，工作可沿回退链转移。',
     related: ['429', 'quota-exceeded', 'quota-cooldown', 'fallback-chain', 'api-key'],
   },
   {
@@ -158,7 +158,7 @@ export const ERRORS_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'An authentication or authorization failure, usually HTTP 401 (credentials missing or invalid) or 403 (identity known but not permitted). For CLI drivers it often means the CLI session expired; rerun the provider login command or update the environment variable that holds the key.',
     proExplain_zh:
-      '身份验证或授权失败，通常是 HTTP 401（凭据缺失或无效）或 403（身份已知但无权限）。对 CLI 驱动而言，常常意味着 CLI 会话已过期；重新运行服务商的登录命令，或更新保存密钥的环境变量即可。',
+      '身份验证或授权失败，通常是 HTTP 401（凭据缺失或无效）或 403（身份已知但无权限）。对 CLI 驱动而言，常常意味着 CLI 会话已过期；重新运行供应方的登录命令，或更新保存密钥的环境变量即可。',
     related: ['401', '403', 'api-key', 'cli-driver', 'environment-variable'],
   },
   {
@@ -270,7 +270,7 @@ export const ERRORS_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'Service Unavailable: a temporary condition such as overload, maintenance, or a dependency outage, sometimes with a `Retry-After` header. AI providers return it during capacity crunches, so retry with backoff or switch to a fallback provider.',
     proExplain_zh:
-      'Service Unavailable（服务不可用）：暂时性状况，例如过载、维护或依赖服务中断，有时附带 `Retry-After` 头。AI 服务商在算力紧张时会返回它，可以退避重试，或切换到备用服务商。',
+      'Service Unavailable（服务不可用）：暂时性状况，例如过载、维护或依赖服务中断，有时附带 `Retry-After` 头。AI 供应方在算力紧张时会返回它，可以退避重试，或切换到备用供应方。',
     related: ['500', '502', '429', 'fallback-chain', 'provider'],
   },
   {
@@ -330,11 +330,11 @@ export const ERRORS_TERMS: GlossaryEntry[] = [
     plainExplain_en:
       'Like a thumbs up or a coded note left by someone finishing a shift. A non-zero code means look at the output just above it to find what went wrong.',
     plainExplain_zh:
-      '就像下班的人留下的一个竖大拇指，或一张写着代码的便条。如果不是 0，就看看它上方的输出，找到出错原因。',
+      '就像交班同事留下的一个“OK”手势，或一张写着问题编号的纸条。如果不是 0，就看看它上方的输出，找到出错原因。',
     proExplain_en:
       'The process status visible as `$?` in POSIX shells, `%ERRORLEVEL%` in cmd, or `$LASTEXITCODE` in PowerShell. Conventions include 1 for general failure, 2 for misuse, 127 for command not found, and 128+N for termination by signal N. VibeBaton gates pass or fail on the exit code of the verification command.',
     proExplain_zh:
-      '进程退出状态，在 POSIX shell 中是 `$?`，在 cmd 中是 `%ERRORLEVEL%`，在 PowerShell 中是 `$LASTEXITCODE`。惯例上 1 表示一般失败，2 表示用法错误，127 表示找不到命令，128+N 表示被信号 N 终止。VibeBaton 的闸门依据验证命令的退出码判定通过或失败。',
+      '进程退出状态，在 POSIX shell 中是 `$?`，在 cmd 中是 `%ERRORLEVEL%`，在 PowerShell 中是 `$LASTEXITCODE`。惯例上 1 表示一般失败，2 表示用法错误，127 表示找不到命令，128+N 表示被信号 N 终止。VibeBaton 的门禁依据验证命令的退出码判定通过或失败。',
     related: ['mechanical-gate', 'cli', 'command-not-found', 'test-failure'],
   },
   {
@@ -542,7 +542,7 @@ export const ERRORS_TERMS: GlossaryEntry[] = [
     proExplain_en:
       'An assertion failed or the test threw, producing a non-zero exit code from the runner such as vitest or pytest. In VibeBaton a failing verification command fails the mechanical gate, and the task is retried with the failure output as context.',
     proExplain_zh:
-      '断言失败或测试抛出异常，使 vitest、pytest 等测试运行器以非零退出码结束。在 VibeBaton 中，验证命令失败即机械闸门失败，任务会带着失败输出作为上下文重试。',
+      '断言失败或测试抛出异常，使 vitest、pytest 等测试运行器以非零退出码结束。在 VibeBaton 中，验证命令失败即机械门禁失败，任务会带着失败输出作为上下文重试。',
     related: ['unit-test', 'assertion', 'mechanical-gate', 'flaky-test', 'regression'],
   },
   {
@@ -602,7 +602,7 @@ export const ERRORS_TERMS: GlossaryEntry[] = [
     plainExplain_en:
       'Like a monthly phone data plan that has run out. Wait for the allowance to reset, raise the limit in the provider settings, or switch the role to another provider.',
     plainExplain_zh:
-      '就像手机的月流量用完了。等额度重置，在服务商设置中提高上限，或把该角色切换到另一家服务商。',
+      '就像手机的月流量用完了。等额度重置，在供应方设置中提高上限，或把该角色切换到另一家供应方。',
     proExplain_en:
       'A hard usage cap on a subscription or API key, distinct from a short rate limit because waiting seconds will not clear it. VibeBaton detects quota messages from CLI drivers, puts the role into quota cooldown, and continues through the fallback chain where one is configured.',
     proExplain_zh:
