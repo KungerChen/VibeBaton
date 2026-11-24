@@ -170,7 +170,72 @@ baton export-case --repo . --run-id <id> --no-reviews --anonymize
 
 ---
 
-## 六、新手常见问题（FAQ）
+## 六、Specialist Panel mode（专家会诊模式）
+
+`--mode panel` 会在正式规划前增加 **`00_PANEL`** 阶段：多位只读专家并发审查 RFC，Synthesizer 把各方意见合并成一份 `master_spec.md`，再连同原 RFC 一起交给 `01_PLAN`。专家只读、不修改仓库，适合架构评审、视觉与文案把关、安全与兼容性审查等多视角任务。
+
+### 1. 配置专家阵容
+
+在 `baton.toml` 中加入 `[panel]` 表与若干 `[[panel.members]]`（以下摘自仓库根目录的 `baton.example.toml`）：
+
+```toml
+[panel]
+enabled = true
+max_concurrency = 3
+synthesizer_provider = "claude_sub"
+synthesizer_model = "sonnet@high"
+
+[[panel.members]]
+id = "ux_copy"
+perspective = "UX & Copy"
+provider = "claude_sub"
+model = "opus@high"
+
+[[panel.members]]
+id = "visual_structure"
+perspective = "Visual & Structure"
+provider = "gemini_http"
+model = "gemini-4-neon-high"
+
+[[panel.members]]
+id = "source_safety"
+perspective = "Source & Safety"
+provider = "codex_sub"
+model = "gpt-6.2-sol@max"
+fallback = [{ provider = "claude_sub", model = "opus@high" }]
+```
+
+> 未配置 `[panel]` 时，`--mode panel` 会根据当前 `[providers]` 自动推导三位专家（UX / Visual / Safety）和合成器；`max_concurrency` 控制同时审查的专家数，单个专家失败会被跳过，全部失败或合成失败才会让本次运行失败。
+
+### 2. 启动会诊运行
+
+核心参数是 `baton run --mode panel`；在仓库根目录可配合 `--repo` 与 `--rfc` 使用：
+
+```powershell
+baton run --repo . --rfc 00_RFC.md --mode panel
+```
+
+在 Studio 的 **StartRunModal** 启动向导中，点击 **「▶ 启动真实运行」** → 第 3 步 **运行模式（Run Mode）** 选择 **「专家会诊 + 执行」（Specialist Panel + Execute）**，即可走同一套 `--mode panel` 流程。
+
+### 3. 产物与如何进入 `01_PLAN`
+
+每次会诊的产物都在本次运行目录下：
+
+```text
+.baton/runs/<run_id>/panel/
+├── ux_copy.md            # 每位专家一份只读评审记录（<member_id>.md）
+├── visual_structure.md
+├── source_safety.md
+└── master_spec.md        # Synthesizer 汇总后的主规格
+```
+
+每位专家的完整评审记录写入 `.baton/runs/<run_id>/panel/<member_id>.md`，汇总结果写入 `.baton/runs/<run_id>/panel/master_spec.md`。引擎会把 `master_spec.md` 追加到原 RFC 之后，作为 `01_PLAN` 规划师的输入，再生成里程碑与任务 DAG；因此会诊结论会直接影响后续任务拆分。中断恢复时，已存在的 `master_spec.md` 会被复用，不会重复调用专家。
+
+> 阶段耗时、每位专家的 token / 成本与 `00_PANEL` 事件会进入实时看板、双语战报和 `.baton-case.json` 脱敏案例导出。
+
+---
+
+## 七、新手常见问题（FAQ）
 
 1. **为什么启动运行后，左侧和中间画布没有自动显示真实任务？**
    - 左侧下方的「预置工作流」是通用架构蓝图；只要本机有运行记录，**左侧面板最顶部** 会亮起 **「实时运行工作流」** 卡片——点一下它就能切到实时里程碑与任务画布。

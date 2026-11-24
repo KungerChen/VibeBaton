@@ -37,6 +37,7 @@ PRESET_IDS = (
     "flagship_4tier",
     "review_only_audit",
     "solo_coder_3tier",
+    "specialist_panel",
     "starter_2tier",
 )
 NON_FINITE_JSON_NUMBERS = ("NaN", "Infinity", "-Infinity", "1e400", "-1e400")
@@ -187,7 +188,7 @@ class TestWebApi(WebServerTestCase):
         self.assertEqual(set(role), {"provider", "model", "fallback"})
         self.assertEqual(set(role["fallback"][0]), {"provider", "model"})
 
-    def test_lists_seven_presets_with_graphs_and_validation(self) -> None:
+    def test_lists_eight_presets_with_graphs_and_validation(self) -> None:
         status, _, body = self.get("/api/presets")
         self.assertEqual(status, 200)
         self.assertCountEqual([row["id"] for row in body["presets"]], PRESET_IDS)
@@ -256,16 +257,16 @@ class TestWebApi(WebServerTestCase):
             )
             self.assertEqual(self._request(Request(first + "/api/config/roles"))[0], 200)
             self.assertCountEqual([call.kwargs["provider"] for call in probe.call_args_list], [
-                "claude_sub", "codex_sub", "dsh_opencode",
+                "claude_sub", "codex_sub", "dsh_opencode", "gemini_http",
             ])
 
             clock.return_value = 159.999
             self.assertEqual(self._request(Request(second + "/api/presets"))[0], 200)
-            self.assertEqual(probe.call_count, 3)
+            self.assertEqual(probe.call_count, 4)
 
             clock.return_value = 160.0
             self.assertEqual(self._request(Request(second + "/api/config/roles"))[0], 200)
-            self.assertEqual(probe.call_count, 6)
+            self.assertEqual(probe.call_count, 8)
 
     def test_flagship_preset_details(self) -> None:
         status, _, body = self.get("/api/presets/flagship_4tier")
@@ -532,7 +533,7 @@ class TestRoleConfigApi(WebServerTestCase):
         }, body["model_catalog"])
         self.assertIn({
             "provider": "claude_sub",
-            "model": "fable@high",
+            "model": "opus@high",
             "efforts": ["low", "high", "max"],
             "cost_tier": "flagship",
             "ready": False,
@@ -800,7 +801,7 @@ class TestCredentialsApi(WebServerTestCase):
 
         self.assertEqual(self.send_json("/api/credentials", {"OPENAI_API_KEY": "test-credential"})[0], 200)
         self.assertEqual(self.get("/api/config/roles")[0], 200)
-        self.assertEqual(self.provider_probe.call_count, 3)
+        self.assertEqual(self.provider_probe.call_count, 4)
 
     def test_credentials_post_cannot_write_into_the_served_repository(self) -> None:
         original = self.config_path.read_bytes()

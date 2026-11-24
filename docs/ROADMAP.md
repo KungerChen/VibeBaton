@@ -92,3 +92,15 @@
 3. **通用案例回放播放器**：顶部中央播放条默认显示「示范教程：一期真跑」，载入社区分享的案例后切换为「▶ 开始回放：<案例名>」，支持案例切换、导入其他案例与返回示范教程；画布、粒子流、节点状态与右侧轨迹联动。
 4. **导入自动识别与预览确认**：文件选择、拖拽或粘贴 `.baton.json` / `.baton-case.json` / `#recipe=` 链接后自动识别类型，先展示节点数、连线数与结构校验徽章；运行案例还会显示耗时、任务数与脱敏状态徽章，再确认应用或回放，避免误覆盖画布。
 5. **文档与双语一致性**：`docs/TUTORIAL.md` 新增「配方分享与案例回放」章节；`QuickStartModal` 的一期真跑步骤明确指引用案例回放；`EN | 中文` 文案与 `v1.0.4` 版本元数据同步更新。
+
+---
+
+## ✅ Stage 5 · `v1.1.0` — Specialist Panel mode（已正式发布：2026-11-23）
+
+1. **多专家会诊阶段（`00_PANEL`）**：`baton.toml` 新增 `[panel]` 与 `[[panel.members]]` 配置，多位只读专家按 `max_concurrency` 并发审查 RFC，Synthesizer 将各方意见合并为 `master_spec.md`；单个专家失败会被跳过，全部专家失败或合成失败才会让运行失败。
+2. **会诊结论直接进入规划**：`master_spec.md` 会追加到原 RFC 之后，作为 `01_PLAN` 规划师的输入；中断恢复时复用已生成的 master spec，不重复调用专家。
+3. **双入口启动**：CLI 支持 `baton run --mode panel`，Studio「Start Real Run」向导提供 **Specialist Panel + Execute** 选项，REST 运行接口同时接受 `mode: "panel"`。
+4. **可观测性与案例生态**：`00_PANEL` 阶段耗时、逐专家 token 与成本进入实时看板、双语战报和 `.baton-case.json` 脱敏案例导出；内置 `specialist_panel` 预设，Studio 可实时跟随每位专家与合成过程，保持 `EN | 中文` 双语一致。
+5. **成本均衡档位默认值（cost-balanced tier defaults）**：`hydrogen` 归入 `eco` 档，`sonnet` / `neon` / `sol` 归入 `standard` 档，使默认模型选型更贴近成本与质量的平衡点。
+
+> `v1.1.0` 已于 2026-11-23 正式发布。完整变更见 [CHANGELOG.md](../CHANGELOG.md)。

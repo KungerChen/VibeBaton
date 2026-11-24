@@ -62,6 +62,14 @@ flowchart LR
     M --> Final["Stop: READY_FOR_FINAL_GATE · Human merges main"]
 ```
 
+## Specialist Panel Mode (v1.1.0)
+
+For open-ended reviews instead of one fixed spec, `00_PANEL` runs first: read-only specialists audit the RFC in parallel, a Synthesizer merges their reports into one master spec, and `01_PLAN` plans from it. Specialists never edit the working tree — every change still passes the downstream gates.
+
+- **Run it:** `baton run --repo . --rfc .baton/00_RFC.md --mode panel` (or `mode: "panel"` on `POST /api/runs/start`); per-specialist transcripts and the master spec land under `.baton/runs/<run_id>/panel/`.
+- **Try the preset:** `specialist_panel` is the 8th Recipe Plaza preset — three specialists (UX & Copy, Visual & Structure, Source & Safety) feed a Synthesizer, then isolated workers, a mechanical gate, AI review, and human sign-off.
+- **Cost-balanced defaults:** upper-mid models cover thinking and review while `eco` models synthesize and execute bulk work; set `[policies].budget_profile = "max_quality"` to escalate toward flagship. Configure lineups under `[panel]` / `[[panel.members]]` (see [baton.example.toml](baton.example.toml)).
+
 ## Right Tool for the Job
 
 | Use Single Chat / IDE Agent When... | Use VibeBaton When... |
@@ -70,7 +78,7 @@ flowchart LR
 | The task takes under 5 minutes of tight interactive editing. | Mixing flagship planning/review models with fast parallel coding workers. |
 | Your repo has no automated build, lint, or test commands yet. | Running overnight or background work resilient to `429` limits, branch collisions, and scope drift. |
 
-*Zero-key preview: launch Studio (`baton ui`) to simulate `happy_path`, `gate_retry`, and `escalate` offline and explore **7 Ready-on-Host Recipe Presets**.*
+*Zero-key preview: launch Studio (`baton ui`) to simulate `happy_path`, `gate_retry`, and `escalate` offline and explore **8 Ready-on-Host Recipe Presets**.*
 
 ## Self-Hosting Evolution (`v0.1-seed` → `v1.0.4`)
 

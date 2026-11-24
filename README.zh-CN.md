@@ -62,6 +62,14 @@ flowchart LR
     M --> Final["停在 READY_FOR_FINAL_GATE · 人类合入 main"]
 ```
 
+## 专家会诊模式（v1.1.0）
+
+当任务是开放式评审而非单一既定规格时，先由 `00_PANEL` 开场：只读专家并行审阅 RFC，Synthesizer 将各路报告合并为一份 master spec，再交给 `01_PLAN` 据此规划。专家全程不修改工作树，所有改动仍要经过下游门禁。
+
+- **运行方式：** `baton run --repo . --rfc .baton/00_RFC.md --mode panel`（REST 侧传 `mode: "panel"`）；各专家转录与 master spec 落在 `.baton/runs/<run_id>/panel/` 下。
+- **体验预设：** `specialist_panel` 是配方广场第 8 套预设——三位专家（UX 与文案、视觉与结构、源码与安全）接入 Synthesizer，随后是隔离工人、机械门禁、AI 审校与人类签核。
+- **默认档位成本均衡：** 思考与审校使用中高端模型，合成与批量执行使用 `eco` 档模型；将 `[policies].budget_profile` 设为 `"max_quality"` 即可整体向旗舰升档。会诊阵容在 `[panel]` / `[[panel.members]]` 中配置（见 [baton.example.toml](baton.example.toml)）。
+
 ## 什么时候该用 VibeBaton？
 
 | 用单个 IDE / CLI 聊天就够了 | 该用 VibeBaton 的时候 |
@@ -70,7 +78,7 @@ flowchart LR
 | 5 分钟内就能完成的紧耦合交互式结对微调。 | 希望用旗舰模型管规划与审校，搭配高速并发工人写业务与单测。 |
 | 项目尚未建立自动化构建、Lint 或测试命令。 | 需要抗 `429` 限流、隔离并行分支并严控修改边界的后台或通宵长跑。 |
 
-*零密钥预览：直接运行 `baton ui` 启动 Studio，即可离线模拟 `happy_path`、`gate_retry` 与 `escalate`，并浏览 **7 套本机就绪配方预设**。*
+*零密钥预览：直接运行 `baton ui` 启动 Studio，即可离线模拟 `happy_path`、`gate_retry` 与 `escalate`，并浏览 **8 套本机就绪配方预设**。*
 
 ## 自举演进时间线（`v0.1-seed` → `v1.0.4`）
 

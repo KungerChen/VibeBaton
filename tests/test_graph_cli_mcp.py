@@ -20,6 +20,7 @@ PRESET_IDS = (
     "flagship_4tier",
     "review_only_audit",
     "solo_coder_3tier",
+    "specialist_panel",
     "starter_2tier",
 )
 FLAGSHIP_PRESET_PATH = "presets/flagship_4tier.baton.json"
@@ -55,7 +56,7 @@ def _run_cli(argv: list[str]) -> tuple[int, str]:
 
 
 class TestPresetCommands(unittest.TestCase):
-    def test_lists_all_seven_presets(self) -> None:
+    def test_lists_all_eight_presets(self) -> None:
         exit_code, output = _run_cli(["presets"])
         self.assertEqual(exit_code, 0, output)
         for preset_id in PRESET_IDS:
@@ -67,7 +68,7 @@ class TestPresetCommands(unittest.TestCase):
         self.assertEqual(exit_code, 0, output)
         self.assertEqual(output.count("valid=True"), len(PRESET_IDS))
 
-    def test_json_outputs_seven_entries(self) -> None:
+    def test_json_outputs_eight_entries(self) -> None:
         exit_code, output = _run_cli(["presets", "--json"])
         self.assertEqual(exit_code, 0, output)
         rows = json.loads(output)
@@ -134,7 +135,7 @@ class TestMCPGraphTools(unittest.TestCase):
         self.assertIn("baton_list_presets", names)
         self.assertIn("baton_validate_graph", names)
 
-    def test_list_presets_tool_returns_seven_valid_presets(self) -> None:
+    def test_list_presets_tool_returns_eight_valid_presets(self) -> None:
         payload = self._call_tool("baton_list_presets", {})
         self.assertEqual(payload["count"], len(PRESET_IDS))
         self.assertEqual(

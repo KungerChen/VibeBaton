@@ -214,3 +214,23 @@ isolation, and turnkey Windows installation.
   Stage 1 tutorial.
 - Quick Start and the beginner tutorial explain what Recipes and Run Cases contain and how to
   replay a shared case. [Beginner tutorial](docs/TUTORIAL.md)
+
+## [v1.1.0] - 2026-11-23
+
+### Added
+
+- **Multi-Specialist Panel Mode**: a new `[panel]` section in `baton.toml`, parsed into
+  `PanelSettings`, configures the specialists, synthesizer, and limits for a panel run.
+- **`00_PANEL` engine phase**: specialists analyze the task in parallel in a read-only phase, and
+  a Synthesizer merges their findings into one plan before the regular workflow continues.
+- Start a panel run with `baton run --mode panel` or with `mode: "panel"` on the REST run API.
+- Panel runs are recorded in telemetry, battle reports, and `.baton-case.json` case exports,
+  including each specialist's tokens and cost.
+- The built-in `specialist_panel` preset ships Python and TypeScript specialist lineups.
+- The Web Studio adds a panel UI to configure specialists and follow each specialist and the
+  synthesis live, with full `EN | 中文` parity.
+
+### Changed
+
+- **Cost-balanced tier defaults**: `hydrogen` models are now classified in the `eco` cost tier,
+  and `sonnet`, `neon`, and `sol` models in the `standard` tier.
