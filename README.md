@@ -107,8 +107,11 @@ Full notes in [CHANGELOG.md](CHANGELOG.md). Dual-copy self-hosting uses `baton p
 - **Run Cases (`.baton-case.json`)** export a replayable graph, trace, metrics, and redaction audit. Fresh clones ship the built-in **Stage 1 Tutorial (`1h 48m · 9/9 tasks`)** runnable out of the box with zero API keys (local Stage 4.8 SQLite state is gitignored).
 
 <table><tr>
-  <td width="50%"><img src="docs/assets/case-replay.png" alt="Case Replay showing Stage 1 tutorial at Step 19 of 57 driving the canvas and trace, with local Stage 4.8 Live Run card." width="100%" /><br /><sub><strong>Case Replay:</strong> Stage 1 tutorial (<code>Step 19 / 57</code>) driving the canvas and synchronized trace (right-lower card shows the local Stage 4.8 run).</sub></td>
+  <td width="50%"><img src="docs/assets/studio-replay-demo.gif" alt="16 FPS animated Case Replay showing Stage 1 tutorial baton particles, gate retries, and trace synchronization." width="100%" /><br /><sub><strong>Case Replay (16 FPS):</strong> Stage 1 tutorial driving relay baton particles, gate retries, and synchronized trace.</sub></td>
   <td width="50%"><img src="docs/assets/run-telemetry.png" alt="Run Telemetry showing 6h 33m per-stage clocks, token counts, and $22.50 across 34 of 49 billed CLI calls." width="100%" /><br /><sub><strong>Run Telemetry:</strong> Per-stage clocks (<code>6h 33m</code>), token counters, and <code>$22.50</code> modeled across <code>34/49</code> billed CLI calls.</sub></td>
+</tr><tr>
+  <td width="50%"><img src="docs/assets/studio-liquid-theme.gif" alt="16 FPS animated Liquid Theme Reveal pouring across the 3-pane VibeBaton Studio workbench." width="100%" /><br /><sub><strong>Liquid Theme &amp; Workbench (16 FPS):</strong> 3-pane topology canvas with animated Dark/Light liquid pour transitions.</sub></td>
+  <td width="50%"><img src="docs/assets/studio-dag-redaction.gif" alt="16 FPS animated Live 20-node DAG and 4-layer Export Run Case redaction checklist." width="100%" /><br /><sub><strong>Live 20-Node DAG &amp; Redaction Gate (16 FPS):</strong> Switch into a real run graph and inspect clean 4-layer redaction before exporting.</sub></td>
 </tr></table>
 
 <details>
@@ -124,11 +127,12 @@ Export with `baton export-case --repo . --run-id <id>` (add `--no-reviews` to om
 1. **Install** — Python 3.11+ (`dependencies = []` for `baton` CLI/server) and Git; Studio frontend requires `Node 20+`:
    - **Windows** ([`scripts/install.ps1`](scripts/install.ps1)): `.\scripts\install.ps1` then `.\.venv\Scripts\Activate.ps1` · **Linux / macOS**: `python -m pip install -e .`
    - **Studio UI build**: `npm --prefix web ci && npm --prefix web run build`
-2. **Inspect & Launch Studio (Zero-Key Tour Ready)** — Run `baton ui` immediately even before keys to play the Stage 1 tutorial or offline simulator:
+2. **Inspect & Launch Studio (Zero-Key Tour Ready)** — Run `baton ui` immediately (or `baton ui --app` for a chromeless standalone desktop window, or double-click [`VibeBaton-Studio.bat`](VibeBaton-Studio.bat) on Windows) even before keys to play the Stage 1 tutorial or offline simulator:
    ```sh
    baton init --repo . && baton doctor --repo .
-   baton ui
+   baton ui --app
    ```
+   *Windows Desktop Shortcut:* run `.\scripts\launch-studio.ps1 -CreateShortcut` once to pin a one-click **VibeBaton Studio** icon with the app badge onto your Desktop.
 3. **Run Overnight & Export Case** (in a committed target Git repo with providers configured):
    ```sh
    baton run --repo . --rfc .baton/00_RFC.md --mode overnight --detach

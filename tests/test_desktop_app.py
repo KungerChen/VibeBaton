@@ -1,0 +1,181 @@
+"""Tests for standalone --app desktop window launching, launcher assets, and homepage GIFs."""
+
+from __future__ import annotations
+
+from contextlib import redirect_stdout
+import io
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from vibebaton import cli, desktop_app
+from vibebaton.web_server import VibeBatonWebServer
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+class TestDesktopAppFinder(unittest.TestCase):
+    def test_finds_windows_edge_by_env_dir(self) -> None:
+        expected = Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
+        found = desktop_app.find_app_mode_browser(
+            platform="win32",
+            env={"ProgramFiles(x86)": r"C:\Program Files (x86)"},
+            which=lambda _name: None,
+            path_exists=lambda p: str(p) == str(expected),
+        )
+        self.assertEqual(found, expected)
+
+    def test_finds_macos_chrome_bundle(self) -> None:
+        expected = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+        found = desktop_app.find_app_mode_browser(
+            platform="darwin",
+            env={},
+            which=lambda _name: None,
+            path_exists=lambda p: p == expected,
+        )
+        self.assertEqual(found, expected)
+
+    def test_finds_linux_chromium_via_which(self) -> None:
+        expected = Path("/usr/bin/chromium")
+        found = desktop_app.find_app_mode_browser(
+            platform="linux",
+            env={},
+            which=lambda name: "/usr/bin/chromium" if name == "chromium" else None,
+            path_exists=lambda p: p == expected,
+        )
+        self.assertEqual(found, expected)
+
+    def test_returns_none_when_no_supported_browser_found(self) -> None:
+        found = desktop_app.find_app_mode_browser(
+            platform="linux",
+            env={},
+            which=lambda _name: None,
+            path_exists=lambda _p: False,
+        )
+        self.assertIsNone(found)
+
+
+class TestLaunchStudioWindow(unittest.TestCase):
+    def test_browser_mode_opens_default_browser_without_popen(self) -> None:
+        opened: list[str] = []
+        spawned: list[list[str]] = []
+        mode = desktop_app.launch_studio_window(
+            "http://127.0.0.1:7860",
+            app_mode=False,
+            popen=lambda cmd, **_kw: spawned.append(cmd),
+            open_browser=lambda url: opened.append(url),
+        )
+        self.assertEqual(mode, "browser")
+        self.assertEqual(opened, ["http://127.0.0.1:7860"])
+        self.assertEqual(spawned, [])
+
+    def test_app_mode_launches_chromeless_window_when_browser_available(self) -> None:
+        opened: list[str] = []
+        spawned: list[tuple[list[str], dict[str, object]]] = []
+        browser = Path(r"C:\Edge\msedge.exe")
+
+        mode = desktop_app.launch_studio_window(
+            "http://127.0.0.1:7860",
+            app_mode=True,
+            window_size=(1440, 900),
+            browser_path=browser,
+            popen=lambda cmd, **kw: spawned.append((cmd, kw)),
+            open_browser=lambda url: opened.append(url),
+        )
+        self.assertEqual(mode, "app")
+        self.assertEqual(opened, [])
+        self.assertEqual(len(spawned), 1)
+        cmd, kw = spawned[0]
+        self.assertEqual(
+            cmd,
+            [
+                str(browser),
+                "--app=http://127.0.0.1:7860",
+                "--window-size=1440,900",
+                "--new-window",
+            ],
+        )
+        self.assertEqual(kw["stdout"], subprocess.DEVNULL)
+        self.assertEqual(kw["stderr"], subprocess.DEVNULL)
+
+    def test_app_mode_falls_back_when_browser_missing_or_popen_fails(self) -> None:
+        opened: list[str] = []
+        with patch.object(desktop_app, "find_app_mode_browser", return_value=None):
+            mode = desktop_app.launch_studio_window(
+                "http://127.0.0.1:7860",
+                app_mode=True,
+                open_browser=lambda url: opened.append(url),
+            )
+        self.assertEqual(mode, "browser_fallback")
+        self.assertEqual(opened, ["http://127.0.0.1:7860"])
+
+        opened.clear()
+
+        def failing_popen(*_args: object, **_kwargs: object) -> object:
+            raise OSError("spawn blocked")
+
+        mode2 = desktop_app.launch_studio_window(
+            "http://127.0.0.1:7860",
+            app_mode=True,
+            browser_path=Path("/usr/bin/google-chrome"),
+            popen=failing_popen,
+            open_browser=lambda url: opened.append(url),
+        )
+        self.assertEqual(mode2, "browser_fallback")
+        self.assertEqual(opened, ["http://127.0.0.1:7860"])
+
+
+class TestCliUiAppFlag(unittest.TestCase):
+    def test_parser_app_flag_default_and_enabled(self) -> None:
+        default_args = cli.build_parser().parse_args(["ui"])
+        self.assertIs(default_args.app, False)
+
+        app_args = cli.build_parser().parse_args(["ui", "--app"])
+        self.assertIs(app_args.app, True)
+
+    def test_cmd_ui_app_flag_and_fallback_notice(self) -> None:
+        with tempfile.TemporaryDirectory() as repo:
+            stdout = io.StringIO()
+            with (
+                redirect_stdout(stdout),
+                patch.object(VibeBatonWebServer, "serve_forever", autospec=True, side_effect=KeyboardInterrupt),
+                patch.object(desktop_app, "launch_studio_window", return_value="browser_fallback") as launcher,
+            ):
+                rc = cli.main(["ui", "--repo", repo, "--port", "0", "--app"])
+            self.assertEqual(rc, 0)
+            launcher.assert_called_once()
+            _, kwargs = launcher.call_args
+            self.assertIs(kwargs["app_mode"], True)
+            out_text = stdout.getvalue()
+            self.assertIn("Listening on http://127.0.0.1:", out_text)
+            self.assertIn("opened in default browser", out_text)
+
+
+class TestLauncherAndGifCollateral(unittest.TestCase):
+    def test_launcher_scripts_and_gif_assets_exist_and_are_documented(self) -> None:
+        bat = REPO_ROOT / "VibeBaton-Studio.bat"
+        ps1 = REPO_ROOT / "scripts" / "launch-studio.ps1"
+        gifs = (
+            "docs/assets/studio-replay-demo.gif",
+            "docs/assets/studio-liquid-theme.gif",
+            "docs/assets/studio-dag-redaction.gif",
+        )
+        self.assertTrue(bat.is_file(), f"missing {bat}")
+        self.assertTrue(ps1.is_file(), f"missing {ps1}")
+        for rel in gifs:
+            path = REPO_ROOT / rel
+            self.assertTrue(path.is_file(), f"missing {path}")
+            self.assertGreater(path.stat().st_size, 100_000, f"unexpectedly small GIF: {path}")
+
+        readme_en = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        readme_zh = (REPO_ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+        for doc in (readme_en, readme_zh):
+            for needle in (*gifs, "baton ui --app", "VibeBaton-Studio.bat", "launch-studio.ps1"):
+                with self.subTest(needle=needle):
+                    self.assertIn(needle, doc)
+
+
+if __name__ == "__main__":
+    unittest.main()

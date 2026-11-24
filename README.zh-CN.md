@@ -107,8 +107,11 @@ flowchart LR
 - **运行案例（`.baton-case.json`）** 导出可回放的图拓扑、事件轨迹、指标与脱敏审计报告。新克隆仓库内置**一期教程（`1 小时 48 分 · 9/9 任务`）**，零 API Key 即可直接回放（本地 Stage 4.8 SQLite 运行库已加入 `.gitignore`）。
 
 <table><tr>
-  <td width="50%"><img src="docs/assets/case-replay.png" alt="案例回放界面，一期教程 Step 19 / 57 驱动画布与同步轨迹，右下卡片显示本地 Stage 4.8 运行。" width="100%" /><br /><sub><strong>案例回放：</strong>一期教程（<code>Step 19 / 57</code>）驱动画布与同步轨迹（右下卡片展示本地 Stage 4.8 运行）。</sub></td>
+  <td width="50%"><img src="docs/assets/studio-replay-demo.gif" alt="16 FPS 案例回放动图，展示一期教程 60 倍速粒子接力、门禁打回返修与同步轨迹。" width="100%" /><br /><sub><strong>案例回放（16 FPS 实景动图）：</strong>一期教程实时驱动画布粒子接力、门禁返修与右侧同步轨迹。</sub></td>
   <td width="50%"><img src="docs/assets/run-telemetry.png" alt="运行遥测界面，展示 6 小时 33 分阶段计时、Token 计数与 34/49 次计价 CLI 调用合计 $22.50。" width="100%" /><br /><sub><strong>运行遥测：</strong>各阶段计时（<code>6h 33m</code>）、Token 明细，以及 <code>34/49</code> 次计价 CLI 调用折算的 <code>$22.50</code>。</sub></td>
+</tr><tr>
+  <td width="50%"><img src="docs/assets/studio-liquid-theme.gif" alt="16 FPS 液态流体换肤动图，展示三栏 VibeBaton Studio 工作台明暗主题波浪切换。" width="100%" /><br /><sub><strong>液态换肤与三栏工作台（16 FPS）：</strong>平滑无闪烁的流体换肤波浪与节点画布交互。</sub></td>
+  <td width="50%"><img src="docs/assets/studio-dag-redaction.gif" alt="16 FPS 20 节点真实运行 DAG 与导出运行案例四层脱敏检查弹窗动图。" width="100%" /><br /><sub><strong>20 节点 DAG 与四层脱敏导出（16 FPS）：</strong>切换查看真实任务依赖图，分享前实时校验隐私脱敏。</sub></td>
 </tr></table>
 
 <details>
@@ -124,11 +127,12 @@ flowchart LR
 1. **安装** — 需要 Python 3.11+（`baton` CLI 与服务端保持 `dependencies = []`）及 Git；构建 Studio 前端需要 `Node 20+`：
    - **Windows**（[`scripts/install.ps1`](scripts/install.ps1)）：先执行 `.\scripts\install.ps1`，再激活 `.\.venv\Scripts\Activate.ps1` · **Linux / macOS**：`python -m pip install -e .`
    - **构建 Studio 前端**：`npm --prefix web ci && npm --prefix web run build`
-2. **检查环境并启动 Studio（支持零密钥导览）** — 即使尚未配置 API Key，也可立刻运行 `baton ui` 体验一期教程回放与离线模拟器：
+2. **检查环境并启动 Studio（支持零密钥导览与独立桌面窗）** — 即使尚未配置 API Key，也可立刻运行 `baton ui`（或 `baton ui --app` 弹出无地址栏的独立桌面应用窗口，Windows 用户可直接双击 [`VibeBaton-Studio.bat`](VibeBaton-Studio.bat) 一键启动）体验一期教程回放与离线模拟器：
    ```sh
    baton init --repo . && baton doctor --repo .
-   baton ui
+   baton ui --app
    ```
+   *Windows 桌面快捷方式：* 运行一次 `.\scripts\launch-studio.ps1 -CreateShortcut` 即可在桌面生成带图标的 **VibeBaton Studio** 一键启动快捷方式。
 3. **启动通宵运行与导出案例**（在已提交初始 commit 且配好模型提供方的目标 Git 仓库中执行）：
    ```sh
    baton run --repo . --rfc .baton/00_RFC.md --mode overnight --detach

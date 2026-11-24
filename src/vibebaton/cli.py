@@ -510,14 +510,24 @@ def cmd_pricing(args: argparse.Namespace) -> int:
 
 
 def cmd_ui(args: argparse.Namespace) -> int:
-    """Serve the local canvas and open it in the default browser."""
+    """Serve the local canvas and open it in the default browser or desktop app window."""
+    from .desktop_app import launch_studio_window
     from .web_server import VibeBatonWebServer
 
     server = VibeBatonWebServer(Path(args.repo), host=args.host, port=args.port)
     try:
         print(f"Listening on {server.url}", flush=True)
         if not args.no_open:
-            webbrowser.open(server.url)
+            mode = launch_studio_window(
+                server.url,
+                app_mode=bool(getattr(args, "app", False)),
+                open_browser=webbrowser.open,
+            )
+            if mode == "browser_fallback":
+                print(
+                    "[info] No Edge/Chrome app-mode browser found; opened in default browser.",
+                    flush=True,
+                )
         server.serve_forever()
     except KeyboardInterrupt:
         pass
@@ -743,6 +753,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_ui.add_argument("--host", default="127.0.0.1")
     p_ui.add_argument("--port", type=int, default=7860)
     p_ui.add_argument("--no-open", action="store_true", help="Skip opening the default browser")
+    p_ui.add_argument(
+        "--app",
+        action="store_true",
+        help="Open Studio in a standalone desktop window (Edge/Chrome --app mode)",
+    )
     p_ui.set_defaults(func=cmd_ui)
 
     p_sandbox = sub.add_parser("sandbox", help="Generate sandbox scaffolding for isolated runs")
