@@ -100,3 +100,26 @@
 - 未验证：真实模型按新提示词对话的效果（会消耗订阅额度，未调用）；手动步骤：引导页选好团队 → 第 2 步选一个场景 → 只填结果不填验证命令发送，看回复是否主动给出一条命令并解释。
 
 **commit**：b0a04a2
+
+## L0005 2026-11-25 图标按尺寸从 SVG 渲染；任务栏发糊的原因实测与结论
+
+**目的**：让各尺寸图标边缘清晰、铺满画布；判断 `--app` 窗口任务栏图标发糊能否通过声明或 `WM_SETICON` 解决。
+
+**改动文件**：
+- `scripts/render-icons.py`（新）：用本机 Chrome/Edge headless（临时独立 profile）在 canvas 上按 16/24/32/40/48/64/128/192/256/512 每个尺寸分别光栅化 `favicon.svg`，取原始 RGBA 后用标准库编码 PNG（逐行选滤波 + zlib 9）并打包 `favicon.ico`（≤48 用 32 位 BMP 帧，≥64 用 PNG 帧，与原文件布局一致）。≤24 px 用简化图形：去掉 0.18 透明度描边与握把短线，接力棒加粗。
+- `web/public/favicon.ico`、`icon-32/48/64/192/256/512.png`：重新生成。
+- 未改：`index.html`、`manifest.webmanifest`、`desktop_app.py`、`launch-studio.ps1`。
+
+**决策原因**：
+- 本机 Edge headless 的 `--dump-dom` / `--screenshot` 均无输出（退出码 0），Chrome 正常，故脚本依次尝试已安装的 Chromium 浏览器，取第一个返回结果的。
+- canvas 直接编码的 PNG 偏大（512 达 272 KB），改为取像素后自行编码，512 降到 49 KB。
+- 小尺寸简化依据：并排放大比较 16/24/32，原图在 16/24 时握把变灰斑、细描边让边缘发脏，32 正常，故只在 ≤24 简化。
+- 任务栏实测（隔离 profile 启动 `--app` 窗口，用 Win32 `WM_GETICON` 读出图标并导出像素，本机 DPI 216 即 225%）：Chromium 设的 `ICON_BIG` 为 72×72、`ICON_SMALL` 为 36×36，但清晰度远低于同尺寸理想渲染（梯度指标 ~100 对 744），即由 16 dip favicon 放大而来。依次测试「原声明 / 只声明 256 PNG / 只 SVG / 只 ICO / 256+SVG」，新旧图标下结果都一样发糊，所以只调声明无效，声明保持不变。
+- `WM_SETICON` 实测：设置后立即读回是清晰的 72×72，但 20 秒后页面标题变化，Chromium 又换回自己的模糊图标。一次性设置无效；要生效需要在窗口存续期间持续重设（后台线程轮询或 WinEvent 钩子），属于更大的行为新增，未实现，留给用户决定。
+
+**验证**：
+- 已验证：逐个查看 192/256/512 原图与 16–64（含 ICO 内 BMP/PNG 帧解码后放大 6 倍）拼图，图形铺满、边缘清晰、方向正确；后端指定 7 个模块 238 个测试、前端 vitest 698、`tsc --noEmit`、`npm run build` 全部通过。
+- 已知的旧失败：`tests/test_web_fullstack.py` 断言 ICO 帧数为 3，HEAD 上的 ICO 已是 8 帧（f77f397 起），本轮前就失败，未改动。
+- 未验证：任务栏的肉眼效果（会话内看不到任务栏）。快捷方式图标引用的是仓库内 `web\public\favicon.ico`，无需重新运行 `-CreateShortcut`；若桌面快捷方式仍显示旧图，运行 `ie4uinit.exe -show` 刷新 Windows 图标缓存。
+
+**commit**：341f9cb
