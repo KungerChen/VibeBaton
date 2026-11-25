@@ -545,6 +545,19 @@ class RecommendedLineupContractTests(unittest.TestCase):
         self.assertIn("`codex login`", lineup["notes_en"])
         self.assertIn("`codex login`", lineup["notes_zh"])
 
+    def test_lineup_model_overrides_resolves_gemini_http_from_panel_members(self) -> None:
+        overrides = cli_registry.lineup_model_overrides(
+            {"tactical_planner": "gemini_http", "bulk_worker": "gemini_http"},
+            self.cfg,
+        )
+        self.assertEqual(
+            overrides,
+            {
+                "tactical_planner": "gemini_http:gemini-4-neon-high",
+                "bulk_worker": "gemini_http:gemini-4-neon-high",
+            },
+        )
+
 
 class CliInstallLoginContractTests(unittest.TestCase):
     """Install/login contract. Turns green with M1-T3."""

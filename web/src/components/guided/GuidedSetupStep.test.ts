@@ -10,6 +10,7 @@ import {
   canInstall,
   confirmLineup,
   driverDisplayName,
+  driversNeedingApiKey,
   filterDrivers,
   initGitAndRefresh,
   installWithConsent,
@@ -180,12 +181,24 @@ describe('GuidedDriverRow', () => {
     expect(html).toContain('C:\\tools\\dsh.cmd');
     expect(html).not.toMatch(/opencode/i);
   });
+
+  test('renders API key guidance and button when needsApiKey is provided on a ready driver', () => {
+    const geminiDriver: CliDriver = { ...dsh, id: 'gemini', name: 'Gemini CLI', binary: 'gemini', provider_ids: ['gemini_http'], env_keys: ['GEMINI_API_KEY'] };
+    const html = renderRow({
+      driver: geminiDriver,
+      entry: entry('ready', 'gemini'),
+      needsApiKey: 'GEMINI_API_KEY',
+      onConfigureApiKey: () => {},
+    });
+    expect(html).toContain('GEMINI_API_KEY');
+    expect(html).toContain('Set API Key');
+  });
 });
 
 describe('CLI filtering and team lineup customization helpers', () => {
   const claude: CliDriver = { ...dsh, id: 'claude', name: 'Claude Code', binary: 'claude', provider_ids: ['claude_sub'] };
   const codex: CliDriver = { ...dsh, id: 'codex', name: 'Codex CLI', binary: 'codex', provider_ids: ['codex_sub'] };
-  const gemini: CliDriver = { ...dsh, id: 'gemini', name: 'Gemini CLI', binary: 'gemini', provider_ids: ['gemini_http'] };
+  const gemini: CliDriver = { ...dsh, id: 'gemini', name: 'Gemini CLI', binary: 'gemini', provider_ids: ['gemini_http'], env_keys: ['GEMINI_API_KEY'] };
   const opencode: CliDriver = { ...dsh, id: 'opencode', name: 'OpenCode', binary: 'opencode', provider_ids: ['dsh_opencode'] };
 
   test('filterDrivers filters all, ready, and needs_setup entries', () => {
@@ -214,8 +227,11 @@ describe('CLI filtering and team lineup customization helpers', () => {
     ).toEqual(['dsh_opencode', 'claude_sub', 'codex_sub']);
 
     expect(
-      availableLineupProviders(base, [dsh, claude, codex], entries, ['dsh_opencode', 'claude_sub']),
-    ).toEqual(['dsh_opencode', 'claude_sub']);
+      availableLineupProviders(base, [dsh, claude, codex, gemini], entries, ['dsh_opencode', 'claude_sub', 'gemini_http'], ['GEMINI_API_KEY']),
+    ).toEqual(['dsh_opencode', 'claude_sub', 'gemini_http']);
+
+    expect(driversNeedingApiKey([dsh, claude, gemini], entries, [])).toEqual([{ driver: gemini, envKey: 'GEMINI_API_KEY' }]);
+    expect(driversNeedingApiKey([dsh, claude, gemini], entries, ['GEMINI_API_KEY'])).toEqual([]);
   });
 
   test('assignAllRoles, assignRoleProvider, and isLineupCustomized update roles immutably', () => {

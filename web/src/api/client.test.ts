@@ -473,7 +473,7 @@ test('masks, merges and clears credentials in demo memory', async () => {
   const fetchImpl = vi.fn<typeof fetch>();
   const client = new BatonApiClient('', fetchImpl);
   const initial = await client.listCredentials();
-  expect(initial).toEqual(['DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'OPENCODE_API_KEY', 'ANTHROPIC_API_KEY'].map(
+  expect(initial).toEqual(['GEMINI_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'OPENCODE_API_KEY', 'ANTHROPIC_API_KEY'].map(
     (provider_key) => ({ provider_key, configured: false, source: 'none', masked: '' }),
   ));
 
@@ -482,12 +482,12 @@ test('masks, merges and clears credentials in demo memory', async () => {
   const openCode = { provider_key: 'OPENCODE_API_KEY', configured: true, source: 'local_file', masked: '••••' };
   await client.saveCredentials({ OPENAI_API_KEY: secret });
   const saved = await client.saveCredentials({ OPENCODE_API_KEY: 'short' });
-  expect(saved).toEqual([initial[0], openAi, openCode, initial[3]]);
+  expect(saved).toEqual([initial[0], initial[1], openAi, openCode, initial[4]]);
   expect(JSON.stringify(saved)).not.toContain(secret);
   expect(JSON.stringify(saved)).not.toContain('short');
   await expect(client.listCredentials()).resolves.toEqual(saved);
   await expect(client.saveCredentials({ OPENAI_API_KEY: '' })).resolves.toEqual([
-    initial[0], initial[1], openCode, initial[3],
+    initial[0], initial[1], initial[2], openCode, initial[4],
   ]);
   await expect(new BatonApiClient('', fetchImpl).listCredentials()).resolves.toEqual(initial);
   expect(fetchImpl).not.toHaveBeenCalled();

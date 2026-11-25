@@ -494,6 +494,7 @@ def lineup_model_overrides(role_providers: Mapping[str, str], cfg: BatonConfig) 
             *role.fallback,
             *cfg.roles.values(),
             *(target for other in cfg.roles.values() for target in other.fallback),
+            *(cfg.panel.members if cfg.panel else ()),
         ]
         model = next((c.model for c in candidates if c.provider == provider_id and c.model.strip()), None)
         if model is None:

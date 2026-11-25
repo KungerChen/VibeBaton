@@ -19,6 +19,7 @@ from .config import BatonConfig, ProviderConfig
 
 
 SUPPORTED_KEYS = (
+    "GEMINI_API_KEY",
     "DEEPSEEK_API_KEY",
     "OPENAI_API_KEY",
     "OPENCODE_API_KEY",

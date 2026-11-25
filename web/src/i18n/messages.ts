@@ -3,7 +3,7 @@ import type { AttentionCategory, BudgetProfile, CostTier, ExecutionState, NodeTy
 
 export type Locale = 'en' | 'zh';
 
-type CredentialKey = 'DEEPSEEK_API_KEY' | 'OPENAI_API_KEY' | 'OPENCODE_API_KEY' | 'ANTHROPIC_API_KEY';
+type CredentialKey = 'GEMINI_API_KEY' | 'DEEPSEEK_API_KEY' | 'OPENAI_API_KEY' | 'OPENCODE_API_KEY' | 'ANTHROPIC_API_KEY';
 
 export const ATTENTION_TITLE_KEYS = {
   waiting_human: 'waitingHuman',
@@ -530,6 +530,19 @@ export interface Messages {
       installedDone: string;
       folderSelected: string;
       gitEnabledDone: string;
+      apiKeysTitle: string;
+      apiKeysSummary: (configured: number, total: number) => string;
+      apiKeysShow: string;
+      apiKeysHide: string;
+      apiKeysNote: string;
+      apiKeyPlaceholder: string;
+      apiKeySaving: string;
+      apiKeySaved: string;
+      apiKeyEnvSource: string;
+      apiKeyMissing: string;
+      needsApiKeyForTeam: (envKey: string) => string;
+      configureApiKeyAction: string;
+      teamNeedsApiKeyNote: (names: string, keys: string) => string;
     };
     brainstorm: {
       scenariosTitle: string;
@@ -1196,6 +1209,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     credentials: {
       title: 'Credentials Setup',
       keyLabels: {
+        GEMINI_API_KEY: 'Gemini API Key',
         DEEPSEEK_API_KEY: 'DeepSeek API Key (DSH)',
         OPENAI_API_KEY: 'OpenAI API Key',
         OPENCODE_API_KEY: 'DSH Gateway Key',
@@ -1322,6 +1336,19 @@ export const MESSAGES: Record<Locale, Messages> = {
         installedDone: 'Installed and rescanned.',
         folderSelected: 'Project folder updated.',
         gitEnabledDone: 'Version history turned on.',
+        apiKeysTitle: 'API Keys (Optional)',
+        apiKeysSummary: (configured, total) => `${configured}/${total} configured`,
+        apiKeysShow: 'Configure API Keys',
+        apiKeysHide: 'Hide API Keys',
+        apiKeysNote: 'Want to run models with an API key (Gemini, DeepSeek, OpenAI, Anthropic) instead of signing in to CLIs? Paste it here - stored locally on this computer only.',
+        apiKeyPlaceholder: 'Paste API key...',
+        apiKeySaving: 'Saving & rescanning...',
+        apiKeySaved: 'API key updated and team rescanned.',
+        apiKeyEnvSource: 'Environment',
+        apiKeyMissing: 'Not set',
+        needsApiKeyForTeam: (envKey) => `CLI installed - add ${envKey} in API Keys below to use it in your team.`,
+        configureApiKeyAction: 'Set API Key',
+        teamNeedsApiKeyNote: (names, keys) => `${names} detected locally - add ${keys} in API Keys above to include it in your team.`,
       },
       brainstorm: {
         scenariosTitle: 'What would you like to do?',
@@ -2006,6 +2033,7 @@ export const MESSAGES: Record<Locale, Messages> = {
     credentials: {
       title: '凭据设置',
       keyLabels: {
+        GEMINI_API_KEY: 'Gemini API 密钥',
         DEEPSEEK_API_KEY: 'DeepSeek API 密钥（DSH）',
         OPENAI_API_KEY: 'OpenAI API 密钥',
         OPENCODE_API_KEY: 'DSH 网关密钥',
@@ -2132,6 +2160,19 @@ export const MESSAGES: Record<Locale, Messages> = {
         installedDone: '安装完成并已重新扫描。',
         folderSelected: '项目文件夹已切换。',
         gitEnabledDone: '版本记录已开启。',
+        apiKeysTitle: 'API 密钥（可选，使用 API 时在此配置）',
+        apiKeysSummary: (configured, total) => `已配置 ${configured}/${total}`,
+        apiKeysShow: '配置 API 密钥',
+        apiKeysHide: '收起 API 密钥',
+        apiKeysNote: '想直接用 API 密钥（如 Gemini、DeepSeek、OpenAI、Anthropic）而不用登录命令行工具？直接在这里粘贴保存即可，密钥仅存在本机，不会上传到代码仓库。',
+        apiKeyPlaceholder: '粘贴 API 密钥……',
+        apiKeySaving: '正在保存并重新扫描……',
+        apiKeySaved: 'API 密钥已更新，已重新扫描团队。',
+        apiKeyEnvSource: '环境变量',
+        apiKeyMissing: '未设置',
+        needsApiKeyForTeam: (envKey) => `已检测到 CLI，但在下方「API 密钥」填写 ${envKey} 后才能加入团队。`,
+        configureApiKeyAction: '去填写 API 密钥',
+        teamNeedsApiKeyNote: (names, keys) => `检测到本机已安装 ${names}，在上方「API 密钥」填写 ${keys} 后即可在团队中选用。`,
       },
       brainstorm: {
         scenariosTitle: '你想做什么？',

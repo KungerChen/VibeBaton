@@ -1,5 +1,5 @@
 import './GuidedSetupStep.css';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BatonApiClient,
   type ApiMode,
@@ -11,13 +11,14 @@ import {
 } from '../../api/client';
 import { MESSAGES, type Locale } from '../../i18n/messages';
 import { formatProviderDisplay, translateRole } from '../../i18n/presets';
+import type { CredentialStatus } from '../../types/graph';
 import { localizeGuidedError } from './guidedErrors';
 
 /** The client methods this step needs; inject a fake in tests. */
 export type GuidedSetupApi = Pick<
   BatonApiClient,
   'getWorkspaceInfo' | 'selectWorkspace' | 'initGitWorkspace' | 'getCliRegistry' | 'scanCliRegistry' | 'installCli' | 'loginCli'
-> & Partial<Pick<BatonApiClient, 'browseWorkspace' | 'getRoles'>>;
+> & Partial<Pick<BatonApiClient, 'browseWorkspace' | 'getRoles' | 'listCredentials' | 'saveCredentials'>>;
 
 let defaultApi: GuidedSetupApi | null = null;
 function getDefaultApi(): GuidedSetupApi {
@@ -51,22 +52,50 @@ export function filterDrivers(
   return drivers.filter((driver) => entries[driver.id]?.status !== 'ready');
 }
 
+const API_KEY_ORDER = [
+  'GEMINI_API_KEY',
+  'DEEPSEEK_API_KEY',
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'OPENCODE_API_KEY',
+] as const;
+
+/** Ready CLI drivers whose providers are all HTTP-backed and missing their required API key. */
+export function driversNeedingApiKey(
+  drivers: readonly CliDriver[],
+  entries: Record<string, CliScanEntry>,
+  httpApiKeysPresent: readonly string[],
+): { driver: CliDriver; envKey: string }[] {
+  const keys = new Set(httpApiKeysPresent);
+  const missing: { driver: CliDriver; envKey: string }[] = [];
+  for (const driver of drivers) {
+    if (entries[driver.id]?.status !== 'ready') continue;
+    if (driver.provider_ids.length === 0 || !driver.provider_ids.every((pid) => pid.endsWith('_http'))) continue;
+    if (driver.env_keys.length === 0 || driver.env_keys.some((key) => keys.has(key))) continue;
+    missing.push({ driver, envKey: driver.env_keys[0] });
+  }
+  return missing;
+}
+
 /** Collect selectable ready/configured provider IDs for team role customization. */
 export function availableLineupProviders(
   lineup: RecommendedLineup | null,
   drivers: readonly CliDriver[],
   entries: Record<string, CliScanEntry>,
   configuredProviders?: readonly string[],
+  httpApiKeysPresent: readonly string[] = [],
 ): string[] {
   const activeRoleProviders = new Set(Object.values(lineup?.roles ?? {}));
   const result = new Set<string>(activeRoleProviders);
   const configured = configuredProviders ? new Set(configuredProviders) : null;
+  const httpKeys = new Set(httpApiKeysPresent);
 
   for (const driver of drivers) {
     if (entries[driver.id]?.status !== 'ready') continue;
+    const hasHttpKey = driver.env_keys.some((key) => httpKeys.has(key));
     for (const pid of driver.provider_ids) {
       if (configured && !configured.has(pid)) continue;
-      if (pid.endsWith('_http') && !activeRoleProviders.has(pid)) continue;
+      if (pid.endsWith('_http') && !activeRoleProviders.has(pid) && !hasHttpKey) continue;
       if (pid === 'dsh_opencode' && driver.id !== 'dsh') continue;
       result.add(pid);
     }
@@ -157,15 +186,18 @@ export interface GuidedDriverRowProps {
   busy: boolean;
   activeAction?: string | null;
   feedback?: string | null;
+  needsApiKey?: string | null;
   login: CliLoginResult | null;
   onConsentChange(consent: boolean): void;
   onInstall(): void;
   onLogin(): void;
+  onConfigureApiKey?: (envKey: string) => void;
 }
 
 /** One toolkit row: name, tier badge, status pill, diagnostics, and action. */
 export function GuidedDriverRow({
-  locale, driver, entry, consent, busy, activeAction = null, feedback = null, login, onConsentChange, onInstall, onLogin,
+  locale, driver, entry, consent, busy, activeAction = null, feedback = null, needsApiKey = null, login,
+  onConsentChange, onInstall, onLogin, onConfigureApiKey,
 }: GuidedDriverRowProps) {
   const copy = MESSAGES[locale].guided.setup;
   const status = entry?.status ?? 'missing';
@@ -189,6 +221,21 @@ export function GuidedDriverRow({
         <div className="guided-setup__meta">
           {summary ? <p className="guided-setup__reason">{summary}</p> : null}
           {entry?.binary_path ? <code className="guided-setup__binary">{entry.binary_path}</code> : null}
+        </div>
+      ) : null}
+      {status === 'ready' && needsApiKey ? (
+        <div className="guided-setup__api-hint" role="note">
+          <span>{copy.needsApiKeyForTeam(needsApiKey)}</span>
+          {onConfigureApiKey ? (
+            <button
+              type="button"
+              className="guided-setup__button"
+              disabled={busy}
+              onClick={() => onConfigureApiKey(needsApiKey)}
+            >
+              {copy.configureApiKeyAction}
+            </button>
+          ) : null}
         </div>
       ) : null}
       {status !== 'ready' && reason ? <p className="guided-setup__reason">{reason}</p> : null}
@@ -243,12 +290,20 @@ export interface GuidedSetupStepProps {
 export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null, api: injectedApi }: GuidedSetupStepProps) {
   const api = injectedApi ?? getDefaultApi();
   const copy = MESSAGES[locale].guided.setup;
+  const credentialLabels = MESSAGES[locale].credentials;
+  const apiKeysCardRef = useRef<HTMLElement>(null);
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [pathInput, setPathInput] = useState('');
   const [drivers, setDrivers] = useState<CliDriver[]>([]);
   const [entries, setEntries] = useState<Record<string, CliScanEntry>>({});
+  const [httpApiKeysPresent, setHttpApiKeysPresent] = useState<string[]>([]);
   const [lineup, setLineup] = useState<RecommendedLineup | null>(null);
   const [configuredProviders, setConfiguredProviders] = useState<string[] | undefined>(undefined);
+  const [credentials, setCredentials] = useState<CredentialStatus[]>([]);
+  const [apiKeysOpen, setApiKeysOpen] = useState(false);
+  const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
+  const [apiKeyFeedback, setApiKeyFeedback] = useState<string | null>(null);
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const [customRoles, setCustomRoles] = useState<Record<string, string> | null>(() => initialRoles);
   const [roleEditorOpen, setRoleEditorOpen] = useState(false);
   const [driverFilter, setDriverFilter] = useState<DriverFilter>('all');
@@ -274,6 +329,7 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
   const scanRegistry = useCallback(async (repoPath?: string) => {
     const result = await api.scanCliRegistry(repoPath);
     setEntries(Object.fromEntries(result.scan.drivers.map((entry) => [entry.id, entry])));
+    setHttpApiKeysPresent(result.scan.http_api_keys_present);
     setLineup(result.lineup);
   }, [api]);
 
@@ -282,18 +338,42 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
   useEffect(() => {
     if (apiMode === null) return;
     void run('load', async () => {
-      const [info, registry, rolesCfg] = await Promise.all([
+      const [info, registry, rolesCfg, creds] = await Promise.all([
         api.getWorkspaceInfo(),
         api.getCliRegistry(),
         api.getRoles ? api.getRoles().catch(() => null) : Promise.resolve(null),
+        api.listCredentials ? api.listCredentials().catch(() => []) : Promise.resolve([]),
       ]);
       setWorkspace(info);
       setPathInput(info.path);
       setDrivers(registry.drivers);
       setConfiguredProviders(rolesCfg ? Object.keys(rolesCfg.providers) : undefined);
+      setCredentials(creds);
       await scanRegistry(info.path);
     });
   }, [api, apiMode, run, scanRegistry]);
+
+  const openApiKeyEditor = (envKey?: string) => {
+    setApiKeysOpen(true);
+    if (envKey) setFocusedKey(envKey);
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        apiKeysCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+    }
+  };
+
+  const saveApiKey = (key: string, value: string) => {
+    if (!api.saveCredentials) return;
+    void run(`apikey:${key}`, async () => {
+      setApiKeyFeedback(null);
+      const updated = await api.saveCredentials!({ [key]: value });
+      setCredentials(updated);
+      setKeyDrafts((current) => ({ ...current, [key]: '' }));
+      await scanRegistry(workspace?.path);
+      setApiKeyFeedback(copy.apiKeySaved);
+    });
+  };
 
   const refreshRolesConfig = useCallback(async () => {
     if (!api.getRoles) return;
@@ -351,9 +431,28 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
   });
 
   const selectableProviders = useMemo(
-    () => availableLineupProviders(lineup, drivers, entries, configuredProviders),
-    [configuredProviders, drivers, entries, lineup],
+    () => availableLineupProviders(lineup, drivers, entries, configuredProviders, httpApiKeysPresent),
+    [configuredProviders, drivers, entries, httpApiKeysPresent, lineup],
   );
+
+  const pendingApiDrivers = useMemo(
+    () => driversNeedingApiKey(drivers, entries, httpApiKeysPresent),
+    [drivers, entries, httpApiKeysPresent],
+  );
+  const pendingApiKeyByDriver = useMemo(
+    () => Object.fromEntries(pendingApiDrivers.map(({ driver, envKey }) => [driver.id, envKey])),
+    [pendingApiDrivers],
+  );
+  const credentialsByKey = useMemo(
+    () => Object.fromEntries(credentials.map((status) => [status.provider_key, status])),
+    [credentials],
+  );
+  const orderedKeys = useMemo(() => {
+    const known = new Set<string>(API_KEY_ORDER);
+    const extras = credentials.map((c) => c.provider_key).filter((key) => !known.has(key));
+    return [...API_KEY_ORDER, ...extras];
+  }, [credentials]);
+  const configuredKeyCount = credentials.filter((status) => status.configured).length;
 
   const effectiveLineup = useMemo<RecommendedLineup | null>(() => {
     if (!lineup || !lineup.ready || !customRoles) return lineup;
@@ -485,14 +584,112 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
               busy={busy !== null}
               activeAction={busy}
               feedback={installFeedback[driver.id] ?? null}
+              needsApiKey={pendingApiKeyByDriver[driver.id] ?? null}
               login={logins[driver.id] ?? null}
               onConsentChange={(value) => setConsent((current) => ({ ...current, [driver.id]: value }))}
               onInstall={() => void install(driver)}
               onLogin={() => void login(driver)}
+              onConfigureApiKey={api.listCredentials ? (envKey) => openApiKeyEditor(envKey) : undefined}
             />
           ))}
         </ul>
       </section>
+
+      {api.listCredentials ? (
+        <section className="guided-setup__card" ref={apiKeysCardRef}>
+          <div className="guided-setup__row guided-setup__row--spread guided-setup__row--wrap">
+            <div className="guided-setup__title-group">
+              <h3 className="guided-setup__title">{copy.apiKeysTitle}</h3>
+              {credentials.length > 0 ? (
+                <span className="guided-setup__count" data-ready={configuredKeyCount > 0}>
+                  {copy.apiKeysSummary(configuredKeyCount, orderedKeys.length)}
+                </span>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="guided-setup__button"
+              aria-expanded={apiKeysOpen}
+              onClick={() => setApiKeysOpen((open) => !open)}
+            >
+              {apiKeysOpen ? copy.apiKeysHide : copy.apiKeysShow}
+            </button>
+          </div>
+          <p className="guided-setup__reason">{copy.apiKeysNote}</p>
+          {busy?.startsWith('apikey:') ? (
+            <div className="guided-setup__progress-wrap" role="status" aria-live="polite">
+              <div className="guided-setup__progress" aria-hidden="true"><div className="guided-setup__progress-bar" /></div>
+              <span className="guided-setup__progress-text">{copy.apiKeySaving}</span>
+            </div>
+          ) : null}
+          {apiKeyFeedback ? <p className="guided-setup__done-note" role="status">{apiKeyFeedback}</p> : null}
+          {apiKeysOpen ? (
+            <ul className="guided-setup__api-list">
+              {orderedKeys.map((key) => {
+                const status = credentialsByKey[key];
+                const label = credentialLabels.keyLabels[key as keyof typeof credentialLabels.keyLabels] ?? key;
+                const draft = keyDrafts[key] ?? '';
+                const isSavingThis = busy === `apikey:${key}`;
+                const badgeText = status?.configured
+                  ? (status.source === 'env' ? `${copy.apiKeyEnvSource} · ${status.masked}` : status.masked)
+                  : copy.apiKeyMissing;
+                return (
+                  <li
+                    key={key}
+                    className={`guided-setup__api-row${focusedKey === key ? ' guided-setup__api-row--highlight' : ''}`}
+                    data-configured={status?.configured === true}
+                  >
+                    <div className="guided-setup__row guided-setup__row--spread guided-setup__row--wrap">
+                      <label className="guided-setup__role-label" htmlFor={`guided-key-${key}`}>
+                        {label} <code>{key}</code>
+                      </label>
+                      <span className="guided-setup__pill" data-status={status?.configured ? 'ready' : 'missing'}>
+                        {badgeText}
+                      </span>
+                    </div>
+                    <form
+                      className="guided-setup__row"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (draft.trim() && busy === null) saveApiKey(key, draft.trim());
+                      }}
+                    >
+                      <input
+                        id={`guided-key-${key}`}
+                        type="password"
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        className="guided-setup__input"
+                        value={draft}
+                        placeholder={copy.apiKeyPlaceholder}
+                        disabled={busy !== null}
+                        onChange={(event) => setKeyDrafts((current) => ({ ...current, [key]: event.target.value }))}
+                      />
+                      <button
+                        type="submit"
+                        className="guided-setup__button guided-setup__button--primary"
+                        disabled={busy !== null || !draft.trim()}
+                      >
+                        {isSavingThis ? copy.apiKeySaving : credentialLabels.save}
+                      </button>
+                      {status?.source === 'local_file' ? (
+                        <button
+                          type="button"
+                          className="guided-setup__button"
+                          disabled={busy !== null}
+                          onClick={() => saveApiKey(key, '')}
+                        >
+                          {credentialLabels.clear}
+                        </button>
+                      ) : null}
+                    </form>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
 
       {effectiveLineup ? (
         <section className="guided-setup__card" data-ready={effectiveLineup.ready}>
@@ -585,6 +782,26 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
           ) : (
             <p className="guided-setup__next">{lineupNotes(effectiveLineup, locale)}</p>
           )}
+          {pendingApiDrivers.length > 0 ? (
+            <div className="guided-setup__api-hint" role="note">
+              <span>
+                {copy.teamNeedsApiKeyNote(
+                  pendingApiDrivers.map(({ driver }) => driverDisplayName(driver)).join(locale === 'zh' ? '、' : ', '),
+                  [...new Set(pendingApiDrivers.map(({ envKey }) => envKey))].join(locale === 'zh' ? '、' : ', '),
+                )}
+              </span>
+              {api.listCredentials ? (
+                <button
+                  type="button"
+                  className="guided-setup__button"
+                  disabled={busy !== null}
+                  onClick={() => openApiKeyEditor(pendingApiDrivers[0]?.envKey)}
+                >
+                  {copy.configureApiKeyAction}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </section>
       ) : null}
 

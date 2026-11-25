@@ -265,7 +265,7 @@ export interface FinalizeResult {
 
 const DEMO_DOCTOR_LATENCY_MS = 5000;
 export const DEFAULT_START_RUN_TIMEOUT_MS = 15_000;
-const CREDENTIAL_KEYS = ['DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'OPENCODE_API_KEY', 'ANTHROPIC_API_KEY'] as const;
+const CREDENTIAL_KEYS = ['GEMINI_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'OPENCODE_API_KEY', 'ANTHROPIC_API_KEY'] as const;
 
 // Representative rows from the server's built-in catalog.
 const DEMO_PRICING: PricingStatusResponse = {
