@@ -558,6 +558,7 @@ export interface Messages {
     brainstorm: {
       scenariosTitle: string;
       inputPlaceholder: string;
+      inputHint: string;
       send: string;
       sending: string;
       blueprintTitle: string;
@@ -1374,7 +1375,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       },
       brainstorm: {
         scenariosTitle: 'What would you like to do?',
-        inputPlaceholder: 'Describe your idea, the limits, and how you will know it works…',
+        inputPlaceholder: 'For example: add a date filter to the orders list, for admins only; do not change the database; done when npm test passes.',
+        inputHint: 'Most useful: the result you want, who it is for, what must not change, and how you will know it is done. No test command in mind? The AI partner can suggest one.',
         send: 'Send',
         sending: 'Drafting blueprint…',
         blueprintTitle: 'Blueprint',
@@ -2209,7 +2211,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       },
       brainstorm: {
         scenariosTitle: '你想做什么？',
-        inputPlaceholder: '描述你的想法、限制条件，以及如何判断它已经完成……',
+        inputPlaceholder: '例如：给订单列表加一个按日期筛选，只给管理员用；不要改数据库；npm test 全部通过就算完成。',
+        inputHint: '写清楚这四点最有用：想达到的结果、给谁用、不能动的东西、怎么算完成。说不出验证命令也没关系，AI 伙伴会建议一条。',
         send: '发送',
         sending: '正在生成蓝图……',
         blueprintTitle: '蓝图',

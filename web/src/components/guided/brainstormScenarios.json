@@ -1,0 +1,79 @@
+[
+  {
+    "id": "new_feature",
+    "title_en": "Ship a new feature",
+    "title_zh": "交付一个新功能",
+    "prompt_en": "I want to add a new feature.\nResult I want:\nWho uses it or is affected:\nWhat must not change:\nHow we know it is done:",
+    "prompt_zh": "我想增加一个新功能。\n想达到的结果：\n给谁用 / 会影响谁：\n不能动的东西：\n怎么算完成："
+  },
+  {
+    "id": "bug_fix",
+    "title_en": "Fix a bug for good",
+    "title_zh": "彻底修复一个缺陷",
+    "prompt_en": "Something is broken. What happens now, and how to make it happen:\nResult I want:\nWho uses it or is affected:\nWhat must not change:\nHow we know it is done:",
+    "prompt_zh": "有个地方出了问题。现在的表现和复现步骤：\n想达到的结果：\n给谁用 / 会影响谁：\n不能动的东西：\n怎么算完成："
+  },
+  {
+    "id": "refactor",
+    "title_en": "Refactor safely",
+    "title_zh": "安全地重构",
+    "prompt_en": "I want to restructure this part of the code without changing what it does:\nResult I want:\nWho uses it or is affected:\nWhat must not change:\nHow we know it is done:",
+    "prompt_zh": "我想在不改变行为的前提下重新整理这部分代码：\n想达到的结果：\n给谁用 / 会影响谁：\n不能动的东西：\n怎么算完成："
+  },
+  {
+    "id": "add_tests",
+    "title_en": "Strengthen test coverage",
+    "title_zh": "加强测试覆盖",
+    "prompt_en": "I want automated tests that protect these key behaviors:\nResult I want:\nWho uses it or is affected:\nWhat must not change:\nHow we know it is done:",
+    "prompt_zh": "我想用自动化测试守住这些关键行为：\n想达到的结果：\n给谁用 / 会影响谁：\n不能动的东西：\n怎么算完成："
+  },
+  {
+    "id": "web_app",
+    "title_en": "Start a small web app",
+    "title_zh": "从零搭建一个小型网页应用",
+    "prompt_en": "I want to build a small web app. Its main pages and what each one does:\nResult I want:\nWho uses it or is affected:\nWhat must not change:\nHow we know it is done:",
+    "prompt_zh": "我想做一个小型网页应用，主要页面和各自的作用：\n想达到的结果：\n给谁用 / 会影响谁：\n不能动的东西：\n怎么算完成："
+  },
+  {
+    "id": "performance",
+    "title_en": "Make it faster",
+    "title_zh": "优化性能",
+    "prompt_en": "Something is too slow. Where it is slow, and roughly how slow it is now:\nResult I want:\nWho uses it or is affected:\nWhat must not change:\nHow we know it is done:",
+    "prompt_zh": "有个地方太慢了。慢在哪里、现在大概有多慢：\n想达到的结果：\n给谁用 / 会影响谁：\n不能动的东西：\n怎么算完成："
+  },
+  {
+    "id": "ui_redesign",
+    "title_en": "Redesign the interface",
+    "title_zh": "界面改版",
+    "prompt_en": "I want to change how this part of the interface looks or works:\nResult I want:\nWho uses it or is affected:\nWhat must not change:\nHow we know it is done:",
+    "prompt_zh": "我想调整这部分界面的样子或操作方式：\n想达到的结果：\n给谁用 / 会影响谁：\n不能动的东西：\n怎么算完成："
+  },
+  {
+    "id": "dependency_upgrade",
+    "title_en": "Upgrade or migrate a dependency",
+    "title_zh": "升级或迁移依赖",
+    "prompt_en": "I want to upgrade or replace this dependency (current version, target version):\nResult I want:\nWho uses it or is affected:\nWhat must not change:\nHow we know it is done:",
+    "prompt_zh": "我想升级或替换这个依赖（现在的版本、目标版本）：\n想达到的结果：\n给谁用 / 会影响谁：\n不能动的东西：\n怎么算完成："
+  },
+  {
+    "id": "write_docs",
+    "title_en": "Write documentation",
+    "title_zh": "编写文档",
+    "prompt_en": "I want documentation that explains:\nResult I want:\nWho uses it or is affected:\nWhat must not change:\nHow we know it is done:",
+    "prompt_zh": "我想补一份文档，讲清楚这些内容：\n想达到的结果：\n给谁用 / 会影响谁：\n不能动的东西：\n怎么算完成："
+  },
+  {
+    "id": "script_or_data",
+    "title_en": "Write a script or process data",
+    "title_zh": "写脚本或处理数据",
+    "prompt_en": "I want a script for this job (what goes in, what should come out):\nResult I want:\nWho uses it or is affected:\nWhat must not change:\nHow we know it is done:",
+    "prompt_zh": "我想写个脚本来做这件事（输入是什么、输出成什么样）：\n想达到的结果：\n给谁用 / 会影响谁：\n不能动的东西：\n怎么算完成："
+  },
+  {
+    "id": "not_sure",
+    "title_en": "Not sure yet, help me think it through",
+    "title_zh": "还没想清楚，帮我梳理",
+    "prompt_en": "I have not fully worked it out yet. The rough idea (fill in what you can, blanks are fine):\nResult I want:\nWho uses it or is affected:\nWhat must not change:\nHow we know it is done:",
+    "prompt_zh": "我还没完全想清楚，先说说大概的想法（下面能写多少写多少，空着也没关系）：\n想达到的结果：\n给谁用 / 会影响谁：\n不能动的东西：\n怎么算完成："
+  }
+]

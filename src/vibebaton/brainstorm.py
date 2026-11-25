@@ -7,6 +7,7 @@ No condescending labels (see the anti-condescension guard in the Stage 6 RFC).
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import tempfile
@@ -68,42 +69,78 @@ class BrainstormScenario(TypedDict):
     prompt_zh: str
 
 
+# Every starter ends with the same four prompts, one per line, so the first message already
+# carries the outcome, the audience, the limits, and the finish line.
+_SCENARIO_FIELDS_EN = ("Result I want:", "Who uses it or is affected:", "What must not change:", "How we know it is done:")
+_SCENARIO_FIELDS_ZH = ("想达到的结果：", "给谁用 / 会影响谁：", "不能动的东西：", "怎么算完成：")
+
+
+def _scenario(scenario_id: str, title_en: str, title_zh: str, intro_en: str, intro_zh: str) -> BrainstormScenario:
+    return {
+        "id": scenario_id,
+        "title_en": title_en,
+        "title_zh": title_zh,
+        "prompt_en": "\n".join((intro_en, *_SCENARIO_FIELDS_EN)),
+        "prompt_zh": "\n".join((intro_zh, *_SCENARIO_FIELDS_ZH)),
+    }
+
+
+# Mirrored for the Studio in web/src/components/guided/brainstormScenarios.json (a test keeps them equal).
 SCENARIOS: tuple[BrainstormScenario, ...] = (
-    {
-        "id": "new_feature",
-        "title_en": "Ship a new feature",
-        "title_zh": "交付一个新功能",
-        "prompt_en": "I want to add a new feature. Here is what it should do for the people using it:",
-        "prompt_zh": "我想增加一个新功能，它应该为使用者带来这些能力：",
-    },
-    {
-        "id": "bug_fix",
-        "title_en": "Fix a bug for good",
-        "title_zh": "彻底修复一个缺陷",
-        "prompt_en": "Something is broken. Here is what I expected, what actually happens, and how to reproduce it:",
-        "prompt_zh": "有个功能出了问题。我期望的结果、实际发生的情况以及复现步骤如下：",
-    },
-    {
-        "id": "refactor",
-        "title_en": "Refactor safely",
-        "title_zh": "安全地重构",
-        "prompt_en": "I want to restructure this part of the codebase without changing its behavior:",
-        "prompt_zh": "我想在不改变行为的前提下重新整理这部分代码：",
-    },
-    {
-        "id": "add_tests",
-        "title_en": "Strengthen test coverage",
-        "title_zh": "加强测试覆盖",
-        "prompt_en": "I want automated tests that protect these critical behaviors:",
-        "prompt_zh": "我希望用自动化测试守护这些关键行为：",
-    },
-    {
-        "id": "web_app",
-        "title_en": "Start a small web app",
-        "title_zh": "从零搭建一个小型网页应用",
-        "prompt_en": "I want to build a small web app. Its main pages and what each one does:",
-        "prompt_zh": "我想做一个小型网页应用，主要页面和各自的作用如下：",
-    },
+    _scenario(
+        "new_feature", "Ship a new feature", "交付一个新功能",
+        "I want to add a new feature.", "我想增加一个新功能。",
+    ),
+    _scenario(
+        "bug_fix", "Fix a bug for good", "彻底修复一个缺陷",
+        "Something is broken. What happens now, and how to make it happen:",
+        "有个地方出了问题。现在的表现和复现步骤：",
+    ),
+    _scenario(
+        "refactor", "Refactor safely", "安全地重构",
+        "I want to restructure this part of the code without changing what it does:",
+        "我想在不改变行为的前提下重新整理这部分代码：",
+    ),
+    _scenario(
+        "add_tests", "Strengthen test coverage", "加强测试覆盖",
+        "I want automated tests that protect these key behaviors:",
+        "我想用自动化测试守住这些关键行为：",
+    ),
+    _scenario(
+        "web_app", "Start a small web app", "从零搭建一个小型网页应用",
+        "I want to build a small web app. Its main pages and what each one does:",
+        "我想做一个小型网页应用，主要页面和各自的作用：",
+    ),
+    _scenario(
+        "performance", "Make it faster", "优化性能",
+        "Something is too slow. Where it is slow, and roughly how slow it is now:",
+        "有个地方太慢了。慢在哪里、现在大概有多慢：",
+    ),
+    _scenario(
+        "ui_redesign", "Redesign the interface", "界面改版",
+        "I want to change how this part of the interface looks or works:",
+        "我想调整这部分界面的样子或操作方式：",
+    ),
+    _scenario(
+        "dependency_upgrade", "Upgrade or migrate a dependency", "升级或迁移依赖",
+        "I want to upgrade or replace this dependency (current version, target version):",
+        "我想升级或替换这个依赖（现在的版本、目标版本）：",
+    ),
+    _scenario(
+        "write_docs", "Write documentation", "编写文档",
+        "I want documentation that explains:",
+        "我想补一份文档，讲清楚这些内容：",
+    ),
+    _scenario(
+        "script_or_data", "Write a script or process data", "写脚本或处理数据",
+        "I want a script for this job (what goes in, what should come out):",
+        "我想写个脚本来做这件事（输入是什么、输出成什么样）：",
+    ),
+    _scenario(
+        "not_sure", "Not sure yet, help me think it through", "还没想清楚，帮我梳理",
+        "I have not fully worked it out yet. The rough idea (fill in what you can, blanks are fine):",
+        "我还没完全想清楚，先说说大概的想法（下面能写多少写多少，空着也没关系）：",
+    ),
 )
 
 _SYSTEM_PROMPT = """You are the architecture partner of the Lead Architect of this repository.
@@ -113,6 +150,16 @@ understood, then ask at most two focused questions about whatever is still open 
 out-of-scope items, or the exact command that proves the work is done). Keep the formal RFC
 section headings below in English so the readiness checker can parse them accurately.
 
+The Lead Architect may not be a software engineer. Use plain words and explain any technical
+term you need in a few words.
+If they cannot name a verification command, do not keep asking: propose one yourself that fits
+the project (prefer the detected commands in the project summary), say in one sentence what it
+checks, and put it in the RFC so they can confirm or change it.
+Never invent file paths. Only cite paths that appear in the project summary or that the Lead
+Architect mentioned; otherwise describe the area in words.
+If the request is clearly too big for one build, suggest splitting it into a few steps, write the
+RFC for only the first step, and list the later steps under Non-Goals.
+
 After your reply, include the complete, updated Master RFC inside a fenced block that opens
 with ````rfc and closes with ```` (four backticks), so inner ``` code blocks stay intact.
 The RFC must start with a "# <title>" line and use exactly these second-level headings, in order:
@@ -121,7 +168,7 @@ The RFC must start with a "# <title>" line and use exactly these second-level he
 ## Non-Goals          ("- " bullets)
 ## Architecture & Deliverables  ("- " bullets; wrap file paths and modules in `backticks`)
 ## Verification & Acceptance Criteria  (numbered criteria, then a ```bash block with the
-                      verification command once the Lead Architect has named one)
+                      verification command once one is named or proposed)
 Avoid placeholder words such as TBD or TODO; leave an item out until it is known."""
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|[。！？；\n]+")
@@ -144,6 +191,95 @@ _INLINE_CODE = re.compile(r"(?<!`)`([^`\s]+)`(?!`)")
 _FENCE_LINE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})(.*)$")
 _RFC_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})[ \t]*rfc[ \t]*$", re.IGNORECASE)
 _BULLET = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(?P<text>\S.*)$")
+
+
+PROJECT_CONTEXT_MAX_CHARS = 4000
+_CONTEXT_SKIP_DIRS = frozenset({
+    ".git", "node_modules", ".baton", ".venv", "venv", "__pycache__", ".mypy_cache", ".pytest_cache",
+    ".ruff_cache", ".tox", ".idea", ".vscode", "dist", "build", ".next", ".cache", ".bootstrap-runner",
+})
+# Names that may hold secrets are neither listed nor read.
+_SENSITIVE_NAME = re.compile(
+    r"^\.env|credential|secret|password|token|\.pem$|\.key$|^id_(?:rsa|ed25519|ecdsa)", re.IGNORECASE,
+)
+_README_NAMES = ("README.md", "README.rst", "README.txt", "README")
+_README_HEAD_LINES = 20
+# README layout markup and badge rows say little about the project; the head keeps prose lines.
+_README_MARKUP_LINE = re.compile(r"^\s*(?:<|\[!\[|!\[)")
+_TOP_LEVEL_LIMIT = 40
+_BLANK_FIELD = re.compile(r"^[^:：]{1,40}[:：]$")
+
+
+def _is_blank_field(sentence: str) -> bool:
+    """A starter prompt line such as "Result I want:" that the user left empty."""
+    return bool(_BLANK_FIELD.match(sentence.strip()))
+
+
+def _read_head(path: Path, max_lines: int) -> list[str]:
+    lines: list[str] = []
+    try:
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                if len(lines) >= max_lines:
+                    break
+                if _README_MARKUP_LINE.match(line) or (not line.strip() and (not lines or not lines[-1])):
+                    continue
+                lines.append(line.rstrip()[:200])
+    except OSError:
+        return []
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines
+
+
+def _detected_commands(repo: Path, folders: list[Path]) -> list[str]:
+    """Test/build commands declared in package.json scripts (root and first-level folders) and pyproject.toml."""
+    commands: list[str] = []
+    for folder in [repo, *folders]:
+        try:
+            scripts = json.loads((folder / "package.json").read_text(encoding="utf-8")).get("scripts")
+        except (OSError, ValueError, AttributeError):
+            continue
+        prefix = "" if folder == repo else f"cd {folder.name} && "
+        source = "package.json" if folder == repo else f"{folder.name}/package.json"
+        for name, command in (scripts.items() if isinstance(scripts, dict) else []):
+            if isinstance(name, str) and isinstance(command, str):
+                commands.append(f"{prefix}npm run {name}  ({source}: {command[:120]})")
+    try:
+        pyproject = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    except OSError:
+        pyproject = None
+    if pyproject is not None:
+        if "pytest" in pyproject:
+            commands.append("python -m pytest  (pyproject.toml)")
+        elif (repo / "tests").is_dir():
+            commands.append("python -m unittest discover -s tests  (pyproject.toml, tests/)")
+    return commands[:20]
+
+
+def project_context(repo_path: Path, *, max_chars: int = PROJECT_CONTEXT_MAX_CHARS) -> str:
+    """Read-only summary for the brainstorm prompt: project name, top-level entries, README head,
+    detected test/build commands. Skips dependency/tool folders and never lists or reads secret-like files.
+    """
+    repo = Path(repo_path)
+    lines = [f"Project name: {repo.resolve().name or repo}"]
+    try:
+        entries = sorted(repo.iterdir(), key=lambda entry: entry.name.lower())
+    except OSError:
+        entries = []
+    visible = [e for e in entries if e.name not in _CONTEXT_SKIP_DIRS and not _SENSITIVE_NAME.search(e.name)]
+    if visible:
+        shown = [e.name + ("/" if e.is_dir() else "") for e in visible[:_TOP_LEVEL_LIMIT]]
+        lines.append("Top-level entries: " + ", ".join(shown))
+    readme = next((repo / name for name in _README_NAMES if (repo / name).is_file()), None)
+    head = _read_head(readme, _README_HEAD_LINES) if readme is not None else []
+    if head:
+        lines += ["", f"{readme.name} (first lines):", *head]
+    commands = _detected_commands(repo, [e for e in visible if e.is_dir()])
+    if commands:
+        lines += ["", "Detected test/build commands:", *(f"- {command}" for command in commands)]
+    text = "\n".join(lines)
+    return text if len(text) <= max_chars else text[: max(0, max_chars - 3)].rstrip() + "..."
 
 
 def _offline_requested() -> bool:
@@ -190,7 +326,8 @@ def _extract_command(sentence: str) -> str | None:
 def _compose_offline_rfc(messages: list[ChatMessage]) -> tuple[str, bool]:
     """Synthesise the RFC from user turns only and report whether user constraints were given."""
     user_turns = [m["content"].strip() for m in messages if m["role"] == "user" and m["content"].strip()]
-    sentences = [s for text in user_turns for s in _sentences(text)]
+    all_sentences = [s for text in user_turns for s in _sentences(text)]
+    sentences = [s for s in all_sentences if not _is_blank_field(s)] or all_sentences
     if not sentences:
         sentences = user_turns or ["Untitled Draft"]
     first, rest = sentences[0], sentences[1:]
@@ -380,12 +517,15 @@ def _build_prompt(
     scenario: BrainstormScenario | None,
     *,
     locale: str | None = None,
+    project: str | None = None,
 ) -> str:
     parts = [_SYSTEM_PROMPT, ""]
     if _prefers_zh(messages, locale):
         parts += ["Respond in natural Chinese (while keeping formal RFC headings in English).", ""]
+    if project:
+        parts += ["Project summary (read-only; you cannot open or change files):", project, ""]
     if scenario is not None:
-        parts += [f"Starting scenario: {scenario['title_en']} - {scenario['prompt_en']}", ""]
+        parts += [f"Starting scenario: {scenario['title_en']}", ""]
     parts.append("Conversation so far:")
     for message in messages:
         speaker = "Lead Architect" if message["role"] == "user" else "You"
@@ -420,9 +560,22 @@ def _split_live_response(text: str) -> tuple[str, str]:
     return reply or "The blueprint below reflects our conversation so far.", rfc_markdown
 
 
-def _provider_dispatch(cfg: BatonConfig) -> BrainstormDispatch | None:
-    """Return a dispatcher for the first ready configured provider, preferring planning roles."""
+def _provider_dispatch(cfg: BatonConfig, model_overrides: dict[str, str] | None = None) -> BrainstormDispatch | None:
+    """Return a dispatcher for the first ready configured provider, preferring planning roles.
+
+    When ``model_overrides`` names the L0 role (the Guided lineup's choice), that provider and model
+    go first; if it is unknown or not ready, the configured roles are tried as before.
+    """
     from .credentials import probe_role_or_provider
+
+    l0_role = "brainstorm_and_final_gate"
+    if model_overrides and l0_role in model_overrides and l0_role in cfg.roles:
+        try:
+            chosen_role, chosen_provider = cfg.resolve_role(l0_role, model_overrides)
+        except KeyError:
+            chosen_provider = None
+        if chosen_provider is not None and probe_role_or_provider(cfg, provider=chosen_provider.name)["ok"]:
+            return lambda prompt, p=chosen_provider, m=chosen_role.model: _invoke(cfg, p, m, prompt)
 
     preferred = ("brainstorm_and_final_gate", "tactical_planner", "milestone_reviewer", "critical_executor")
     seen: set[str] = set()
@@ -477,14 +630,16 @@ def brainstorm_turn(
     *,
     dispatch: BrainstormDispatch | None = None,
     locale: str | None = None,
+    model_overrides: dict[str, str] | None = None,
 ) -> BrainstormTurnResult:
     """Run one brainstorm turn and return the reply, a full RFC draft and its Blueprint Card.
 
     Contract:
     - ``messages`` is the full conversation so far (oldest first) and must end with a ``user``
       message; empty/invalid conversations or an unknown ``scenario`` id -> ``ValueError``.
-    - Live path: ``dispatch`` (``prompt -> (provider_id, text)``) when given, otherwise the first
-      ready provider of ``cfg`` via ``cli_runner.invoke_provider``. The response must carry a
+    - Live path: ``dispatch`` (``prompt -> (provider_id, text)``) when given, otherwise the L0
+      choice in ``model_overrides`` or the first ready provider of ``cfg`` via
+      ``cli_runner.invoke_provider``. The prompt carries a read-only ``project_context`` summary. The response must carry a
       fenced ``rfc`` block with every required heading; ``provider_used`` is the provider id.
     - Offline path: env ``VIBEBATON_OFFLINE_BRAINSTORM=1`` (or ``VIBEBATON_BRAINSTORM_OFFLINE=1``),
       no dispatcher and no ready provider, or any live failure uses the deterministic offline
@@ -499,9 +654,10 @@ def brainstorm_turn(
     if not _offline_requested():
         try:
             if dispatch is None and cfg is not None:
-                dispatch = _provider_dispatch(cfg)
+                dispatch = _provider_dispatch(cfg, model_overrides)
             if dispatch is not None:
-                provider_used, text = dispatch(_build_prompt(messages, chosen, locale=locale))
+                prompt = _build_prompt(messages, chosen, locale=locale, project=project_context(repo_path))
+                provider_used, text = dispatch(prompt)
                 reply, rfc_markdown = _split_live_response(text)
                 return {
                     "reply": reply,

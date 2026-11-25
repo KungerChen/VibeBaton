@@ -1278,6 +1278,28 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             _git(repo, "commit", "--allow-empty", "-q", "-m", "chore: initialize repository")
         self._send_json(200, {**_workspace_info(repo), "created": True})
 
+    def _lineup_overrides(self, payload: dict[str, Any]) -> dict[str, str]:
+        """``model_overrides`` plus the Guided lineup's ``role_providers`` turned into overrides."""
+        overrides = payload.get("model_overrides", {})
+        if not isinstance(overrides, dict) or any(
+            not isinstance(value, str) for value in overrides.values()
+        ):
+            raise _BadRequest("model_overrides must map roles to model strings")
+        role_providers = payload.get("role_providers", {})
+        if not isinstance(role_providers, dict) or any(
+            not isinstance(value, str) for value in role_providers.values()
+        ):
+            raise _BadRequest("role_providers must map roles to provider ids")
+        if role_providers:
+            with self.server.config_lock:
+                config = self.server.loader.current
+            try:
+                # Explicit model_overrides win over the lineup for the same role.
+                overrides = {**cli_registry.lineup_model_overrides(role_providers, config), **overrides}
+            except ValueError as exc:
+                raise _BadRequest(str(exc)) from exc
+        return overrides
+
     def _post_brainstorm_chat(self) -> None:
         payload = self._read_json_body()
         scenario = payload.get("scenario")
@@ -1289,13 +1311,16 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         locale = payload.get("locale")
         if locale is not None and not isinstance(locale, str):
             raise _BadRequest("locale must be a string or null")
+        # The Guided page sends its lineup so the brainstorm runs on the L0 model chosen there.
+        overrides = self._lineup_overrides(payload) or None
         config = None
         if not offline:  # without a config brainstorm_turn uses the offline composer
             with self.server.config_lock:
                 config = self.server.loader.current
         try:
             result = brainstorm_turn(
-                self.server.repo_path, payload.get("messages"), scenario, config, locale=locale
+                self.server.repo_path, payload.get("messages"), scenario, config, locale=locale,
+                model_overrides=overrides,
             )
         except ValueError as exc:
             raise _BadRequest(str(exc)) from exc
@@ -1485,24 +1510,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         mode = payload.get("mode", "overnight")
         if mode not in ("overnight", "interactive", "panel"):
             raise _BadRequest("mode must be overnight, interactive or panel")
-        overrides = payload.get("model_overrides", {})
-        if not isinstance(overrides, dict) or any(
-            not isinstance(value, str) for value in overrides.values()
-        ):
-            raise _BadRequest("model_overrides must map roles to model strings")
-        role_providers = payload.get("role_providers", {})
-        if not isinstance(role_providers, dict) or any(
-            not isinstance(value, str) for value in role_providers.values()
-        ):
-            raise _BadRequest("role_providers must map roles to provider ids")
-        if role_providers:
-            with self.server.config_lock:
-                config = self.server.loader.current
-            try:
-                # Explicit model_overrides win over the lineup for the same role.
-                overrides = {**cli_registry.lineup_model_overrides(role_providers, config), **overrides}
-            except ValueError as exc:
-                raise _BadRequest(str(exc)) from exc
+        overrides = self._lineup_overrides(payload)
         markdown = payload.get("rfc_markdown", "")
         if not isinstance(markdown, str):
             raise _BadRequest("rfc_markdown must be a string")

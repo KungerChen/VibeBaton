@@ -463,6 +463,18 @@ class TestBrainstormApi(GuidedApiTestCase):
         # Deterministic offline composer: same input, same output.
         self.assertEqual(self._post("/api/brainstorm/chat", payload), (200, body))
 
+    def test_chat_forwards_the_lineup_l0_model_choice(self) -> None:
+        overrides = {"brainstorm_and_final_gate": "codex_sub:gpt-6.2-astra@xhigh"}
+        with unittest.mock.patch("vibebaton.web_server.brainstorm_turn", return_value={"reply": "ok"}) as turn:
+            status, _ = self._post("/api/brainstorm/chat", {"messages": self.MESSAGES, "model_overrides": overrides})
+            self.assertEqual(status, 200)
+            self.assertEqual(turn.call_args.kwargs["model_overrides"], overrides)
+            status, _ = self._post("/api/brainstorm/chat", {"messages": self.MESSAGES})
+            self.assertEqual(status, 200)
+            self.assertIsNone(turn.call_args.kwargs["model_overrides"])
+        status, _ = self._post("/api/brainstorm/chat", {"messages": self.MESSAGES, "model_overrides": {"x": 3}})
+        self.assertEqual(status, 400)
+
     def test_multi_turn_chat_accepts_history(self) -> None:
         messages = [
             *self.MESSAGES,
@@ -1017,6 +1029,158 @@ class BrainstormUnitTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             confirm_blueprint(self.repo / "missing", self.LIVE_RFC)
         self.assertFalse((self.repo / ".baton").exists())
+
+
+
+SCENARIO_FIELDS_EN = ("Result I want:", "Who uses it or is affected:", "What must not change:", "How we know it is done:")
+SCENARIO_FIELDS_ZH = ("想达到的结果：", "给谁用 / 会影响谁：", "不能动的东西：", "怎么算完成：")
+
+
+class BrainstormGuidanceTests(unittest.TestCase):
+    """Scenario templates, the system prompt, and the read-only project summary."""
+
+    def test_scenarios_cover_common_jobs_with_structured_starters(self) -> None:
+        ids = [scenario["id"] for scenario in SCENARIOS]
+        for expected in ("new_feature", "bug_fix", "refactor", "add_tests", "web_app", "performance",
+                         "ui_redesign", "dependency_upgrade", "write_docs", "script_or_data", "not_sure"):
+            self.assertIn(expected, ids)
+        for scenario in SCENARIOS:
+            with self.subTest(scenario=scenario["id"]):
+                for field in SCENARIO_FIELDS_EN:
+                    self.assertIn("\n" + field, scenario["prompt_en"])
+                for field in SCENARIO_FIELDS_ZH:
+                    self.assertIn("\n" + field, scenario["prompt_zh"])
+                self.assertTrue((scenario["title_en"] + scenario["prompt_en"]).isascii())
+
+    def test_offline_draft_skips_starter_lines_left_empty(self) -> None:
+        starter = next(item for item in SCENARIOS if item["id"] == "new_feature")["prompt_zh"]
+        filled = starter.replace("想达到的结果：", "想达到的结果：订单列表可以按日期筛选")
+        with tempfile.TemporaryDirectory() as tmp, unittest.mock.patch.dict(os.environ, {"VIBEBATON_OFFLINE_BRAINSTORM": "1"}):
+            rfc = brainstorm_turn(Path(tmp), [{"role": "user", "content": filled}], "new_feature")["rfc_markdown"]
+            untouched = brainstorm_turn(Path(tmp), [{"role": "user", "content": starter}])["rfc_markdown"]
+        self.assertTrue(rfc.startswith("# 我想增加一个新功能\n"))
+        self.assertIn("订单列表可以按日期筛选", rfc)
+        for label in ("- 给谁用 / 会影响谁：", "- 不能动的东西：", "- 怎么算完成："):
+            self.assertNotIn(label, rfc)
+        self.assertEqual(untouched.splitlines()[0], "# 我想增加一个新功能")
+
+    def test_frontend_scenario_list_mirrors_the_backend(self) -> None:
+        mirror = Path(__file__).resolve().parents[1] / "web" / "src" / "components" / "guided" / "brainstormScenarios.json"
+        self.assertEqual(json.loads(mirror.read_text(encoding="utf-8")), [dict(item) for item in SCENARIOS])
+
+    def test_system_prompt_guides_non_engineers_without_breaking_the_rfc_contract(self) -> None:
+        prompt = brainstorm._build_prompt([{"role": "user", "content": "hi"}], None)
+        for phrase in ("plain words", "propose one yourself", "Never invent file paths", "only the first step",
+                       "````rfc", "## Verification & Acceptance Criteria"):
+            self.assertIn(phrase, prompt)
+        self.assertIsNone(CONDESCENDING.search(prompt))
+
+    def test_project_context_is_a_bounded_read_only_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "shop-app"
+            repo.mkdir()
+            for hidden in (".git", "node_modules", ".baton", ".venv", "src", "docs"):
+                (repo / hidden).mkdir()
+            (repo / "node_modules" / "left-pad").mkdir()
+            (repo / ".env").write_text("API_KEY=sk-SECRET-123\n", encoding="utf-8")
+            (repo / "credentials.json").write_text('{"token": "SECRET-456"}', encoding="utf-8")
+            (repo / "README.md").write_text(
+                '<div align="center">\n[![CI](https://x/badge.svg)](https://x)\n</div>\n\n'
+                "# Shop App\n\nSells socks online.\n" + "".join(f"line {n}\n" for n in range(200)), encoding="utf-8",
+            )
+            (repo / "package.json").write_text(json.dumps({"name": "shop", "scripts": {"test": "vitest run", "build": "vite build"}}), encoding="utf-8")
+            (repo / "web").mkdir()
+            (repo / "web" / "package.json").write_text(json.dumps({"scripts": {"lint": "eslint ."}}), encoding="utf-8")
+            (repo / "pyproject.toml").write_text('[project]\nname = "shop"\n\n[tool.pytest.ini_options]\naddopts = "-q"\n', encoding="utf-8")
+
+            context = brainstorm.project_context(repo, max_chars=1500)
+            short = brainstorm.project_context(repo, max_chars=300)
+
+        self.assertIn("shop-app", context)
+        for entry in ("src/", "docs/", "web/", "README.md", "package.json"):
+            self.assertIn(entry, context)
+        for hidden in ("node_modules", ".git/", ".baton", ".venv", ".env", "credentials.json", "SECRET", "left-pad"):
+            self.assertNotIn(hidden, context)
+        self.assertIn("Sells socks online.", context)
+        # Layout markup and badges are skipped so the head carries prose.
+        self.assertNotIn("badge.svg", context)
+        self.assertNotIn("<div", context)
+        self.assertNotIn("line 199", context)
+        self.assertIn("npm run test", context)
+        self.assertIn("vitest run", context)
+        self.assertIn("web/package.json", context)
+        self.assertIn("python -m pytest", context)
+        self.assertLessEqual(len(context), 1500)
+        self.assertLessEqual(len(short), 300)
+
+    def test_project_context_of_an_empty_or_missing_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            empty = brainstorm.project_context(Path(tmp))
+            missing = brainstorm.project_context(Path(tmp) / "nope")
+        self.assertIn(Path(tmp).name, empty)
+        self.assertIsInstance(missing, str)
+        self.assertTrue(brainstorm.project_context(Path(".")).startswith(f"Project name: {Path.cwd().name}"))
+
+    def test_live_prompt_carries_the_project_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "README.md").write_text("# Ledger\n\nTracks invoices.\n", encoding="utf-8")
+            prompts: list[str] = []
+
+            def dispatch(prompt: str) -> tuple[str, str]:
+                prompts.append(prompt)
+                return "claude_sub", "no rfc"
+
+            with unittest.mock.patch.dict(os.environ):
+                for name in brainstorm.OFFLINE_ENV_VARS:
+                    os.environ.pop(name, None)
+                brainstorm_turn(repo, [{"role": "user", "content": "Add CSV export"}], dispatch=dispatch)
+        self.assertIn("Tracks invoices.", prompts[0])
+        self.assertIn("read-only", prompts[0])
+
+
+class BrainstormModelChoiceTests(unittest.TestCase):
+    """The brainstorm uses the Guided lineup's L0 model when the page sends it."""
+
+    def _cfg(self) -> Any:
+        from vibebaton.config import parse_config_dict
+
+        return parse_config_dict({
+            "providers": {
+                "claude_sub": {"command": ["claude", "-p", "--model", "{model_name}"]},
+                "codex_sub": {"command": ["codex", "exec", "--model", "{model_name}", "-"]},
+            },
+            "roles": {
+                "brainstorm_and_final_gate": {"provider": "claude_sub", "model": "claude-opus-5-5"},
+                "bulk_worker": {"provider": "codex_sub", "model": "gpt-6.1-terra"},
+            },
+        })
+
+    def _dispatched(self, overrides: dict[str, str] | None) -> tuple[str, str]:
+        seen: list[tuple[str, str]] = []
+
+        def fake_invoke(_cfg: Any, provider: Any, model: str, _prompt: str) -> tuple[str, str]:
+            seen.append((provider.name, model))
+            return provider.name, ""
+
+        with (
+            unittest.mock.patch("vibebaton.credentials.probe_role_or_provider", return_value={"ok": True}),
+            unittest.mock.patch.object(brainstorm, "_invoke", side_effect=fake_invoke),
+        ):
+            dispatch = brainstorm._provider_dispatch(self._cfg(), overrides)
+            assert dispatch is not None
+            dispatch("prompt")
+        return seen[0]
+
+    def test_lineup_override_picks_the_l0_provider_and_model(self) -> None:
+        self.assertEqual(
+            self._dispatched({"brainstorm_and_final_gate": "codex_sub:gpt-6.2-astra@xhigh"}),
+            ("codex_sub", "gpt-6.2-astra@xhigh"),
+        )
+
+    def test_without_overrides_the_configured_role_is_used(self) -> None:
+        self.assertEqual(self._dispatched(None), ("claude_sub", "claude-opus-5-5"))
+        self.assertEqual(self._dispatched({"bulk_worker": "codex_sub:x"}), ("claude_sub", "claude-opus-5-5"))
 
 
 if __name__ == "__main__":

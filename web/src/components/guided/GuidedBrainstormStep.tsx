@@ -12,6 +12,7 @@ import {
 import { MESSAGES, type Locale } from '../../i18n/messages';
 import type { LaunchRunRequest } from '../../types/graph';
 import { localizeGuidedError } from './guidedErrors';
+import scenarioList from './brainstormScenarios.json';
 
 /** The three backend calls this step needs; inject a fake in tests or the App's shared client. */
 export interface GuidedBrainstormApi {
@@ -20,44 +21,19 @@ export interface GuidedBrainstormApi {
   startRun(payload: LaunchRunRequest): Promise<{ run_id: string }>;
 }
 
-/** Mirror of backend `brainstorm.SCENARIOS` (src/vibebaton/brainstorm.py); ids must stay in sync. */
-export const BRAINSTORM_SCENARIOS = [
-  {
-    id: 'new_feature',
-    title_en: 'Ship a new feature',
-    title_zh: '交付一个新功能',
-    prompt_en: 'I want to add a new feature. Here is what it should do for the people using it:',
-    prompt_zh: '我想增加一个新功能，它应该为使用者带来这些能力：',
-  },
-  {
-    id: 'bug_fix',
-    title_en: 'Fix a bug for good',
-    title_zh: '彻底修复一个缺陷',
-    prompt_en: 'Something is broken. Here is what I expected, what actually happens, and how to reproduce it:',
-    prompt_zh: '有个功能出了问题。我期望的结果、实际发生的情况以及复现步骤如下：',
-  },
-  {
-    id: 'refactor',
-    title_en: 'Refactor safely',
-    title_zh: '安全地重构',
-    prompt_en: 'I want to restructure this part of the codebase without changing its behavior:',
-    prompt_zh: '我想在不改变行为的前提下重新整理这部分代码：',
-  },
-  {
-    id: 'add_tests',
-    title_en: 'Strengthen test coverage',
-    title_zh: '加强测试覆盖',
-    prompt_en: 'I want automated tests that protect these critical behaviors:',
-    prompt_zh: '我希望用自动化测试守护这些关键行为：',
-  },
-  {
-    id: 'web_app',
-    title_en: 'Start a small web app',
-    title_zh: '从零搭建一个小型网页应用',
-    prompt_en: 'I want to build a small web app. Its main pages and what each one does:',
-    prompt_zh: '我想做一个小型网页应用，主要页面和各自的作用如下：',
-  },
-] as const;
+export interface BrainstormScenario {
+  id: string;
+  title_en: string;
+  title_zh: string;
+  prompt_en: string;
+  prompt_zh: string;
+}
+
+/** Backend `brainstorm.SCENARIOS` (src/vibebaton/brainstorm.py); a backend test keeps this JSON equal to it. */
+export const BRAINSTORM_SCENARIOS: readonly BrainstormScenario[] = scenarioList;
+
+/** The Guided page's L0 role; its lineup choice also drives the brainstorm. */
+const L0_ROLE = 'brainstorm_and_final_gate';
 
 export type ReadinessTone = 'low' | 'medium' | 'high';
 
@@ -89,9 +65,16 @@ export async function sendBrainstormTurn(
   input: string,
   scenario: string | null,
   locale?: Locale,
+  lineup?: Pick<RecommendedLineup, 'roles' | 'model_overrides'>,
 ): Promise<{ messages: BrainstormMessage[]; turn: BrainstormTurnResult }> {
   const withUser = appendTurn(messages, 'user', input);
-  const turn = await api.brainstormChat(locale ? { messages: withUser, scenario, locale } : { messages: withUser, scenario });
+  const payload: BrainstormChatRequest = locale ? { messages: withUser, scenario, locale } : { messages: withUser, scenario };
+  // Run the brainstorm on the L0 model picked in Workspace: its explicit spec, else just its provider.
+  const l0Spec = lineup?.model_overrides?.[L0_ROLE];
+  const l0Provider = lineup?.roles[L0_ROLE];
+  if (l0Spec) payload.model_overrides = { [L0_ROLE]: l0Spec };
+  else if (l0Provider) payload.role_providers = { [L0_ROLE]: l0Provider };
+  const turn = await api.brainstormChat(payload);
   return { messages: appendTurn(withUser, 'assistant', turn.reply), turn };
 }
 
@@ -138,6 +121,7 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
   const labels = MESSAGES[locale].guided.brainstorm;
   const zh = locale === 'zh';
   const rfcId = useId();
+  const hintId = useId();
   const [messages, setMessages] = useState<BrainstormMessage[]>([]);
   const [input, setInput] = useState('');
   const [scenario, setScenario] = useState<string | null>(null);
@@ -167,7 +151,7 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
     const text = input.trim();
     if (!text || busy) return;
     void run('send', async () => {
-      const result = await sendBrainstormTurn(api ?? defaultApi(), messages, text, scenario, locale);
+      const result = await sendBrainstormTurn(api ?? defaultApi(), messages, text, scenario, locale, lineup);
       setMessages(result.messages);
       setTurn(result.turn);
       setInput('');
@@ -206,13 +190,15 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
             </li>
           ))}
         </ol>
+        <p id={hintId} className="guided-brainstorm__input-hint">{labels.inputHint}</p>
         <form className="guided-brainstorm__composer" onSubmit={send}>
           <textarea
             className="guided-brainstorm__input"
             value={input}
             placeholder={labels.inputPlaceholder}
             aria-label={labels.inputPlaceholder}
-            rows={3}
+            aria-describedby={hintId}
+            rows={6}
             onChange={(event) => setInput(event.target.value)}
           />
           <button type="submit" className="guided-brainstorm__send" disabled={busy || !input.trim()}>

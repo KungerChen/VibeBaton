@@ -226,6 +226,10 @@ export interface BrainstormChatRequest {
   scenario?: string | null;
   offline?: boolean;
   locale?: 'en' | 'zh';
+  /** The Guided lineup's L0 choice: `{brainstorm_and_final_gate: "provider:model@effort"}`. */
+  model_overrides?: Record<string, string>;
+  /** The Guided lineup's L0 provider when it has no explicit model. */
+  role_providers?: Record<string, string>;
 }
 
 export interface BlueprintCard {

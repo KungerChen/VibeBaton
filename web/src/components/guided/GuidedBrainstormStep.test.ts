@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from 'vitest';
 import type { BlueprintCard, BrainstormTurnResult, RecommendedLineup } from '../../api/client';
 import {
   appendTurn,
+  BRAINSTORM_SCENARIOS,
   canLaunch,
   confirmAndStart,
   GuidedBrainstormStep,
@@ -99,6 +100,28 @@ describe('chat -> confirm -> start flow', () => {
     expect(canLaunch(second.turn.blueprint)).toBe(true);
   });
 
+  test('the lineup L0 model choice is sent with each turn', async () => {
+    const api = fakeApi([turnResult('ok', false), turnResult('ok', false)]);
+    const lineup: RecommendedLineup = {
+      ...LINEUP,
+      roles: { brainstorm_and_final_gate: 'codex_sub', bulk_worker: 'dsh_opencode' },
+      model_overrides: { brainstorm_and_final_gate: 'codex_sub:gpt-6.2-astra@xhigh', bulk_worker: 'dsh_opencode:x@max' },
+    };
+    await sendBrainstormTurn(api, [], 'Add CSV export', null, 'en', lineup);
+    expect(api.brainstormChat).toHaveBeenLastCalledWith({
+      messages: [{ role: 'user', content: 'Add CSV export' }],
+      scenario: null,
+      locale: 'en',
+      model_overrides: { brainstorm_and_final_gate: 'codex_sub:gpt-6.2-astra@xhigh' },
+    });
+
+    // Without an explicit model the L0 provider is sent so the server picks that provider's configured model.
+    await sendBrainstormTurn(api, [], 'Add CSV export', null, 'en', { ...lineup, model_overrides: undefined });
+    expect(api.brainstormChat).toHaveBeenLastCalledWith(expect.objectContaining({
+      role_providers: { brainstorm_and_final_gate: 'codex_sub' },
+    }));
+  });
+
   test('confirm runs before start, the lineup is forwarded and the run id is returned', async () => {
     const api = fakeApi([]);
     const runId = await confirmAndStart(api, '# Todo', LINEUP);
@@ -166,5 +189,19 @@ describe('GuidedBrainstormStep render', () => {
     const en = render('en');
     expect(en).toContain('Confirm Blueprint &amp; Start Building');
     expect(en).toContain('Ship a new feature');
+  });
+
+  test('offers every scenario and says what to write', () => {
+    expect(BRAINSTORM_SCENARIOS.map((item) => item.id)).toEqual([
+      'new_feature', 'bug_fix', 'refactor', 'add_tests', 'web_app', 'performance',
+      'ui_redesign', 'dependency_upgrade', 'write_docs', 'script_or_data', 'not_sure',
+    ]);
+    const zh = render('zh');
+    for (const item of BRAINSTORM_SCENARIOS) expect(zh).toContain(item.title_zh);
+    expect(zh).toContain('guided-brainstorm__input-hint');
+    expect(zh).toContain('怎么算完成');
+    const en = render('en');
+    expect(en).toContain('how you will know it is done');
+    for (const item of BRAINSTORM_SCENARIOS) expect(item.prompt_en.split('\n')).toHaveLength(5);
   });
 });

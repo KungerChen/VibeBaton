@@ -92,6 +92,12 @@
   align-items: flex-end;
 }
 
+.guided-brainstorm__input-hint {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
 .guided-brainstorm__input {
   flex: 1;
   box-sizing: border-box;
