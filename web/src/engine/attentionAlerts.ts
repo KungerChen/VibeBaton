@@ -67,6 +67,18 @@ export function buildAlertFingerprint(
   return `${runId}|${category}|${milestone_id ?? ''}|${task_id ?? ''}|${created_at ?? ''}`;
 }
 
+/**
+ * Only emit desktop/sound alerts after the initial SSE snapshot has hydrated (so opening Studio
+ * with an existing historical alert does not replay stale notifications immediately).
+ */
+export function shouldAnnounceAttentionEpisode(
+  fingerprint: string | null,
+  announced: ReadonlySet<string>,
+  hydrated: boolean,
+): boolean {
+  return hydrated && fingerprint !== null && !announced.has(fingerprint);
+}
+
 function resolveTitle(alert: RunAttentionState, locale: Locale): string {
   return alert.title.trim() || MESSAGES[locale].attention[ATTENTION_TITLE_KEYS[alert.category]];
 }

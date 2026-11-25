@@ -16,7 +16,7 @@ import { localizeGuidedError } from './guidedErrors';
 export type GuidedSetupApi = Pick<
   BatonApiClient,
   'getWorkspaceInfo' | 'selectWorkspace' | 'initGitWorkspace' | 'getCliRegistry' | 'scanCliRegistry' | 'installCli' | 'loginCli'
->;
+> & Partial<Pick<BatonApiClient, 'browseWorkspace'>>;
 
 let defaultApi: GuidedSetupApi | null = null;
 function getDefaultApi(): GuidedSetupApi {
@@ -94,6 +94,8 @@ export interface GuidedDriverRowProps {
   entry: CliScanEntry | undefined;
   consent: boolean;
   busy: boolean;
+  activeAction?: string | null;
+  feedback?: string | null;
   login: CliLoginResult | null;
   onConsentChange(consent: boolean): void;
   onInstall(): void;
@@ -102,7 +104,7 @@ export interface GuidedDriverRowProps {
 
 /** One toolkit row: name, tier badge, status pill and the action that fits the status. */
 export function GuidedDriverRow({
-  locale, driver, entry, consent, busy, login, onConsentChange, onInstall, onLogin,
+  locale, driver, entry, consent, busy, activeAction = null, feedback = null, login, onConsentChange, onInstall, onLogin,
 }: GuidedDriverRowProps) {
   const copy = MESSAGES[locale].guided.setup;
   const status = entry?.status ?? 'missing';
@@ -110,6 +112,8 @@ export function GuidedDriverRow({
   const tierLabel = copy.tiers[driver.tier as keyof typeof copy.tiers] ?? driver.tier;
   const pill = status === 'ready' ? copy.ready : status === 'installed_unauthenticated' ? copy.needsLogin : copy.missing;
   const loginNote = login ? driverText(driver, locale === 'zh' ? login.message_zh : login.message_en) : '';
+  const isInstalling = activeAction === `install:${driver.id}`;
+  const isLoggingIn = activeAction === `login:${driver.id}`;
 
   return (
     <li className="guided-setup__driver" data-status={status}>
@@ -122,20 +126,29 @@ export function GuidedDriverRow({
       {status === 'missing' ? (
         <div className="guided-setup__actions">
           <label className="guided-setup__consent">
-            <input type="checkbox" checked={consent} onChange={(event) => onConsentChange(event.target.checked)} />
+            <input type="checkbox" checked={consent} disabled={busy} onChange={(event) => onConsentChange(event.target.checked)} />
             <span>{copy.installConsent}</span>
             <code>{driverText(driver, driver.install_cmd.join(' '))}</code>
           </label>
           <button type="button" className="guided-setup__button" disabled={busy || !canInstall(entry, consent)} onClick={onInstall}>
-            {copy.install}
+            {isInstalling ? copy.installing : copy.install}
           </button>
         </div>
       ) : null}
       {status === 'installed_unauthenticated' ? (
         <div className="guided-setup__actions">
-          <button type="button" className="guided-setup__button" disabled={busy} onClick={onLogin}>{copy.login}</button>
+          <button type="button" className="guided-setup__button" disabled={busy} onClick={onLogin}>
+            {isLoggingIn ? copy.openingLogin : copy.login}
+          </button>
         </div>
       ) : null}
+      {isInstalling || isLoggingIn ? (
+        <div className="guided-setup__progress-wrap" role="status" aria-live="polite">
+          <div className="guided-setup__progress" aria-hidden="true"><div className="guided-setup__progress-bar" /></div>
+          <span className="guided-setup__progress-text">{isInstalling ? copy.installing : copy.openingLogin}</span>
+        </div>
+      ) : null}
+      {feedback ? <p className="guided-setup__done-note" role="status">{feedback}</p> : null}
       {login ? (
         <p className="guided-setup__login-note">
           {loginNote}{' '}
@@ -164,6 +177,8 @@ export function GuidedSetupStep({ locale, onReady, api: injectedApi }: GuidedSet
   const [lineup, setLineup] = useState<RecommendedLineup | null>(null);
   const [consent, setConsent] = useState<Record<string, boolean>>({});
   const [logins, setLogins] = useState<Record<string, CliLoginResult>>({});
+  const [installFeedback, setInstallFeedback] = useState<Record<string, string>>({});
+  const [workspaceFeedback, setWorkspaceFeedback] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -198,18 +213,44 @@ export function GuidedSetupStep({ locale, onReady, api: injectedApi }: GuidedSet
   }, [api, run, scanRegistry]);
 
   const selectFolder = () => run('workspace', async () => {
+    setWorkspaceFeedback(null);
     const info = await api.selectWorkspace(pathInput.trim());
     setWorkspace(info);
     setPathInput(info.path);
     await scanRegistry(info.path);
+    setWorkspaceFeedback(copy.folderSelected);
   });
 
-  const initGit = () => run('git', async () => setWorkspace(await initGitAndRefresh(api)));
+  const browseFolder = () => run('browse', async () => {
+    setWorkspaceFeedback(null);
+    if (!api.browseWorkspace) {
+      await selectFolder();
+      return;
+    }
+    const picked = await api.browseWorkspace();
+    if (picked.cancelled) return;
+    setWorkspace(picked.workspace);
+    setPathInput(picked.workspace.path);
+    await scanRegistry(picked.workspace.path);
+    setWorkspaceFeedback(copy.folderSelected);
+  });
+
+  const initGit = () => run('git', async () => {
+    setWorkspaceFeedback(null);
+    setWorkspace(await initGitAndRefresh(api));
+    setWorkspaceFeedback(copy.gitEnabledDone);
+  });
 
   const install = (driver: CliDriver) => run(`install:${driver.id}`, async () => {
+    setInstallFeedback((current) => {
+      const next = { ...current };
+      delete next[driver.id];
+      return next;
+    });
     if (await installWithConsent(api, entries[driver.id], consent[driver.id] === true)) {
       setConsent((current) => ({ ...current, [driver.id]: false }));
       await scanRegistry(workspace?.path);
+      setInstallFeedback((current) => ({ ...current, [driver.id]: copy.installedDone }));
     }
   });
 
@@ -218,10 +259,28 @@ export function GuidedSetupStep({ locale, onReady, api: injectedApi }: GuidedSet
     setLogins((current) => ({ ...current, [driver.id]: result }));
   });
 
+  const workspaceBusyLabel = busy === 'browse'
+    ? copy.browsing
+    : busy === 'workspace'
+      ? copy.switchingFolder
+      : busy === 'git'
+        ? copy.initializingGit
+        : null;
+
   return (
     <div className="guided-setup">
       <section className="guided-setup__card">
-        <h3 className="guided-setup__title">{copy.currentFolder}</h3>
+        <div className="guided-setup__row guided-setup__row--spread">
+          <h3 className="guided-setup__title">{copy.currentFolder}</h3>
+          <button
+            type="button"
+            className="guided-setup__button guided-setup__button--primary"
+            disabled={busy !== null}
+            onClick={() => void browseFolder()}
+          >
+            {busy === 'browse' ? copy.browsing : copy.pickFolder}
+          </button>
+        </div>
         {workspace ? <p className="guided-setup__path"><code>{workspace.path}</code></p> : null}
         <div className="guided-setup__row">
           <input
@@ -229,6 +288,12 @@ export function GuidedSetupStep({ locale, onReady, api: injectedApi }: GuidedSet
             value={pathInput}
             aria-label={copy.currentFolder}
             onChange={(event) => setPathInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && busy === null && pathInput.trim() !== '') {
+                event.preventDefault();
+                void selectFolder();
+              }
+            }}
           />
           <button
             type="button"
@@ -236,9 +301,16 @@ export function GuidedSetupStep({ locale, onReady, api: injectedApi }: GuidedSet
             disabled={busy !== null || pathInput.trim() === ''}
             onClick={() => void selectFolder()}
           >
-            {copy.pickFolder}
+            {busy === 'workspace' ? copy.switchingFolder : copy.applyPath}
           </button>
         </div>
+        {workspaceBusyLabel ? (
+          <div className="guided-setup__progress-wrap" role="status" aria-live="polite">
+            <div className="guided-setup__progress" aria-hidden="true"><div className="guided-setup__progress-bar" /></div>
+            <span className="guided-setup__progress-text">{workspaceBusyLabel}</span>
+          </div>
+        ) : null}
+        {workspaceFeedback ? <p className="guided-setup__done-note" role="status">{workspaceFeedback}</p> : null}
         {workspace ? (
           <p className="guided-setup__git" data-git={workspace.is_git_repo}>
             {workspace.is_git_repo ? copy.gitReady : copy.gitMissing}
@@ -246,7 +318,7 @@ export function GuidedSetupStep({ locale, onReady, api: injectedApi }: GuidedSet
         ) : null}
         {workspace && !workspace.is_git_repo ? (
           <button type="button" className="guided-setup__button guided-setup__button--primary" disabled={busy !== null} onClick={() => void initGit()}>
-            {copy.initGit}
+            {busy === 'git' ? copy.initializingGit : copy.initGit}
           </button>
         ) : null}
       </section>
@@ -255,9 +327,15 @@ export function GuidedSetupStep({ locale, onReady, api: injectedApi }: GuidedSet
         <div className="guided-setup__row guided-setup__row--spread">
           <h3 className="guided-setup__title">{copy.scanClis}</h3>
           <button type="button" className="guided-setup__button" disabled={busy !== null} onClick={() => void scan(workspace?.path)}>
-            {busy === 'scan' ? copy.scanning : copy.scanClis}
+            {busy === 'scan' || busy === 'load' ? copy.scanning : copy.scanClis}
           </button>
         </div>
+        {busy === 'scan' || busy === 'load' ? (
+          <div className="guided-setup__progress-wrap" role="status" aria-live="polite">
+            <div className="guided-setup__progress" aria-hidden="true"><div className="guided-setup__progress-bar" /></div>
+            <span className="guided-setup__progress-text">{copy.scanning}</span>
+          </div>
+        ) : null}
         <ul className="guided-setup__drivers">
           {drivers.map((driver) => (
             <GuidedDriverRow
@@ -267,6 +345,8 @@ export function GuidedSetupStep({ locale, onReady, api: injectedApi }: GuidedSet
               entry={entries[driver.id]}
               consent={consent[driver.id] === true}
               busy={busy !== null}
+              activeAction={busy}
+              feedback={installFeedback[driver.id] ?? null}
               login={logins[driver.id] ?? null}
               onConsentChange={(value) => setConsent((current) => ({ ...current, [driver.id]: value }))}
               onInstall={() => void install(driver)}

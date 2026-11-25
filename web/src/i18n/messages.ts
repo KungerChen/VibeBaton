@@ -492,15 +492,21 @@ export interface Messages {
     };
     setup: {
       pickFolder: string;
+      applyPath: string;
       currentFolder: string;
+      browsing: string;
+      switchingFolder: string;
+      initializingGit: string;
       gitReady: string;
       gitMissing: string;
       initGit: string;
       scanClis: string;
       scanning: string;
       install: string;
+      installing: string;
       installConsent: string;
       login: string;
+      openingLogin: string;
       needsLogin: string;
       ready: string;
       missing: string;
@@ -508,11 +514,15 @@ export interface Messages {
       lineupReady: string;
       lineupMissing: string;
       useLineup: string;
+      installedDone: string;
+      folderSelected: string;
+      gitEnabledDone: string;
     };
     brainstorm: {
       scenariosTitle: string;
       inputPlaceholder: string;
       send: string;
+      sending: string;
       blueprintTitle: string;
       emptyCard: string;
       summary: string;
@@ -523,6 +533,7 @@ export interface Messages {
       notReadyHint: string;
       offlineNotice: string;
       confirmLaunch: string;
+      launching: string;
       showRfc: string;
       hideRfc: string;
     };
@@ -544,6 +555,7 @@ export interface Messages {
       title: string;
       intro: string;
       submit: string;
+      submitting: string;
       noteLabel: string;
     };
     signOff: {
@@ -556,6 +568,7 @@ export interface Messages {
       revise: string;
       reviseNote: string;
       rollback: string;
+      working: string;
       rollbackHint: string;
       rollbackConfirm: string;
       done: string;
@@ -1258,15 +1271,21 @@ export const MESSAGES: Record<Locale, Messages> = {
       ],
       setup: {
         pickFolder: 'Choose Project Folder',
+        applyPath: 'Apply Path',
         currentFolder: 'Current project folder',
+        browsing: 'Opening folder picker…',
+        switchingFolder: 'Switching project folder and scanning tools…',
+        initializingGit: 'Turning on version history…',
         gitReady: 'Version history is on. Every change can be reviewed and undone.',
         gitMissing: 'This folder does not track version history yet. Turn it on so every change can be undone.',
         initGit: 'Turn On Version History',
         scanClis: 'Scan AI Coding Tools',
         scanning: 'Scanning this computer…',
         install: 'Install',
+        installing: 'Installing…',
         installConsent: 'Allow VibeBaton to run this install command:',
         login: 'Sign In',
+        openingLogin: 'Opening sign-in…',
         needsLogin: 'Sign-in needed',
         ready: 'Ready',
         missing: 'Not installed',
@@ -1274,11 +1293,15 @@ export const MESSAGES: Record<Locale, Messages> = {
         lineupReady: 'Your AI team is ready to work.',
         lineupMissing: 'Install or sign in to at least one AI coding tool to form a team.',
         useLineup: 'Use This Team',
+        installedDone: 'Installed and rescanned.',
+        folderSelected: 'Project folder updated.',
+        gitEnabledDone: 'Version history turned on.',
       },
       brainstorm: {
         scenariosTitle: 'What would you like to do?',
         inputPlaceholder: 'Describe your idea, the limits, and how you will know it works…',
         send: 'Send',
+        sending: 'Drafting blueprint…',
         blueprintTitle: 'Blueprint',
         emptyCard: 'Your blueprint appears here after the first message.',
         summary: 'Summary',
@@ -1289,6 +1312,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         notReadyHint: 'Almost there: name the command that proves it works (for example npm test) so the build can start.',
         offlineNotice: 'No AI tool answered, so this draft was assembled from your own words. Connect a tool in Workspace for a smarter partner.',
         confirmLaunch: 'Confirm Blueprint & Start Building',
+        launching: 'Starting AI build…',
         showRfc: 'Show Full RFC',
         hideRfc: 'Hide Full RFC',
       },
@@ -1330,6 +1354,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         title: 'Your Decision Is Needed',
         intro: 'The AI team paused here and needs your call. Read the question, pick an option, then submit.',
         submit: 'Submit Decision',
+        submitting: 'Submitting…',
         noteLabel: 'Note for the team (optional)',
       },
       signOff: {
@@ -1342,6 +1367,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         revise: 'Request Changes',
         reviseNote: 'Tell the team what to change (required)',
         rollback: 'Roll Back',
+        working: 'Processing…',
         rollbackHint: 'Available after approval while no newer commits land on your main branch.',
         rollbackConfirm: 'Roll back this merge? Your main branch returns to where it was before approval. Click Roll Back again to confirm, or press Esc to cancel.',
         done: 'Merged into your main branch. You can roll back while no newer commits land on it; the backup tag from run start stays as a recovery point.',
@@ -2042,15 +2068,21 @@ export const MESSAGES: Record<Locale, Messages> = {
       ],
       setup: {
         pickFolder: '选择项目文件夹',
+        applyPath: '应用路径',
         currentFolder: '当前项目文件夹',
+        browsing: '正在打开文件夹选择窗口……',
+        switchingFolder: '正在切换项目文件夹并扫描工具……',
+        initializingGit: '正在开启版本记录……',
         gitReady: '版本记录已开启，每一处改动都可审阅、可撤销。',
         gitMissing: '这个文件夹还没有开启版本记录。开启后，每一处改动都可以撤销。',
         initGit: '开启版本记录',
         scanClis: '扫描 AI 编程工具',
         scanning: '正在扫描本机……',
         install: '安装',
+        installing: '正在安装……',
         installConsent: '允许 VibeBaton 执行以下安装命令：',
         login: '登录',
+        openingLogin: '正在打开登录窗口……',
         needsLogin: '需要登录',
         ready: '已就绪',
         missing: '未安装',
@@ -2058,11 +2090,15 @@ export const MESSAGES: Record<Locale, Messages> = {
         lineupReady: '你的 AI 团队已准备就绪。',
         lineupMissing: '请至少安装并登录一个 AI 编程工具来组建团队。',
         useLineup: '使用这支团队',
+        installedDone: '安装完成并已重新扫描。',
+        folderSelected: '项目文件夹已切换。',
+        gitEnabledDone: '版本记录已开启。',
       },
       brainstorm: {
         scenariosTitle: '你想做什么？',
         inputPlaceholder: '描述你的想法、限制条件，以及如何判断它已经完成……',
         send: '发送',
+        sending: '正在生成蓝图……',
         blueprintTitle: '蓝图',
         emptyCard: '发送第一条消息后，蓝图会显示在这里。',
         summary: '概要',
@@ -2073,6 +2109,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         notReadyHint: '还差一步：告诉我用哪条命令证明它能用（比如 npm test），即可开始施工。',
         offlineNotice: '暂无 AI 工具响应，这份草稿是根据你的原话整理的。在「工作区」连接工具后可获得更聪明的伙伴。',
         confirmLaunch: '确认蓝图并开始施工',
+        launching: '正在启动 AI 施工……',
         showRfc: '查看完整 RFC',
         hideRfc: '收起完整 RFC',
       },
@@ -2114,6 +2151,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         title: '需要你来决定',
         intro: 'AI 团队在这个任务上暂停了，需要你拍板后才能继续。',
         submit: '提交决定',
+        submitting: '正在提交……',
         noteLabel: '给团队的备注（可选）',
       },
       signOff: {
@@ -2126,6 +2164,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         revise: '要求修改',
         reviseNote: '告诉团队需要改什么（必填）',
         rollback: '回滚',
+        working: '正在处理……',
         rollbackHint: '批准并合并后可用；若主分支已有新提交则自动锁定。',
         rollbackConfirm: '确定回滚这次合并吗？主分支将恢复到批准之前的状态。再次点击「回滚」确认，按 Esc 取消。',
         done: '已合入你的主分支。在主分支出现新提交之前仍可回滚；本次运行开始时创建的备份标签会保留作为恢复点。',

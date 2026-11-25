@@ -156,6 +156,12 @@ export interface WorkspaceInfo {
   has_rfc: boolean;
 }
 
+export interface BrowseWorkspaceResult {
+  cancelled: boolean;
+  path: string | null;
+  workspace: WorkspaceInfo;
+}
+
 export interface InitGitResult extends WorkspaceInfo {
   created: boolean;
 }
@@ -630,6 +636,10 @@ export class BatonApiClient {
 
   selectWorkspace(path: string): Promise<WorkspaceInfo> {
     return this.requestJson('/api/workspace/select', { method: 'POST', body: { path } });
+  }
+
+  browseWorkspace(): Promise<BrowseWorkspaceResult> {
+    return this.requestJson('/api/workspace/browse', { method: 'POST', body: {} });
   }
 
   initGitWorkspace(): Promise<InitGitResult> {

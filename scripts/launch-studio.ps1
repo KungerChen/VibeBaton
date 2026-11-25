@@ -26,7 +26,7 @@ if ($CreateShortcut) {
     $shortcut.WorkingDirectory = $InstallRoot
     $shortcut.Description = "Launch VibeBaton Studio (Standalone App Window)"
     if (Test-Path -LiteralPath $iconPath) {
-        $shortcut.IconLocation = $iconPath
+        $shortcut.IconLocation = "$iconPath,0"
     }
     $shortcut.Save()
     Write-Host "[ok] Created Desktop shortcut: $shortcutPath"

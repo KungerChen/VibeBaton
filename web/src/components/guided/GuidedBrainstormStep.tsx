@@ -136,21 +136,22 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
   const [scenario, setScenario] = useState<string | null>(null);
   const [turn, setTurn] = useState<BrainstormTurnResult | null>(null);
   const [showRfc, setShowRfc] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<'send' | 'launch' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const busy = busyAction !== null;
 
   const card = turn?.blueprint ?? null;
   const launchable = canLaunch(card) && lineup.ready && !busy;
 
-  async function run(action: () => Promise<void>) {
-    setBusy(true);
+  async function run(mode: 'send' | 'launch', action: () => Promise<void>) {
+    setBusyAction(mode);
     setError(null);
     try {
       await action();
     } catch (err) {
       setError(localizeGuidedError(err, locale));
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   }
 
@@ -158,7 +159,7 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
     event.preventDefault();
     const text = input.trim();
     if (!text || busy) return;
-    void run(async () => {
+    void run('send', async () => {
       const result = await sendBrainstormTurn(api ?? defaultApi(), messages, text, scenario, locale);
       setMessages(result.messages);
       setTurn(result.turn);
@@ -168,7 +169,7 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
 
   function launch() {
     if (!turn || !launchable) return;
-    void run(async () => onLaunched(await confirmAndStart(api ?? defaultApi(), turn.rfc_markdown, lineup)));
+    void run('launch', async () => onLaunched(await confirmAndStart(api ?? defaultApi(), turn.rfc_markdown, lineup)));
   }
 
   return (
@@ -208,9 +209,14 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
             onChange={(event) => setInput(event.target.value)}
           />
           <button type="submit" className="guided-brainstorm__send" disabled={busy || !input.trim()}>
-            {labels.send}
+            {busyAction === 'send' ? labels.sending : labels.send}
           </button>
         </form>
+        {busy ? (
+          <div className="guided-brainstorm__progress" role="status" aria-live="polite">
+            <div className="guided-brainstorm__progress-bar" />
+          </div>
+        ) : null}
         {error ? <p className="guided-brainstorm__error" role="alert">{error}</p> : null}
       </section>
 
@@ -261,7 +267,7 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
           </>
         ) : null}
         <button type="button" className="guided-brainstorm__launch" disabled={!launchable} onClick={launch}>
-          {labels.confirmLaunch}
+          {busyAction === 'launch' ? labels.launching : labels.confirmLaunch}
         </button>
       </aside>
     </div>

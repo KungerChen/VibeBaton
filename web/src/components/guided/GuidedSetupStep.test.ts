@@ -154,4 +154,13 @@ describe('GuidedDriverRow', () => {
     expect(html).toContain('https://www.npmjs.com/package/@deepseek-ai/dsh');
     expect(html).toContain('in the new window');
   });
+
+  test('renders installing progress bar and localized feedback when activeAction matches', () => {
+    const html = renderRow({ consent: true, busy: true, activeAction: 'install:dsh', feedback: null });
+    expect(html).toContain('Installing…');
+    expect(html).toContain('guided-setup__progress-bar');
+
+    const doneHtml = renderRow({ consent: false, busy: false, feedback: 'Installed and rescanned.' });
+    expect(doneHtml).toContain('Installed and rescanned.');
+  });
 });

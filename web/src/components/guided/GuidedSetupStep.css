@@ -154,3 +154,47 @@
   font-size: 0.8rem;
   overflow-wrap: anywhere;
 }
+
+.guided-setup__progress-wrap {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.guided-setup__progress {
+  position: relative;
+  height: 0.35rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.guided-setup__progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  border-radius: 999px;
+  background: var(--primary);
+  animation: guided-indeterminate 1.15s ease-in-out infinite;
+}
+
+.guided-setup__progress-text {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+.guided-setup__done-note {
+  margin: 0;
+  color: var(--emerald);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+@keyframes guided-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}

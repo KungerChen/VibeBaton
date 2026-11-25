@@ -268,7 +268,7 @@ export function GuidedDecisionModal({
           {error ? <p className="guided-decision__error" role="alert">{error}</p> : null}
           <div className="guided-decision__actions">
             <Button type="submit" variant="default" disabled={!canSubmit || submitting}>
-              {copy.submit}
+              {submitting ? copy.submitting : copy.submit}
             </Button>
           </div>
         </form>

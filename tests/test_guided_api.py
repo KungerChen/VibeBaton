@@ -420,6 +420,23 @@ class TestWorkspaceApi(GuidedApiTestCase):
         self.assertEqual(self._get("/api/workspace/info"), (200, unittest.mock.ANY))
         self.assertEqual(self._get("/api/workspace/info")[1]["path"], str(self.repo))
 
+    def test_browse_selects_picked_directory_and_handles_cancel(self) -> None:
+        target = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        self.server.folder_picker = lambda _initial: None
+        status, body = self._post("/api/workspace/browse")
+        self.assertEqual(status, 200, body)
+        self.assertIs(body["cancelled"], True)
+        self.assertIsNone(body["path"])
+        self.assertEqual(body["workspace"]["path"], str(self.repo))
+
+        self.server.folder_picker = lambda _initial: str(target)
+        status2, body2 = self._post("/api/workspace/browse")
+        self.assertEqual(status2, 200, body2)
+        self.assertIs(body2["cancelled"], False)
+        self.assertEqual(body2["path"], str(target))
+        self.assertEqual(body2["workspace"]["path"], str(target))
+        self.assertEqual(self._get("/api/workspace/info")[1]["path"], str(target))
+
 
 class TestBrainstormApi(GuidedApiTestCase):
     MESSAGES = [{"role": "user", "content": "Add a /health endpoint that reports the app version."}]

@@ -77,6 +77,7 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(r"/api/cli-registry/login"), "_post_cli_registry_login"),
     ("GET", re.compile(r"/api/workspace/info"), "_get_workspace_info"),
     ("POST", re.compile(r"/api/workspace/select"), "_post_workspace_select"),
+    ("POST", re.compile(r"/api/workspace/browse"), "_post_workspace_browse"),
     ("POST", re.compile(r"/api/workspace/init-git"), "_post_workspace_init_git"),
     ("POST", re.compile(r"/api/brainstorm/chat"), "_post_brainstorm_chat"),
     ("POST", re.compile(r"/api/brainstorm/confirm"), "_post_brainstorm_confirm"),
@@ -285,6 +286,66 @@ def _workspace_info(repo: Path) -> dict[str, Any]:
         "has_commits": has_commits,
         "has_rfc": (repo / RFC_RELATIVE_PATH).is_file(),
     }
+
+
+def _pick_workspace_directory(initial_dir: Path) -> str | None:
+    """Open the OS native folder picker dialog in front of active windows and return the path or None."""
+    start = str(initial_dir)
+    if sys.platform == "win32":
+        # Prefer tkinter topmost hidden root; fall back to PowerShell Forms dialog if tkinter is absent.
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+            try:
+                root.withdraw()
+                root.attributes("-topmost", True)
+                root.update()
+                chosen = filedialog.askdirectory(
+                    parent=root,
+                    initialdir=start,
+                    title="Choose Project Folder — VibeBaton Studio",
+                    mustexist=True,
+                )
+            finally:
+                root.destroy()
+            return chosen.strip() or None
+        except Exception:
+            escaped = start.replace("'", "''")
+            ps_script = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                "$dlg.Description = 'Choose Project Folder — VibeBaton Studio'; "
+                "$dlg.UseDescriptionForTitle = $true; "
+                f"$dlg.SelectedPath = '{escaped}'; "
+                "$owner = New-Object System.Windows.Forms.Form -Property @{TopMost=$true}; "
+                "if ($dlg.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { "
+                "Write-Output $dlg.SelectedPath }"
+            )
+            proc = subprocess.run(
+                ["powershell", "-NoProfile", "-STA", "-Command", ps_script],
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
+            )
+            if proc.returncode == 0:
+                picked = proc.stdout.strip()
+                return picked or None
+            return None
+    if sys.platform == "darwin":
+        script = f'POSIX path of (choose folder with prompt "Choose Project Folder" default location POSIX file "{start}")'
+        proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=180, check=False)
+        return proc.stdout.strip() or None if proc.returncode == 0 else None
+    for cmd in (
+        ["zenity", "--file-selection", "--directory", f"--filename={start}/"],
+        ["kdialog", "--getexistingdirectory", start],
+    ):
+        if shutil.which(cmd[0]):
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180, check=False)
+            return proc.stdout.strip() or None if proc.returncode == 0 else None
+    raise RuntimeError("No native folder picker dialog is available on this host")
 
 
 def _json_object(raw: object) -> dict[str, Any]:
@@ -523,6 +584,7 @@ class _CanvasHTTPServer(ThreadingHTTPServer):
     provider_probe: _ProviderProbe
     provider_probe_cache: _ProviderProbeCache
     pricing_fetcher: pricing.PricingFetcher | None
+    folder_picker: Callable[[Path], str | None] | None
 
     def server_bind(self) -> None:
         # On Windows SO_REUSEADDR lets a second server bind the same port while the old process keeps traffic;
@@ -1070,8 +1132,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
     def _get_workspace_info(self) -> None:
         self._send_json(200, _workspace_info(self.server.repo_path))
 
-    def _post_workspace_select(self) -> None:
-        raw = _text_field(self._read_json_body(), "path")
+    def _switch_workspace(self, raw: str) -> dict[str, Any]:
         if any(char in raw for char in "\0\r\n"):
             raise _BadRequest("path must not contain NUL or newline characters")
         candidate = Path(raw).expanduser()
@@ -1095,7 +1156,25 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             self.server.repo_path = repo
             self.server.loader = loader
             self.server.store = store
-        self._send_json(200, _workspace_info(repo))
+        return _workspace_info(repo)
+
+    def _post_workspace_select(self) -> None:
+        raw = _text_field(self._read_json_body(), "path")
+        self._send_json(200, self._switch_workspace(raw))
+
+    def _post_workspace_browse(self) -> None:
+        self._read_json_body(optional=True)
+        picker = getattr(self.server, "folder_picker", None) or _pick_workspace_directory
+        try:
+            picked = picker(self.server.repo_path)
+        except Exception as exc:
+            self._send_json(500, {"error": f"Folder dialog failed: {exc}"})
+            return
+        if not picked or not picked.strip():
+            self._send_json(200, {"cancelled": True, "path": None, "workspace": _workspace_info(self.server.repo_path)})
+            return
+        workspace = self._switch_workspace(picked.strip())
+        self._send_json(200, {"cancelled": False, "path": workspace["path"], "workspace": workspace})
 
     def _post_workspace_init_git(self) -> None:
         self._read_json_body(optional=True)
@@ -1668,6 +1747,7 @@ def create_server(
     credentials_path: Path | None = None,
     provider_probe: _ProviderProbe | None = None,
     pricing_fetcher: pricing.PricingFetcher | None = None,
+    folder_picker: Callable[[Path], str | None] | None = None,
 ) -> ThreadingHTTPServer:
     """Bind a server for the repository and initialize its shared context."""
     repo_path = repo_path.resolve()
@@ -1689,6 +1769,7 @@ def create_server(
     server.provider_probe = credentials.probe_role_or_provider if provider_probe is None else provider_probe
     server.provider_probe_cache = _PROCESS_PROVIDER_PROBES if provider_probe is None else _ProviderProbeCache()
     server.pricing_fetcher = pricing_fetcher
+    server.folder_picker = folder_picker
     return server
 
 

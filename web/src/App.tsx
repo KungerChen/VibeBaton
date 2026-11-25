@@ -40,6 +40,7 @@ import {
   dispatchBrowserNotification,
   formatAttentionDocumentTitle,
   playAttentionChime,
+  shouldAnnounceAttentionEpisode,
 } from './engine/attentionAlerts';
 import {
   buildOfficialStage1Case,
@@ -209,6 +210,7 @@ function AppContent() {
   const [dismissedFingerprint, setDismissedFingerprint] = useState<string | null>(null);
   const [battleReportToken, setBattleReportToken] = useState(0);
   const announcedFingerprints = useRef(new Set<string>());
+  const initialSnapshotHydratedRef = useRef(false);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(
     () => typeof window === 'undefined' ? 'unsupported' : (window.Notification?.permission ?? 'unsupported'),
   );
@@ -284,7 +286,9 @@ function AppContent() {
   }, [fingerprint]);
 
   const announceAttention = useEffectEvent((episode: string) => {
-    if (!visibleAttentionAlert || announcedFingerprints.current.has(episode)) return;
+    if (!visibleAttentionAlert || !shouldAnnounceAttentionEpisode(episode, announcedFingerprints.current, initialSnapshotHydratedRef.current)) {
+      return;
+    }
     announcedFingerprints.current.add(episode);
     dispatchBrowserNotification(visibleAttentionAlert, locale, notificationPermission, window.Notification);
     playAttentionChime(visibleAttentionAlert.category, soundEnabled, soundVolume);
@@ -366,6 +370,7 @@ function AppContent() {
       setStartRunOpen(false);
       latestRunIdRef.current = null;
       latestStatusRef.current = null;
+      initialSnapshotHydratedRef.current = false;
       return;
     }
 
@@ -401,6 +406,13 @@ function AppContent() {
         };
         const streamRunId = typeof trimmed.run?.id === 'string' ? trimmed.run.id : null;
         const streamStatus = typeof trimmed.run?.status === 'string' ? trimmed.run.status : null;
+        if (!initialSnapshotHydratedRef.current) {
+          const initialFingerprint = buildAlertFingerprint(streamRunId, deriveAttentionAlert(trimmed));
+          if (initialFingerprint) {
+            announcedFingerprints.current.add(initialFingerprint);
+          }
+          initialSnapshotHydratedRef.current = true;
+        }
         const prevLatestRunId = latestRunIdRef.current;
         const prevLatestStatus = latestStatusRef.current;
         latestRunIdRef.current = streamRunId;

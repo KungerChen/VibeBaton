@@ -184,7 +184,7 @@ export function GuidedSignOffPanel({
           disabled={!canApproveOrRevise}
           onClick={() => void finalize('approve')}
         >
-          {copy.approve}
+          {busy ? copy.working : copy.approve}
         </Button>
 
         {reviseOpen ? (

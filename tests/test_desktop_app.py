@@ -211,6 +211,31 @@ class TestUpgradeRefreshSemantics(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2)
 
+    def test_multi_resolution_icons_and_manifest_exist(self) -> None:
+        import json
+        import struct
+
+        public_dir = REPO_ROOT / "web" / "public"
+        ico_data = (public_dir / "favicon.ico").read_bytes()
+        reserved, ico_type, count = struct.unpack_from("<HHH", ico_data, 0)
+        self.assertEqual((reserved, ico_type), (0, 1))
+        self.assertGreaterEqual(count, 4)
+        widths = [ico_data[6 + i * 16] for i in range(count)]
+        self.assertIn(0, widths)  # 0 denotes 256x256 in ICO headers
+
+        for name in ("icon-192.png", "icon-512.png"):
+            png_bytes = (public_dir / name).read_bytes()
+            self.assertTrue(png_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
+
+        manifest = json.loads((public_dir / "manifest.webmanifest").read_text(encoding="utf-8"))
+        self.assertGreaterEqual(len(manifest.get("icons", [])), 2)
+
+        index_html = (REPO_ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("./favicon.ico", index_html)
+        self.assertIn("./icon-192.png", index_html)
+        self.assertIn("./manifest.webmanifest", index_html)
+
+
 
 if __name__ == "__main__":
     unittest.main()

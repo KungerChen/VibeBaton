@@ -12,6 +12,7 @@ import {
   dispatchBrowserNotification,
   formatAttentionDocumentTitle,
   playAttentionChime,
+  shouldAnnounceAttentionEpisode,
 } from './attentionAlerts';
 
 const runningSnapshot: LiveRunSnapshot = {
@@ -173,6 +174,15 @@ describe('dispatchBrowserNotification', () => {
     }
     expect(dispatchBrowserNotification(alert, 'en', 'granted')).toBe(false);
     expect(dispatchBrowserNotification(alert, 'en', 'granted', BlockedNotification as unknown as typeof Notification)).toBe(false);
+  });
+
+  test('suppresses initial pre-existing alerts before SSE hydration and allows new episodes after', () => {
+    const seen = new Set<string>(['run-old|ready_for_final_gate|||100']);
+    expect(shouldAnnounceAttentionEpisode('run-old|ready_for_final_gate|||100', seen, false)).toBe(false);
+    expect(shouldAnnounceAttentionEpisode('run-old|ready_for_final_gate|||100', seen, true)).toBe(false);
+    expect(shouldAnnounceAttentionEpisode('run-new|waiting_human|M1|M1-T1|200', seen, false)).toBe(false);
+    expect(shouldAnnounceAttentionEpisode('run-new|waiting_human|M1|M1-T1|200', seen, true)).toBe(true);
+    expect(shouldAnnounceAttentionEpisode(null, seen, true)).toBe(false);
   });
 });
 
