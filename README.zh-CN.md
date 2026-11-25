@@ -11,10 +11,10 @@
 **VibeBaton（`baton`）是一个开源的多模型 AI 编程编排器。**
 写一页需求契约（RFC），按角色分工调度 Claude、Codex、DSH 或 OpenAI 兼容 HTTP 模型；每项任务在独立 Git 工作树编码，先过真实测试门禁再送 AI 审校，最后由你终审合入。
 
-*从 `v0.2.0` 到 `v1.0.4`，每个版本都是 VibeBaton 在自身仓库上这样接力构建并由人类把关发布的。*
+*从 `v0.2.0` 到 `v1.2.0`，每个版本都是 VibeBaton 在自身仓库上这样接力构建并由人类把关发布的。*
 
 [![Release](https://img.shields.io/github/v/release/KungerChen/VibeBaton?display_name=tag&style=flat-square&color=2563eb)](https://github.com/KungerChen/VibeBaton/releases)
-[![测试：1,068 项（536 UI + 532 Py）](https://img.shields.io/badge/tests-1%2C068%20%28536%20UI%20%2B%20532%20Py%29-0e7490?style=flat-square)](#参与贡献与许可证)
+[![测试：1,378 项（674 UI + 704 Py）](https://img.shields.io/badge/tests-1%2C378%20%28674%20UI%20%2B%20704%20Py%29-0e7490?style=flat-square)](#参与贡献与许可证)
 [![License](https://img.shields.io/github/license/KungerChen/VibeBaton?style=flat-square&color=6d28d9)](LICENSE)
 [![Python 3.11+ 标准库核心](https://img.shields.io/badge/Python%203.11%2B-stdlib%20core-1d4ed8?style=flat-square)](pyproject.toml)
 [![Windows · Linux · Docker](https://img.shields.io/badge/platform-Windows%20%C2%B7%20Linux%20%C2%B7%20Docker-475569?style=flat-square)](#快速开始)
@@ -70,6 +70,15 @@ flowchart LR
 - **体验预设：** `specialist_panel` 是配方广场第 8 套预设——三位专家（UX 与文案、视觉与结构、源码与安全）接入 Synthesizer，随后是隔离工人、机械门禁、AI 审校与人类签核。
 - **默认档位成本均衡：** 思考与审校使用中高端模型，合成与批量执行使用 `eco` 档模型；将 `[policies].budget_profile` 设为 `"max_quality"` 即可整体向旗舰升档。会诊阵容在 `[panel]` / `[[panel.members]]` 中配置（见 [baton.example.toml](baton.example.toml)）。
 
+## 引导模式与 CLI 注册表（v1.2.0）
+
+`v1.2.0` 把 Studio 串成从空目录到验收完成的一条引导路径，识别本机已装的编码 CLI，并在界面内解释每个术语。
+
+- **引导模式（Guided Mode）：** 四步闭环——**工作区**选择项目目录并按需开启版本记录；**蓝图**围绕想法对话，直到 VibeBaton 生成蓝图卡再确认；**施工**时在任务地图上跟随进度、打开任务详情抽屉并在应用内完成决策；**验收**时选择批准并合并、要求修改或回滚（批准并合并后可用）。回滚只撤销仍位于基线分支最新的本次获批合并，恢复到批准前记录的基准提交；`baton-backup/<run_id>` 标签保留作手动恢复锚点。
+- **通用 CLI 注册表：** `presets/cli_registry.json` 描述 8 种编码 CLI 驱动（`claude`、`codex`、`dsh`、`gemini`、`opencode`、`aider`、`qwen`、`copilot`）。Studio 扫描本机已安装且可用的 CLI，为当前环境推荐一套阵容，并且只有在你授权后才执行安装或启动登录流程。
+- **双语技术术语表：** 覆盖 AI、工程、错误、Git、Web/HTTP 与 VibeBaton 概念的 220+ 条 `EN | 中文` 术语，以行内术语提示与可搜索的术语抽屉呈现。
+- **新增 REST 接口：** `GET /api/cli-registry`、`POST /api/cli-registry/scan`、`POST /api/cli-registry/install`、`POST /api/cli-registry/login`、`GET /api/workspace/info`、`POST /api/workspace/select`、`POST /api/workspace/init-git`、`POST /api/brainstorm/chat`、`POST /api/brainstorm/confirm`、`GET /api/runs/{id}/tasks/{task_id}` 与 `POST /api/runs/{id}/finalize`。
+
 ## 什么时候该用 VibeBaton？
 
 | 用单个 IDE / CLI 聊天就够了 | 该用 VibeBaton 的时候 |
@@ -80,9 +89,9 @@ flowchart LR
 
 *零密钥预览：直接运行 `baton ui` 启动 Studio，即可离线模拟 `happy_path`、`gate_retry` 与 `escalate`，并浏览 **8 套本机就绪配方预设**。*
 
-## 自举演进时间线（`v0.1-seed` → `v1.0.4`）
+## 自举演进时间线（`v0.1-seed` → `v1.2.0`）
 
-从 `v0.2.0` 到 `v1.0.4`，VibeBaton 在自身仓库调度 Claude、Codex 与 DSH 接力构建，并由人类把控方向与终审签核。
+从 `v0.2.0` 到 `v1.2.0`，VibeBaton 在自身仓库调度 Claude、Codex 与 DSH 接力构建，并由人类把控方向与终审验收。
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/timeline-dark.svg" />
@@ -192,7 +201,7 @@ api_key_env = "DEEPSEEK_API_KEY"
 
 ## 版本与文档
 
-`v1.0.0` 带来了原生 HTTP 提供方、自动冲突解决器、容器沙箱脚手架与 Windows 安装器；随后的 `v1.0.1`–`v1.0.4` 陆续交付了可调宽分栏、通宵提醒、三层定价与脱敏案例回放。  
+`v1.0.0` 带来了原生 HTTP 提供方、自动冲突解决器、容器沙箱脚手架与 Windows 安装器；随后的 `v1.0.1`–`v1.0.4` 陆续交付了可调宽分栏、通宵提醒、三层定价与脱敏案例回放。`v1.1.0` 加入专家会诊模式，`v1.2.0` 进一步带来引导模式、通用 CLI 注册表与双语技术术语表。  
 [GitHub Releases](https://github.com/KungerChen/VibeBaton/releases) · [更新日志](CHANGELOG.md) · [v1.0 发布说明](docs/RELEASE_NOTES_v1.0.md) · [入门教程](docs/TUTORIAL.md) · [路线图](docs/ROADMAP.md) · [安全模型](docs/SECURITY.md)
 
 ## 参与贡献与许可证

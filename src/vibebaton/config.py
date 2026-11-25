@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import re
@@ -277,7 +278,9 @@ def _load_raw_mapping(path: Path) -> dict[str, Any]:
         return data
     if suffix in (".yaml", ".yml"):
         try:
-            import yaml  # type: ignore
+            # Optional third-party dependency: loaded dynamically so the package
+            # keeps zero static non-stdlib imports.
+            yaml = importlib.import_module("yaml")
         except ImportError as exc:
             raise RuntimeError(
                 f"Cannot read YAML config '{path}' because PyYAML is not installed. "

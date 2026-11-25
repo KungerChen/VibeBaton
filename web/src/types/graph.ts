@@ -240,6 +240,8 @@ export interface LaunchRunRequest {
   rfc_markdown?: string;
   mode?: LaunchRunMode;
   model_overrides?: Record<string, string>;
+  /** Role name -> provider id (the Guided Ready-on-Host lineup); the server maps it to provider:model overrides. */
+  role_providers?: Record<string, string>;
 }
 
 export interface RunListItem {

@@ -11,10 +11,10 @@
 **VibeBaton (`baton`) is a local orchestrator for multi-model AI coding.**
 Write a short RFC, assign Claude, Codex, DSH, or OpenAI-compatible HTTP models by role, isolate every task in a Git worktree, gate changes with real tests, and approve the final merge yourself.
 
-*Every release from `v0.2.0` to `v1.0.4` was built this way on its own repo — orchestrated by VibeBaton with human direction and final sign-off.*
+*Every release from `v0.2.0` to `v1.2.0` was built this way on its own repo — orchestrated by VibeBaton with human direction and final sign-off.*
 
 [![Release](https://img.shields.io/github/v/release/KungerChen/VibeBaton?display_name=tag&style=flat-square&color=2563eb)](https://github.com/KungerChen/VibeBaton/releases)
-[![Tests: 1,068 (536 UI + 532 Py)](https://img.shields.io/badge/tests-1%2C068%20%28536%20UI%20%2B%20532%20Py%29-0e7490?style=flat-square)](#contributing--license)
+[![Tests: 1,378 (674 UI + 704 Py)](https://img.shields.io/badge/tests-1%2C378%20%28674%20UI%20%2B%20704%20Py%29-0e7490?style=flat-square)](#contributing--license)
 [![License](https://img.shields.io/github/license/KungerChen/VibeBaton?style=flat-square&color=6d28d9)](LICENSE)
 [![Python 3.11+ stdlib core](https://img.shields.io/badge/Python%203.11%2B-stdlib%20core-1d4ed8?style=flat-square)](pyproject.toml)
 [![Windows · Linux · Docker](https://img.shields.io/badge/platform-Windows%20%C2%B7%20Linux%20%C2%B7%20Docker-475569?style=flat-square)](#quickstart)
@@ -70,6 +70,15 @@ For open-ended reviews instead of one fixed spec, `00_PANEL` runs first: read-on
 - **Try the preset:** `specialist_panel` is the 8th Recipe Plaza preset — three specialists (UX & Copy, Visual & Structure, Source & Safety) feed a Synthesizer, then isolated workers, a mechanical gate, AI review, and human sign-off.
 - **Cost-balanced defaults:** upper-mid models cover thinking and review while `eco` models synthesize and execute bulk work; set `[policies].budget_profile = "max_quality"` to escalate toward flagship. Configure lineups under `[panel]` / `[[panel.members]]` (see [baton.example.toml](baton.example.toml)).
 
+## Guided Mode & CLI Registry (v1.2.0)
+
+`v1.2.0` turns Studio into a single guided path from an empty folder to a signed-off run, scans the coding CLIs already on your machine, and explains each term in place.
+
+- **Guided Mode:** a four-step closed loop — **Workspace** (pick a project folder and initialize Git if needed), **Blueprint** (chat about your idea until VibeBaton produces a Blueprint Card, then confirm it), **Build** (follow the task map, open each task in the detail drawer, and answer decisions in the app), and **Sign-Off** (Approve & Merge, Request Changes, or Roll Back after approval). Rollback reverts only this run's approved merge (while it is still the base head) to the base commit recorded at approval; the `baton-backup/<run_id>` tag stays as a manual recovery point.
+- **Universal CLI Registry:** `presets/cli_registry.json` describes 8 coding-CLI drivers (`claude`, `codex`, `dsh`, `gemini`, `opencode`, `aider`, `qwen`, `copilot`). Studio scans which CLIs are installed and usable, recommends a lineup, and only installs a CLI or starts its login flow after you authorize it.
+- **Tech Glossary:** 220+ `EN | 中文` terms across AI, engineering, errors, Git, web/HTTP, and VibeBaton concepts, shown as inline term hints and in a searchable glossary drawer.
+- **New REST endpoints:** `GET /api/cli-registry`, `POST /api/cli-registry/scan`, `POST /api/cli-registry/install`, `POST /api/cli-registry/login`, `GET /api/workspace/info`, `POST /api/workspace/select`, `POST /api/workspace/init-git`, `POST /api/brainstorm/chat`, `POST /api/brainstorm/confirm`, `GET /api/runs/{id}/tasks/{task_id}`, and `POST /api/runs/{id}/finalize`.
+
 ## Right Tool for the Job
 
 | Use Single Chat / IDE Agent When... | Use VibeBaton When... |
@@ -80,9 +89,9 @@ For open-ended reviews instead of one fixed spec, `00_PANEL` runs first: read-on
 
 *Zero-key preview: launch Studio (`baton ui`) to simulate `happy_path`, `gate_retry`, and `escalate` offline and explore **8 Ready-on-Host Recipe Presets**.*
 
-## Self-Hosting Evolution (`v0.1-seed` → `v1.0.4`)
+## Self-Hosting Evolution (`v0.1-seed` → `v1.2.0`)
 
-VibeBaton built `v0.2.0` through `v1.0.4` by orchestrating Claude, Codex, and DSH on its own codebase under human direction and final sign-off.
+VibeBaton built `v0.2.0` through `v1.2.0` by orchestrating Claude, Codex, and DSH on its own codebase under human direction and final sign-off.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/timeline-dark.svg" />
@@ -192,7 +201,7 @@ Expose all 9 MCP control-plane tools (`baton_health`, `baton_start`, `baton_stat
 
 ## Releases & Docs
 
-`v1.0.0` introduced native HTTP providers, Auto-Conflict-Resolver, container scaffolding, and the Windows installer, followed by `v1.0.1`–`v1.0.4` adding resizable panes, overnight alerts, 3-tier pricing, and sanitized case replay.  
+`v1.0.0` introduced native HTTP providers, Auto-Conflict-Resolver, container scaffolding, and the Windows installer, followed by `v1.0.1`–`v1.0.4` adding resizable panes, overnight alerts, 3-tier pricing, and sanitized case replay. `v1.1.0` added Specialist Panel mode, and `v1.2.0` adds Guided Mode, the Universal CLI Registry, and the bilingual tech glossary.  
 [GitHub Releases](https://github.com/KungerChen/VibeBaton/releases) · [CHANGELOG](CHANGELOG.md) · [v1.0 Launch Notes](docs/RELEASE_NOTES_v1.0.md) · [Tutorial](docs/TUTORIAL.md) · [Roadmap](docs/ROADMAP.md) · [Security](docs/SECURITY.md)
 
 ## Contributing & License

@@ -20,6 +20,7 @@ from vibebaton.credentials import (
     ProbeResult,
     default_credentials_path,
     list_credential_status,
+    list_present_provider_keys,
     mask_secret,
     probe_role_or_provider,
     resolve_env_for_provider,
@@ -69,6 +70,18 @@ class TestCredentialStore(_IsolatedCredentials):
             for key in SUPPORTED_KEYS
         ])
         self.assertFalse(self.credentials_path.parent.exists())
+
+    def test_lists_present_keys_from_env_and_store_without_values(self) -> None:
+        self.credentials_path.parent.mkdir(parents=True)
+        self.credentials_path.write_text(
+            json.dumps({"DEEPSEEK_API_KEY": "ds-secret", "GEMINI_API_KEY": "", "EXTRA_KEY": "x"}), encoding="utf-8"
+        )
+        os.environ["OPENAI_API_KEY"] = "oa-secret"
+        os.environ["GEMINI_API_KEY"] = ""
+        keys = ("OPENAI_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY")
+        self.assertEqual(list_present_provider_keys(keys, self.credentials_path), ["DEEPSEEK_API_KEY", "OPENAI_API_KEY"])
+        self.credentials_path.write_text("{broken", encoding="utf-8")
+        self.assertEqual(list_present_provider_keys(keys, self.credentials_path), ["OPENAI_API_KEY"])
 
     def test_masks_empty_short_and_long_values(self) -> None:
         cases = (

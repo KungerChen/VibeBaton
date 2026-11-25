@@ -1,6 +1,6 @@
 # VibeBaton 产品与工程路线图（Roadmap）
 
-> **核心定位 / Positioning**: 跨厂商异构多 Agent 软件工厂（Heterogeneous Multi-Agent Orchestrator）——在本地工作流中自由混编 **Antigravity / Claude / Codex / OpenCode Go / DSH** 与任意开源或自托管模型，以 **Contract-First + 机械门禁前置 + Git Worktree 并发隔离 + 可分享 `.baton.json` 开放配方生态** 作为核心护城河。
+> **核心定位 / Positioning**: 跨厂商异构多 Agent 软件工厂（Heterogeneous Multi-Agent Orchestrator）——在本地工作流中自由混编 **Antigravity / Claude / Codex / DSH** 与任意开源或自托管模型，以 **Contract-First + 机械门禁前置 + Git Worktree 并发隔离 + 可分享 `.baton.json` 开放配方生态** 作为核心护城河。
 
 ---
 
@@ -32,7 +32,7 @@
 
 ## ✅ Stage 3 · `v0.9.0-beta`（已正式合入 `main`：`0287990`）
 
-详见技术规格与新手教程：[RFC_STAGE3_DRAFT.md](RFC_STAGE3_DRAFT.md) · [新手保姆级教程 TUTORIAL.md](TUTORIAL.md)。核心落地特性与精修：
+详见技术规格与上手指南：[RFC_STAGE3_DRAFT.md](RFC_STAGE3_DRAFT.md) · [完整图文教程 TUTORIAL.md](TUTORIAL.md)。核心落地特性与精修：
 
 1. **场景化 & 单厂商全家桶配方广场（Recipe Plaza · 7 套预设）**
    - 支持 `same_family`（`claude_only_3tier` / `codex_only_3tier` / `deepseek_bulk_factory`）、`bulk_batch`、`small_project`、`audit` 分类，结合 `baton doctor` 自动标绿「本机就绪」预设。
@@ -40,7 +40,7 @@
    - `eco` / `balanced` / `max_quality` 三档预算策略 + 受约束候选目录 + 运行期零成本阶梯升档（`@low → @max → flagship`）与单节点 Pin 锁定。
 3. **交互式头脑风暴与 RFC 机械体检 + 5 秒一键测活（Preflight & Brainstorm Gate）**
    - 发车向导前置 3 步闭环（本机 CLI 与 API Key 就绪检查 / 5 秒 Doctor / 结构化头脑风暴与 `safe_for_overnight` 评分 / **发车前分工与安全护栏总览**）。
-4. **体验精修（实时画布、阶段耗时、双语战报与小白教程）**
+4. **体验精修（实时画布、阶段耗时、双语战报与新手教程）**
    - **实时画布联动**：左侧新增「实时运行工作流」入口，点击即可把当前运行/历史运行的真实 `01_PLAN` / 里程碑 / 任务 DAG 与流光脉冲同步到主画布。
    - **全链路耗时统计**：引擎埋点 `role_completed` 与动态时间戳，输出 **Stage Timing（`01_PLAN` 与 M1~M4）** 与 **Model Runtime（含 `DSH` 展示名）**；支持 **历史运行下拉切换** 与 **任务行展开审校/门禁/白名单详情**。
    - **完整 `EN | 中文` 双语战报 & 零基础教程**：`generate_battle_report` 支持中英文切换并在界面开关切换时自动重拉；内置引导弹窗新增第 3 标签页 **「详细教程」** 并沉淀独立文档 `docs/TUTORIAL.md`。
@@ -104,3 +104,15 @@
 5. **成本均衡档位默认值（cost-balanced tier defaults）**：`hydrogen` 归入 `eco` 档，`sonnet` / `neon` / `sol` 归入 `standard` 档，使默认模型选型更贴近成本与质量的平衡点。
 
 > `v1.1.0` 已于 2026-11-23 正式发布。完整变更见 [CHANGELOG.md](../CHANGELOG.md)。
+
+---
+
+## ✅ Stage 6 · `v1.2.0` — Guided Mode & Universal CLI Registry（已正式发布：2026-11-24）
+
+1. **引导模式（Guided Mode）**：Studio 页头可在 **引导模式 / 专业模式** 之间随时切换，并通过 `localStorage` 记住选择。引导模式把首次落地收束为四步闭环：**工作区**（选择项目文件夹、按需开启版本记录，扫描本机 AI 编程工具并给出推荐阵容）、**蓝图**（多轮头脑风暴产出蓝图卡，确认后写出 RFC 并开工）、**施工**（画布实时跟随，节点详情抽屉与决策卡承接人工节点）、**验收**（批准合并、要求修改或回滚）。引导模式与专业模式共用同一套引擎、REST API 与安全门禁，只是每次只呈现一个决策。
+2. **通用 CLI 注册表（Universal CLI Registry）**：`presets/cli_registry.json` 描述 8 个编码 CLI 驱动（`claude`、`codex`、`dsh`（Studio 展示名 `DSH`）、`gemini`、`opencode`、`aider`、`qwen`、`copilot`）。Studio 扫描本机安装与登录状态、标注可用性并给出推荐阵容；安装只在你勾选安装命令旁的确认复选框后才执行（接口要求 `confirmed: true`），登录则发起该 CLI 官方的登录流程。
+3. **双语术语表（Glossary）**：内置 220+ 条 `EN | 中文` 术语，覆盖 AI、工程、报错、Git、Web/HTTP 与 VibeBaton 概念；正文术语可展开行内提示，页头「术语表」抽屉支持搜索与关联术语跳转。
+4. **新增 REST 接口**：`GET /api/cli-registry`、`POST /api/cli-registry/scan`、`POST /api/cli-registry/install`、`POST /api/cli-registry/login`；`GET /api/workspace/info`、`POST /api/workspace/select`、`POST /api/workspace/init-git`；`POST /api/brainstorm/chat`、`POST /api/brainstorm/confirm`；`GET /api/runs/{id}/tasks/{task_id}`、`POST /api/runs/{id}/finalize`。
+5. **验收回滚锚点**：运行开始时在主分支创建 `baton-backup/<run_id>` 轻量标签，最终批准前幂等复核；Studio 的回滚只撤销本次获批合并并恢复到批准前记录的基准提交，不会连带丢弃运行期间落在主分支上的其他提交。
+
+> `v1.2.0` 已于 2026-11-24 正式发布。完整变更见 [CHANGELOG.md](../CHANGELOG.md)。

@@ -8,6 +8,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   type Edge,
+  type NodeMouseHandler,
   type OnConnect,
   type OnEdgesChange,
   type OnNodesChange,
@@ -62,6 +63,8 @@ export type CanvasWorkspaceProps = {
   onSelectionChange: (sel: { nodeId: string | null; edgeId: string | null }) => void;
   activeEdgeIds: ReadonlySet<string>;
   traversedEdgeIds: ReadonlySet<string>;
+  /** Called with the clicked node's id (live task nodes are `live-task-<taskId>`). */
+  onNodeClick?: (nodeId: string) => void;
   children?: ReactNode;
 };
 
@@ -101,6 +104,7 @@ export function CanvasWorkspace({
   onSelectionChange,
   activeEdgeIds,
   traversedEdgeIds,
+  onNodeClick,
   children,
 }: CanvasWorkspaceProps) {
   const { theme } = useTheme();
@@ -160,6 +164,10 @@ export function CanvasWorkspace({
     onSelectionChange({ nodeId: nodes[0]?.id ?? null, edgeId: edges[0]?.id ?? null });
   }, [onSelectionChange]);
 
+  const handleNodeClick = useCallback<NodeMouseHandler<BatonFlowNode>>((_event, node) => {
+    onNodeClick?.(node.id);
+  }, [onNodeClick]);
+
   return (
     <ReactFlowProvider>
       <div className="canvas-workspace" data-tour-id="canvas-workspace">
@@ -177,6 +185,7 @@ export function CanvasWorkspace({
           onEdgesChange={onEdgesChange}
           onConnect={handleConnect}
           onSelectionChange={handleSelectionChange}
+          onNodeClick={onNodeClick ? handleNodeClick : undefined}
         >
           <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="var(--canvas-dot)" />
           <Controls />

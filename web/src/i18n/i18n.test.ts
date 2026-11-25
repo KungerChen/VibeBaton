@@ -11,6 +11,7 @@ import { EN_TO_ZH_PRESET_TEXT, formatProviderDisplay, translateHandle, translate
 const CJK_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const HAN_PATTERN = /\p{Script=Han}/u;
 const OPENCODE_PATTERN = /opencode/i;
+const CONDESCENDING_PATTERN = /小白|菜鸟|傻瓜|笨蛋|noob|dummy/i;
 const QUICK_START_IDENTIFIERS = /^MESSAGES\.zh\.quickStart\.(?:legendTiers\[\d+\]\.key|legendEdges\[\d+\]\.tone|shortcuts\[\d+\]\.keys)$/;
 const PRESETS = [...EMBEDDED_PRESETS, claudeOnlyPreset, codexOnlyPreset, deepseekBulkPreset];
 
@@ -182,6 +183,38 @@ describe('i18n guarantees', () => {
     const bulkNode = flagship_4tier.nodes.find((node) => node.id === 'l3_bulk');
     expect(bulkNode?.config?.provider).toBe('dsh_opencode');
     expect(bulkNode?.config?.model).toBe('deepseek-v4.1-flash@max');
+  });
+
+  test.each(['guided', 'glossary'] as const)('%s namespace has EN/ZH parity, clean English, Han Chinese, and respectful copy', (namespace) => {
+    const en = collectStrings(MESSAGES.en[namespace], namespace);
+    const zh = collectStrings(MESSAGES.zh[namespace], namespace);
+    expect(en.length).toBeGreaterThan(0);
+    expect(zh.map(({ path }) => path).sort()).toEqual(en.map(({ path }) => path).sort());
+
+    for (const { path, text } of en) {
+      expect(text.trim(), `Empty message at en.${path}`).not.toBe('');
+      expect(text, `Unexpected CJK at en.${path}`).not.toMatch(CJK_PATTERN);
+      expect(text, `Unexpected provider name at en.${path}`).not.toMatch(OPENCODE_PATTERN);
+      expect(text, `Condescending wording at en.${path}`).not.toMatch(CONDESCENDING_PATTERN);
+    }
+    for (const { path, text } of zh) {
+      expect(text, `Missing Chinese text at zh.${path}`).toMatch(HAN_PATTERN);
+      expect(text, `Unexpected provider name at zh.${path}`).not.toMatch(OPENCODE_PATTERN);
+      expect(text, `Condescending wording at zh.${path}`).not.toMatch(CONDESCENDING_PATTERN);
+    }
+  });
+
+  test('guided messages expose the Guided/Pro labels and four steps in both locales', () => {
+    expect(MESSAGES.en.guided.mode).toEqual({ guided: 'Guided', pro: 'Pro' });
+    expect(MESSAGES.zh.guided.mode).toEqual({ guided: '引导模式', pro: '专业模式' });
+    expect(MESSAGES.en.guided.steps).toHaveLength(4);
+    expect(MESSAGES.zh.guided.steps).toHaveLength(4);
+  });
+
+  test('no message in either locale uses condescending wording', () => {
+    for (const { path, text } of collectStrings(MESSAGES, 'MESSAGES')) {
+      expect(text, `Condescending wording at ${path}`).not.toMatch(CONDESCENDING_PATTERN);
+    }
   });
 
   test('localizes the legacy bulk preset title and preserves custom recipe text', () => {

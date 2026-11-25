@@ -86,6 +86,55 @@ def ensure_git_ready(repo: Path, base_branch: str, dev_branch: str) -> str:
     return base_branch
 
 
+def backup_tag_name(run_id: str) -> str:
+    return f"baton-backup/{run_id}"
+
+
+def create_backup_tag(repo: Path, run_id: str, base_branch: str) -> str:
+    """Tag the base branch head as ``baton-backup/<run_id>`` (lightweight); an existing tag is kept as-is."""
+    tag = backup_tag_name(run_id)
+    exists = _run_git(repo, ["rev-parse", "-q", "--verify", f"refs/tags/{tag}"], check=False)
+    if exists.returncode != 0:
+        _run_git(repo, ["tag", tag, base_branch])
+    return tag
+
+
+def uncommitted_paths(repo: Path) -> list[str]:
+    """Paths with uncommitted (staged, unstaged or untracked) changes, ignoring VibeBaton's ``.baton/`` state."""
+    out = _run_git(repo, ["status", "--porcelain", "-z"]).stdout
+    entries = [entry for entry in out.split("\0") if entry]
+    paths: list[str] = []
+    skip_next = False
+    for entry in entries:
+        if skip_next:  # the original path of a rename/copy entry
+            skip_next = False
+            continue
+        code, path = entry[:2], entry[3:]
+        skip_next = "R" in code or "C" in code
+        if not (path == ".baton" or path.startswith(".baton/")):
+            paths.append(path)
+    return paths
+
+
+def restore_backup_tag(repo: Path, run_id: str, base_branch: str) -> str:
+    """Check out base_branch and hard-reset it to ``baton-backup/<run_id>``; returns the restored commit."""
+    tag = backup_tag_name(run_id)
+    target = _run_git(repo, ["rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}"], check=False)
+    if target.returncode != 0:
+        raise GitError(f"No backup tag '{tag}' to restore")
+    return reset_branch_to(repo, base_branch, target.stdout.strip())
+
+
+def reset_branch_to(repo: Path, branch: str, commit: str) -> str:
+    """Check out ``branch`` and hard-reset it to ``commit``; refuses on uncommitted changes outside ``.baton/``."""
+    dirty = uncommitted_paths(repo)
+    if dirty:
+        raise GitError(f"Refusing to roll back: uncommitted changes in {', '.join(dirty)}")
+    _run_git(repo, ["checkout", "-q", branch])
+    _run_git(repo, ["reset", "-q", "--hard", commit])
+    return commit
+
+
 def ensure_branch(repo: Path, branch_name: str, start_point: str) -> None:
     check = _run_git(repo, ["rev-parse", "--verify", branch_name], check=False)
     if check.returncode != 0:

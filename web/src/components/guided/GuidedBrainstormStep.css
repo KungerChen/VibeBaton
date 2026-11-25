@@ -1,0 +1,218 @@
+.guided-brainstorm {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(16rem, 2fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .guided-brainstorm {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.guided-brainstorm__chat,
+.guided-brainstorm__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  box-sizing: border-box;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: var(--shadow-sm);
+}
+
+.guided-brainstorm__heading {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.guided-brainstorm__scenarios {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.5rem;
+}
+
+.guided-brainstorm__scenario {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--muted);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.guided-brainstorm__scenario:hover,
+.guided-brainstorm__scenario[aria-pressed='true'] {
+  border-color: var(--primary);
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.guided-brainstorm__transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 24rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.guided-brainstorm__turn {
+  max-width: 85%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.guided-brainstorm__turn--user {
+  align-self: flex-end;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.guided-brainstorm__turn--assistant {
+  align-self: flex-start;
+  background: var(--muted);
+}
+
+.guided-brainstorm__composer {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.guided-brainstorm__input {
+  flex: 1;
+  box-sizing: border-box;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--input);
+  border-radius: 0.5rem;
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
+
+.guided-brainstorm__send,
+.guided-brainstorm__launch,
+.guided-brainstorm__rfc-toggle {
+  padding: 0.5rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.guided-brainstorm__send,
+.guided-brainstorm__launch {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 600;
+}
+
+.guided-brainstorm__send:disabled,
+.guided-brainstorm__launch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.guided-brainstorm__rfc-toggle {
+  align-self: flex-start;
+  border-color: var(--border);
+  background: none;
+  color: var(--muted-foreground);
+}
+
+.guided-brainstorm__input:focus-visible,
+.guided-brainstorm__scenario:focus-visible,
+.guided-brainstorm__send:focus-visible,
+.guided-brainstorm__launch:focus-visible,
+.guided-brainstorm__rfc-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.guided-brainstorm__error {
+  margin: 0;
+  color: var(--destructive);
+}
+
+.guided-brainstorm__title {
+  margin: 0;
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.guided-brainstorm__label {
+  margin: 0.25rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.guided-brainstorm__text,
+.guided-brainstorm__empty,
+.guided-brainstorm__hint {
+  margin: 0;
+}
+
+.guided-brainstorm__empty,
+.guided-brainstorm__hint {
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
+.guided-brainstorm__offline {
+  margin: 0;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, var(--border));
+  border-radius: 0.5rem;
+  background: var(--amber-soft);
+  color: var(--text-strong);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.guided-brainstorm__list {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.guided-brainstorm__meter {
+  width: 100%;
+  height: 0.6rem;
+}
+
+.guided-brainstorm__score {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.guided-brainstorm__rfc {
+  max-height: 20rem;
+  margin: 0;
+  padding: 0.75rem;
+  overflow: auto;
+  border-radius: 0.5rem;
+  background: var(--muted);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+
+.guided-brainstorm__launch {
+  margin-top: 0.5rem;
+}

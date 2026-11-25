@@ -1,0 +1,190 @@
+.guided-app[hidden],
+.app[hidden] {
+  display: none;
+}
+
+/* App-level shell used when Guided Mode replaces the Pro grid layout. */
+.guided-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--background);
+}
+
+.guided-app > .guided-workbench {
+  flex: 1;
+  min-height: 0;
+}
+
+.guided-workbench {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  min-height: 0;
+}
+
+.guided-workbench__rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 1rem 0.75rem;
+  overflow-y: auto;
+  border-inline-end: 1px solid var(--border);
+  background: var(--card);
+  list-style: none;
+}
+
+.guided-workbench__step {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.6rem;
+  border-radius: 0.6rem;
+  color: var(--muted-foreground);
+}
+
+.guided-workbench__step--current {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+
+.guided-workbench__step-index {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.guided-workbench__step--current .guided-workbench__step-index {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.guided-workbench__step--done .guided-workbench__step-index {
+  border-color: var(--emerald);
+  color: var(--emerald);
+}
+
+.guided-workbench__step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.guided-workbench__step-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.guided-workbench__step-hint {
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.guided-workbench__body {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.guided-workbench__panel {
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 1.25rem;
+}
+
+.guided-workbench__live {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.guided-workbench__hint {
+  margin: 0;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
+.guided-workbench__paused {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--amber) 35%, var(--border));
+  background: var(--amber-soft);
+  color: var(--text-strong);
+  font-size: 0.85rem;
+}
+
+.guided-workbench__paused-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.guided-workbench__button {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--secondary);
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.guided-workbench__button--primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 600;
+}
+
+.guided-workbench__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.guided-workbench__error {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--rose);
+  font-size: 0.8rem;
+}
+
+.guided-workbench__canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 760px) {
+  .guided-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .guided-workbench__rail {
+    flex-direction: row;
+    overflow-x: auto;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .guided-workbench__step-hint {
+    display: none;
+  }
+}

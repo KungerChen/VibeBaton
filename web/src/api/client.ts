@@ -55,7 +55,207 @@ type WirePricingSyncResponse = Omit<PricingSyncResponse, 'catalog'> & {
   catalog: WirePricingStatusResponse;
 };
 
-type RunDecision = 'approve' | 'reject';
+export type RunDecision = 'approve' | 'reject';
+
+// Guided Studio payloads. These mirror the M1 backend contracts in
+// src/vibebaton/cli_registry.py, src/vibebaton/brainstorm.py and src/vibebaton/web_server.py.
+
+export type CliDriverTier = 'official' | 'community';
+export type CliScanStatus = 'ready' | 'installed_unauthenticated' | 'missing' | 'prereq_missing';
+
+export interface CliDriver {
+  id: string;
+  name: string;
+  tier: CliDriverTier;
+  binary: string;
+  summary_en: string;
+  summary_zh: string;
+  prereq: string[];
+  install_cmd: string[];
+  login_cmd: string[];
+  official_url: string;
+  command_template: string[];
+  version_cmd: string[];
+  provider_ids: string[];
+  env_keys: string[];
+  auth_check_cmd?: string[] | null;
+}
+
+export interface CliTag {
+  id: string;
+  label_en: string;
+  label_zh: string;
+  summary_en: string;
+  summary_zh: string;
+}
+
+export interface CliRegistry {
+  schema_version: number;
+  drivers: CliDriver[];
+  tags: CliTag[];
+}
+
+export interface CliScanEntry {
+  id: string;
+  status: CliScanStatus;
+  binary_path: string | null;
+  version: string | null;
+  prereq_missing: string[];
+  reason_en: string;
+  reason_zh: string;
+}
+
+export interface CliScanResult {
+  drivers: CliScanEntry[];
+  http_api_keys_present: string[];
+  /** Unix seconds. */
+  scanned_at: number;
+}
+
+export interface RecommendedLineup {
+  ready: boolean;
+  /** Role name -> provider id. */
+  roles: Record<string, string>;
+  source: 'cli' | 'http' | 'mixed';
+  notes_en: string;
+  notes_zh: string;
+}
+
+export interface CliRegistryScanResponse {
+  scan: CliScanResult;
+  lineup: RecommendedLineup;
+}
+
+export interface CliInstallRequest {
+  cliId: string;
+  /** Installing runs a registry recipe on the host, so callers must confirm explicitly. */
+  confirmed: true;
+}
+
+export interface CliInstallResult {
+  id: string;
+  ok: boolean;
+  command: string[];
+  returncode: number;
+  output: string;
+}
+
+export interface CliLoginResult {
+  id: string;
+  launched: boolean;
+  command: string[];
+  message_en: string;
+  message_zh: string;
+}
+
+export interface WorkspaceInfo {
+  path: string;
+  is_git_repo: boolean;
+  branch: string | null;
+  has_commits: boolean;
+  has_rfc: boolean;
+}
+
+export interface InitGitResult extends WorkspaceInfo {
+  created: boolean;
+}
+
+export interface BrainstormMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface BrainstormChatRequest {
+  /** Full conversation so far, oldest first; must end with a user message. */
+  messages: BrainstormMessage[];
+  scenario?: string | null;
+  offline?: boolean;
+  locale?: 'en' | 'zh';
+}
+
+export interface BlueprintCard {
+  title: string;
+  summary: string;
+  deliverables: string[];
+  touched_areas: string[];
+  verification_plan: string[];
+  /** 0-100, equals the RFC readiness score. */
+  readiness_score: number;
+  ready_to_launch: boolean;
+}
+
+export interface BrainstormTurnResult {
+  reply: string;
+  rfc_markdown: string;
+  blueprint: BlueprintCard;
+  /** null when the deterministic offline composer produced the turn. */
+  provider_used: string | null;
+  offline: boolean;
+}
+
+export interface BlueprintConfirmResult {
+  rfc_path: string;
+  readiness: RfcReadinessResult;
+  ready_to_launch: boolean;
+}
+
+export type RunTaskTestStatus = 'passed' | 'failed' | 'not_run' | 'not_configured';
+
+export interface RunTaskDetail {
+  run_id: string;
+  task_id: string;
+  milestone_id: string;
+  title: string;
+  tier: string;
+  status: string;
+  summary: string;
+  attempts: number;
+  test_status: RunTaskTestStatus;
+  provider: string | null;
+  model: string | null;
+  elapsed_sec: number;
+  cost_usd: number;
+  changed_files: string[];
+  review_verdict: string | null;
+}
+
+export interface ResolveRunTaskRequest {
+  taskId: string;
+  choice: RunDecision;
+  note?: string;
+}
+
+export interface ResolveRunTaskResult {
+  ok: true;
+  run_id: string;
+  task_id: string;
+  status: string;
+}
+
+export type FinalizeAction = 'approve' | 'revise' | 'rollback';
+
+export interface FinalizeRequest {
+  action: FinalizeAction;
+  /** Required (non-blank) for `revise`. */
+  note?: string;
+}
+
+export interface FinalizeResult {
+  ok: true;
+  run_id: string;
+  action: FinalizeAction;
+  status: string;
+  backup_tag: string | null;
+  base_branch: string;
+  base_head: string | null;
+  /** approve */
+  merged_commit?: string;
+  changed_files?: string[];
+  /** rollback */
+  restored_to?: string;
+  /** revise */
+  revisions_path?: string;
+}
 
 const DEMO_DOCTOR_LATENCY_MS = 5000;
 export const DEFAULT_START_RUN_TIMEOUT_MS = 15_000;
@@ -403,6 +603,62 @@ export class BatonApiClient {
     daemon_pid: number | null;
   }> {
     return this.requestJson(`/api/runs/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: { decision, note } });
+  }
+
+  getCliRegistry(): Promise<CliRegistry> {
+    return this.requestJson('/api/cli-registry');
+  }
+
+  scanCliRegistry(repoPath?: string): Promise<CliRegistryScanResponse> {
+    return this.requestJson('/api/cli-registry/scan', {
+      method: 'POST', body: repoPath === undefined ? {} : { repo_path: repoPath },
+    });
+  }
+
+  installCli({ cliId }: CliInstallRequest): Promise<CliInstallResult> {
+    // Only the driver id travels; the server runs its own allowlisted registry recipe.
+    return this.requestJson('/api/cli-registry/install', { method: 'POST', body: { id: cliId, confirmed: true } });
+  }
+
+  loginCli(cliId: string): Promise<CliLoginResult> {
+    return this.requestJson('/api/cli-registry/login', { method: 'POST', body: { id: cliId } });
+  }
+
+  getWorkspaceInfo(): Promise<WorkspaceInfo> {
+    return this.requestJson('/api/workspace/info');
+  }
+
+  selectWorkspace(path: string): Promise<WorkspaceInfo> {
+    return this.requestJson('/api/workspace/select', { method: 'POST', body: { path } });
+  }
+
+  initGitWorkspace(): Promise<InitGitResult> {
+    return this.requestJson('/api/workspace/init-git', { method: 'POST', body: {} });
+  }
+
+  brainstormChat(payload: BrainstormChatRequest): Promise<BrainstormTurnResult> {
+    return this.requestJson('/api/brainstorm/chat', { method: 'POST', body: payload });
+  }
+
+  brainstormConfirm(rfcMarkdown: string): Promise<BlueprintConfirmResult> {
+    return this.requestJson('/api/brainstorm/confirm', { method: 'POST', body: { rfc_markdown: rfcMarkdown } });
+  }
+
+  getRunTaskDetail(runId: string, taskId: string, locale?: 'en' | 'zh'): Promise<RunTaskDetail> {
+    const query = locale === 'zh' ? '?lang=zh' : '';
+    return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}${query}`);
+  }
+
+  resolveRunTask(runId: string, { taskId, choice, note = '' }: ResolveRunTaskRequest): Promise<ResolveRunTaskResult> {
+    return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/resolve`, {
+      method: 'POST', body: { task_id: taskId, choice, note },
+    });
+  }
+
+  finalizeRun(runId: string, { action, note = '' }: FinalizeRequest): Promise<FinalizeResult> {
+    return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/finalize`, {
+      method: 'POST', body: { action, note },
+    });
   }
 
   streamUrl(): string {

@@ -1,0 +1,281 @@
+.node-detail-drawer__root {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.node-detail-drawer__scrim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--background) 58%, transparent);
+}
+
+.node-detail-drawer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  box-sizing: border-box;
+  width: min(24rem, 100vw);
+  height: 100%;
+  padding: 1rem 1.1rem 1.25rem;
+  border-left: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow-lg);
+  color: var(--foreground);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.node-detail-drawer__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.node-detail-drawer__heading {
+  display: grid;
+  justify-items: start;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.node-detail-drawer__eyebrow {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.node-detail-drawer__title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.node-detail-drawer__task-id {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--muted);
+  color: var(--foreground);
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.node-detail-drawer__status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--text-strong);
+  font-size: 0.69rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.node-detail-drawer__status-pill[data-status='PASSED'],
+.node-detail-drawer__status-pill[data-status='COMPLETED'] {
+  border-color: color-mix(in srgb, var(--emerald) 35%, var(--border));
+  background: var(--emerald-soft);
+  color: var(--emerald);
+}
+
+.node-detail-drawer__status-pill[data-status='FAILED'],
+.node-detail-drawer__status-pill[data-status='REJECTED'],
+.node-detail-drawer__status-pill[data-status='HALTED'] {
+  border-color: color-mix(in srgb, var(--rose) 35%, var(--border));
+  background: var(--rose-soft);
+  color: var(--rose);
+}
+
+.node-detail-drawer__status-pill[data-status='RUNNING'],
+.node-detail-drawer__status-pill[data-status='IN_PROGRESS'],
+.node-detail-drawer__status-pill[data-status='REVIEWING'],
+.node-detail-drawer__status-pill[data-status='GATE_CHECKING'] {
+  border-color: color-mix(in srgb, var(--sky) 35%, var(--border));
+  background: var(--sky-soft);
+  color: var(--sky);
+}
+
+.node-detail-drawer__status-pill[data-status='WAITING_HUMAN'],
+.node-detail-drawer__status-pill[data-status='PAUSED'],
+.node-detail-drawer__status-pill[data-status='COOLDOWN'] {
+  border-color: color-mix(in srgb, var(--amber) 35%, var(--border));
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.node-detail-drawer__close {
+  flex: none;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.node-detail-drawer__close:hover,
+.node-detail-drawer__close:focus-visible {
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+}
+
+.node-detail-drawer__close:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.node-detail-drawer__section {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.node-detail-drawer__section h3 {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.node-detail-drawer__summary {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.node-detail-drawer__facts {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--muted);
+}
+
+.node-detail-drawer__fact {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.node-detail-drawer__fact dt {
+  color: var(--muted-foreground);
+}
+
+.node-detail-drawer__fact dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.node-detail-drawer__fact code {
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.node-detail-drawer__files {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.node-detail-drawer__files li {
+  min-width: 0;
+}
+
+.node-detail-drawer__files code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.node-detail-drawer__empty {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+.node-detail-drawer__loading {
+  display: flex;
+  align-items: center;
+  min-height: 3rem;
+}
+
+.node-detail-drawer__spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 999px;
+  animation: node-detail-drawer-spin 0.8s linear infinite;
+}
+
+.node-detail-drawer__error {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--rose) 40%, var(--border));
+  border-radius: 0.6rem;
+  background: var(--rose-soft);
+  color: var(--rose);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.node-detail-drawer__error p {
+  margin: 0;
+}
+
+.node-detail-drawer__error p.node-detail-drawer__error-label {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+
+@keyframes node-detail-drawer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .node-detail-drawer__spinner {
+    animation: none;
+  }
+}
+
+@media (max-width: 40rem) {
+  .node-detail-drawer {
+    width: 100%;
+    border-left: 0;
+  }
+}

@@ -3,6 +3,7 @@ import { addEdge, useEdgesState, useNodesState, type OnConnect } from '@xyflow/r
 import { BatonApiClient, type ApiMode } from './api/client';
 import { AttentionBanner } from './components/AttentionBanner';
 import { CanvasWorkspace, updateWorkspaceReadiness } from './components/CanvasWorkspace';
+import { GlossaryDrawer, GuidedWorkbench } from './components/guided';
 import { HeaderBar } from './components/HeaderBar';
 import { isLiveSnapshot, RunControlsContext, useRunControls } from './components/inspector/LiveRunPanel';
 import { StartRunModal } from './components/inspector/StartRunModal';
@@ -55,6 +56,7 @@ import { deriveStates, stepIntervalMs } from './engine/playback';
 import { buildShareUrl, decodeRecipeHash } from './engine/shareUrl';
 import { I18nProvider, useI18n } from './i18n';
 import { translatePresetText } from './i18n/presets';
+import { loadStudioMode, saveStudioMode, type StudioMode } from './lib/studioMode';
 import { ThemeProvider, useTheme } from './theme';
 import type {
   BatonCaseBundle,
@@ -227,6 +229,9 @@ function AppContent() {
   const [liveReconnecting, setLiveReconnecting] = useState(false);
   const [liveViewActive, setLiveViewActive] = useState(false);
   const [startRunOpen, setStartRunOpen] = useState(false);
+  const [studioMode, setStudioMode] = useState<StudioMode>(() => loadStudioMode());
+  const [hasOpenedGuided, setHasOpenedGuided] = useState(() => studioMode === 'guided');
+  const [glossaryOpen, setGlossaryOpen] = useState(false);
   const lastLiveCanvasRef = useRef<{ runId: string | null; signature: string } | null>(null);
   const availableCaseRunId = mode === 'local' ? selectedRunId ?? runId ?? recentRuns[0]?.id ?? null : null;
   const snapshotRunId = typeof liveSnapshot?.run?.id === 'string' ? liveSnapshot.run.id : null;
@@ -837,7 +842,7 @@ function AppContent() {
   }
 
   const handleGlobalKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    if (liveViewActive || stepCount === 0 || tourState.open) return;
+    if (studioMode !== 'pro' || liveViewActive || stepCount === 0 || tourState.open) return;
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
     if (document.querySelector('dialog[open]')) return;
     const target = event.target instanceof Element ? event.target : null;
@@ -956,23 +961,58 @@ function AppContent() {
   }
 
   const version = client.health?.version;
+
+  function onStudioModeChange(nextMode: StudioMode) {
+    setStudioMode(nextMode);
+    if (nextMode === 'guided') setHasOpenedGuided(true);
+    saveStudioMode(nextMode);
+  }
+
+  const headerBar = (
+    <HeaderBar
+      mode={mode ?? 'demo'}
+      version={typeof version === 'string' ? version : undefined}
+      graphName={graph.name}
+      replayActive={replayActive}
+      liveViewActive={liveViewActive}
+      // Start Run and the Quick Start guide belong to the Pro layout; Guided Mode has its own flow.
+      onOpenStartRun={studioMode === 'pro' && mode === 'local' ? () => setStartRunOpen(true) : undefined}
+      onOpenGuide={studioMode === 'pro' ? () => setGuideOpen(true) : undefined}
+      studioMode={studioMode}
+      onStudioModeChange={onStudioModeChange}
+      onOpenGlossary={() => setGlossaryOpen(true)}
+    />
+  );
+  const glossaryDrawer = (
+    <GlossaryDrawer open={glossaryOpen} onClose={() => setGlossaryOpen(false)} locale={locale} />
+  );
+
   return (
-    <div
-      className="app"
-      style={{
-        '--sidebar-w': `${paneWidths.sidebar}px`,
-        '--inspector-w': `${paneWidths.inspector}px`,
-      } as CSSProperties}
-    >
-      <HeaderBar
-        mode={mode ?? 'demo'}
-        version={typeof version === 'string' ? version : undefined}
-        graphName={graph.name}
-        replayActive={replayActive}
-        liveViewActive={liveViewActive}
-        onOpenStartRun={mode === 'local' ? () => setStartRunOpen(true) : undefined}
-        onOpenGuide={() => setGuideOpen(true)}
-      />
+    <>
+      {hasOpenedGuided && (
+        <div className="guided-app" hidden={studioMode !== 'guided'}>
+          {studioMode === 'guided' ? headerBar : null}
+          <GuidedWorkbench
+            locale={locale}
+            client={client}
+            liveSnapshot={liveSnapshot}
+            onFollowRun={(followRunId) => {
+              lastLiveCanvasRef.current = null;
+              setLiveViewActive(true);
+              void onSelectRunId(followRunId);
+            }}
+          />
+        </div>
+      )}
+      <div
+        className="app"
+        hidden={studioMode === 'guided'}
+        style={{
+          '--sidebar-w': `${paneWidths.sidebar}px`,
+          '--inspector-w': `${paneWidths.inspector}px`,
+        } as CSSProperties}
+      >
+        {studioMode === 'pro' ? headerBar : null}
       <AttentionBanner
         key={visibleFingerprint}
         alert={visibleAttentionAlert}
@@ -1179,8 +1219,10 @@ function AppContent() {
           onRequirePane={onRequirePane}
         />
       )}
+      </div>
+      {glossaryDrawer}
       <ToastHost toasts={toasts} />
-    </div>
+    </>
   );
 }
 
