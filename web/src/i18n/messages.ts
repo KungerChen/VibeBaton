@@ -543,6 +543,16 @@ export interface Messages {
       needsApiKeyForTeam: (envKey: string) => string;
       configureApiKeyAction: string;
       teamNeedsApiKeyNote: (names: string, keys: string) => string;
+      syncModels: string;
+      syncingModels: string;
+      modelsSyncedDone: (added: number) => string;
+      modelsDailyHint: string;
+      providerColumnLabel: string;
+      modelColumnLabel: string;
+      effortColumnLabel: string;
+      modelGroupLatest: string;
+      modelGroupLegacy: string;
+      modelGroupSynced: string;
     };
     brainstorm: {
       scenariosTitle: string;
@@ -1349,6 +1359,16 @@ export const MESSAGES: Record<Locale, Messages> = {
         needsApiKeyForTeam: (envKey) => `CLI installed - add ${envKey} in API Keys below to use it in your team.`,
         configureApiKeyAction: 'Set API Key',
         teamNeedsApiKeyNote: (names, keys) => `${names} detected locally - add ${keys} in API Keys above to include it in your team.`,
+        syncModels: 'Check Latest Models',
+        syncingModels: 'Checking models...',
+        modelsSyncedDone: (added) => (added > 0 ? `Catalog synced (${added} new models added).` : 'Model catalog is up to date.'),
+        modelsDailyHint: 'Auto-checks daily (all active & legacy models remain selectable).',
+        providerColumnLabel: 'Provider',
+        modelColumnLabel: 'Model',
+        effortColumnLabel: 'Thinking Effort',
+        modelGroupLatest: 'Latest Recommended',
+        modelGroupLegacy: 'Available Legacy Models',
+        modelGroupSynced: 'Synced from Feed',
       },
       brainstorm: {
         scenariosTitle: 'What would you like to do?',
@@ -2173,6 +2193,16 @@ export const MESSAGES: Record<Locale, Messages> = {
         needsApiKeyForTeam: (envKey) => `已检测到 CLI，但在下方「API 密钥」填写 ${envKey} 后才能加入团队。`,
         configureApiKeyAction: '去填写 API 密钥',
         teamNeedsApiKeyNote: (names, keys) => `检测到本机已安装 ${names}，在上方「API 密钥」填写 ${keys} 后即可在团队中选用。`,
+        syncModels: '检查最新模型',
+        syncingModels: '正在检查更新……',
+        modelsSyncedDone: (added) => (added > 0 ? `已检查模型库，新增 ${added} 个模型。` : '模型库已是最新（所有历史可用模型均保留）。'),
+        modelsDailyHint: '每天自动检查一次最新模型；历史可用模型同样全量保留，可按需要自由挑选。',
+        providerColumnLabel: '提供方',
+        modelColumnLabel: '模型',
+        effortColumnLabel: '思考强度',
+        modelGroupLatest: '最新推荐模型',
+        modelGroupLegacy: '经典 / 历史可用模型',
+        modelGroupSynced: '联网同步新增',
       },
       brainstorm: {
         scenariosTitle: '你想做什么？',

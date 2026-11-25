@@ -833,6 +833,15 @@ class TestCredentialsApi(WebServerTestCase):
         self.assertEqual(get_status, 200)
         self.assertEqual(get_body, {"fingerprints": [fp]})
 
+    def test_model_catalog_get_and_sync(self) -> None:
+        status, _, body = self._request(Request(self.base + "/api/models/catalog"))
+        self.assertEqual(status, 200)
+        self.assertEqual(body["role_tiers"]["brainstorm_and_final_gate"], "L0")
+        self.assertGreaterEqual(len(body["models"]), 20)
+
+        bad_sync, _, _ = self.send_json("/api/models/catalog/sync", {"force": "yes"})
+        self.assertEqual(bad_sync, 400)
+
 
 class TestRFCApi(WebServerTestCase):
     def test_brainstorm_generates_a_document_that_the_check_endpoint_can_score(self) -> None:

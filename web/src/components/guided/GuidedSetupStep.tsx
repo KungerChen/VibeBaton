@@ -6,7 +6,10 @@ import {
   type CliDriver,
   type CliLoginResult,
   type CliScanEntry,
+  type ModelCatalogEntry,
+  type ModelCatalogResponse,
   type RecommendedLineup,
+  type TierRecommendation,
   type WorkspaceInfo,
 } from '../../api/client';
 import { MESSAGES, type Locale } from '../../i18n/messages';
@@ -18,7 +21,7 @@ import { localizeGuidedError } from './guidedErrors';
 export type GuidedSetupApi = Pick<
   BatonApiClient,
   'getWorkspaceInfo' | 'selectWorkspace' | 'initGitWorkspace' | 'getCliRegistry' | 'scanCliRegistry' | 'installCli' | 'loginCli'
-> & Partial<Pick<BatonApiClient, 'browseWorkspace' | 'getRoles' | 'listCredentials' | 'saveCredentials'>>;
+> & Partial<Pick<BatonApiClient, 'browseWorkspace' | 'getRoles' | 'listCredentials' | 'saveCredentials' | 'getModelCatalog' | 'syncModelCatalog'>>;
 
 let defaultApi: GuidedSetupApi | null = null;
 function getDefaultApi(): GuidedSetupApi {
@@ -103,35 +106,265 @@ export function availableLineupProviders(
   return [...result];
 }
 
-/** Build a new lineup assigning every role to a single chosen provider. */
-export function assignAllRoles(lineup: RecommendedLineup, providerId: string): RecommendedLineup {
-  const roles = Object.fromEntries(Object.keys(lineup.roles).map((role) => [role, providerId]));
-  return { ...lineup, roles };
+export const EFFORT_LABELS: Record<string, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'XHigh',
+  max: 'Max',
+};
+
+const ALL_EFFORT_IDS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+function builtinEntry(
+  id: string,
+  label: string,
+  family: string,
+  providers: string[],
+  status: ModelCatalogEntry['status'],
+  cost_tier: ModelCatalogEntry['cost_tier'],
+  rank: number,
+  default_effort: string,
+): ModelCatalogEntry {
+  return { id, label, family, providers, status, cost_tier, rank, efforts: ALL_EFFORT_IDS, default_effort };
 }
 
-/** Build a new lineup overriding one role's provider without mutating the input. */
+export const BUILTIN_MODEL_CATALOG: Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers' | 'efforts'> = {
+  efforts: [
+    { id: 'low', label: 'Low' },
+    { id: 'medium', label: 'Medium' },
+    { id: 'high', label: 'High' },
+    { id: 'xhigh', label: 'XHigh' },
+    { id: 'max', label: 'Max' },
+  ],
+  role_tiers: {
+    brainstorm_and_final_gate: 'L0',
+    tactical_planner: 'L1',
+    milestone_reviewer: 'L1',
+    critical_executor: 'L2',
+    micro_orchestrator: 'L2',
+    bulk_worker: 'L3',
+  },
+  tier_recommendations: {
+    L0: [
+      { providers: ['gemini_sub', 'gemini_http'], model: 'gemini-4-carbon', effort: 'medium', note_en: '', note_zh: '' },
+      { providers: ['claude_sub'], model: 'fable-5.2', effort: 'medium', note_en: '', note_zh: '' },
+      { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.2-astra', effort: 'xhigh', note_en: '', note_zh: '' },
+    ],
+    L1: [
+      { providers: ['claude_sub'], model: 'opus-5.5', effort: 'medium', note_en: '', note_zh: '' },
+      { providers: ['gemini_sub', 'gemini_http'], model: 'gemini-4-neon', effort: 'medium', note_en: '', note_zh: '' },
+      { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.2-sol', effort: 'max', note_en: '', note_zh: '' },
+    ],
+    L2: [
+      { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.2-sol', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['claude_sub'], model: 'sonnet-5.5', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['gemini_sub', 'gemini_http'], model: 'gemini-4-hydrogen', effort: 'max', note_en: '', note_zh: '' },
+    ],
+    L3: [
+      { providers: ['dsh_opencode', 'dsh_deepseek'], model: 'deepseek-v4.1-flash', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['claude_sub'], model: 'haiku-5.5', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.1-terra', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['codex_sub', 'openai_http'], model: 'gpt-6-luna', effort: 'max', note_en: '', note_zh: '' },
+    ],
+  },
+  models: [
+    builtinEntry('gemini-4-carbon', 'Gemini 4C', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'flagship', 1, 'medium'),
+    builtinEntry('gemini-4-neon', 'Gemini 4N', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'standard', 2, 'medium'),
+    builtinEntry('gemini-4-hydrogen', 'Gemini 4H', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'eco', 3, 'max'),
+    builtinEntry('gemini-2.5-pro', 'Gemini 2.5 Pro', 'gemini', ['gemini_sub', 'gemini_http'], 'legacy', 'flagship', 4, 'medium'),
+    builtinEntry('gemini-2.5-flash', 'Gemini 2.5 Flash', 'gemini', ['gemini_sub', 'gemini_http'], 'legacy', 'eco', 5, 'max'),
+    builtinEntry('gemini-2.0-flash', 'Gemini 2.0 Flash', 'gemini', ['gemini_sub', 'gemini_http'], 'legacy', 'eco', 6, 'high'),
+    builtinEntry('fable-5.2', 'Fable 5.2', 'claude', ['claude_sub'], 'latest', 'flagship', 1, 'medium'),
+    builtinEntry('opus-5.5', 'Opus 5.5', 'claude', ['claude_sub'], 'latest', 'flagship', 2, 'medium'),
+    builtinEntry('sonnet-5.5', 'Sonnet 5.5', 'claude', ['claude_sub'], 'latest', 'standard', 3, 'max'),
+    builtinEntry('haiku-5.5', 'Haiku 5.5', 'claude', ['claude_sub'], 'latest', 'eco', 4, 'max'),
+    builtinEntry('claude-opus-4-6', 'Claude Opus 4.6', 'claude', ['claude_sub'], 'legacy', 'flagship', 5, 'high'),
+    builtinEntry('claude-sonnet-4-6', 'Claude Sonnet 4.6', 'claude', ['claude_sub'], 'legacy', 'standard', 6, 'high'),
+    builtinEntry('claude-opus-4-5', 'Claude Opus 4.5', 'claude', ['claude_sub'], 'legacy', 'flagship', 7, 'high'),
+    builtinEntry('claude-haiku-4-5', 'Claude Haiku 4.5', 'claude', ['claude_sub'], 'legacy', 'eco', 8, 'max'),
+    builtinEntry('gpt-6.2-astra', 'GPT-6.2 Astra', 'openai', ['codex_sub', 'openai_http'], 'latest', 'flagship', 1, 'xhigh'),
+    builtinEntry('gpt-6.2-sol', 'GPT-6.2 Sol', 'openai', ['codex_sub', 'openai_http'], 'latest', 'standard', 2, 'max'),
+    builtinEntry('gpt-6.1-terra', 'GPT-6.1 Terra', 'openai', ['codex_sub', 'openai_http'], 'latest', 'eco', 3, 'max'),
+    builtinEntry('gpt-6-luna', 'GPT-6 Luna', 'openai', ['codex_sub', 'openai_http'], 'latest', 'eco', 4, 'max'),
+    builtinEntry('gpt-5-codex', 'GPT-5 Codex', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'standard', 5, 'high'),
+    builtinEntry('gpt-5', 'GPT-5', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'standard', 6, 'high'),
+    builtinEntry('gpt-5-mini', 'GPT-5 Mini', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'eco', 7, 'high'),
+    builtinEntry('gpt-4.1', 'GPT-4.1', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'standard', 8, 'high'),
+    builtinEntry('gpt-4o', 'GPT-4o', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'standard', 9, 'high'),
+    builtinEntry('o3', 'o3', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'standard', 10, 'high'),
+    builtinEntry('o4-mini', 'o4-mini', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'eco', 11, 'high'),
+    builtinEntry('deepseek-v4.1-flash', 'DeepSeek V4.1 Flash', 'deepseek', ['dsh_opencode', 'dsh_deepseek'], 'latest', 'eco', 1, 'max'),
+    builtinEntry('deepseek-v4-pro', 'DeepSeek V4 Pro', 'deepseek', ['dsh_opencode', 'dsh_deepseek'], 'latest', 'standard', 2, 'high'),
+    builtinEntry('deepseek-reasoner', 'DeepSeek Reasoner', 'deepseek', ['dsh_opencode', 'dsh_deepseek'], 'legacy', 'standard', 3, 'high'),
+    builtinEntry('deepseek-chat', 'DeepSeek Chat', 'deepseek', ['dsh_opencode', 'dsh_deepseek'], 'legacy', 'eco', 4, 'high'),
+  ],
+};
+
+/** Parse a `provider:model@effort` spec cleanly with fallback defaults. */
+export function parseRoleSpec(spec: string, fallbackProvider: string): { provider: string; model: string; effort: string } {
+  const trimmed = spec.trim();
+  const colonIdx = trimmed.indexOf(':');
+  const provider = colonIdx > 0 ? trimmed.slice(0, colonIdx) : fallbackProvider;
+  const rest = colonIdx > 0 ? trimmed.slice(colonIdx + 1) : trimmed;
+  const atIdx = rest.indexOf('@');
+  if (atIdx >= 0) {
+    return { provider, model: rest.slice(0, atIdx), effort: rest.slice(atIdx + 1) || 'high' };
+  }
+  return { provider, model: rest, effort: '' };
+}
+
+/** Serialize `{provider, model, effort}` back into a VibeBaton `model_overrides` string. */
+export function formatRoleSpec(provider: string, model: string, effort: string): string {
+  if (!model) return provider;
+  return effort ? `${provider}:${model}@${effort}` : `${provider}:${model}`;
+}
+
+/** List all active + legacy models supported by `providerId` in ranked order. */
+export function modelsForProvider(models: readonly ModelCatalogEntry[], providerId: string): ModelCatalogEntry[] {
+  return models
+    .filter((entry) => entry.providers.includes(providerId))
+    .sort((left, right) => left.rank - right.rank || left.id.localeCompare(right.id));
+}
+
+/** Recommend `{provider, model, effort}` for `role` filtered to `selectableProviders`. */
+export function recommendRoleSpec(
+  role: string,
+  selectableProviders: readonly string[],
+  catalog: Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers'> = BUILTIN_MODEL_CATALOG,
+  preferredProvider?: string,
+): { provider: string; model: string; effort: string } {
+  const tier = catalog.role_tiers[role] ?? 'L2';
+  const recs: readonly TierRecommendation[] = catalog.tier_recommendations[tier] ?? [];
+
+  if (preferredProvider) {
+    const rec = recs.find((item) => item.providers.includes(preferredProvider));
+    if (rec) return { provider: preferredProvider, model: rec.model, effort: rec.effort };
+    const choices = modelsForProvider(catalog.models, preferredProvider);
+    if (choices.length > 0) {
+      const targetTier = tier === 'L0' ? 'flagship' : tier === 'L3' ? 'eco' : 'standard';
+      const chosen = choices.find((m) => m.cost_tier === targetTier) ?? choices[0];
+      return {
+        provider: preferredProvider,
+        model: chosen.id,
+        effort: tier === 'L0' || tier === 'L1' ? 'medium' : 'max',
+      };
+    }
+    return { provider: preferredProvider, model: '', effort: tier === 'L0' || tier === 'L1' ? 'medium' : 'max' };
+  }
+
+  const readySet = new Set(selectableProviders);
+  for (const rec of recs) {
+    const matched = rec.providers.find((pid) => readySet.has(pid));
+    if (matched) return { provider: matched, model: rec.model, effort: rec.effort };
+  }
+
+  const fallback = selectableProviders[0] ?? '';
+  return fallback ? recommendRoleSpec(role, selectableProviders, catalog, fallback) : { provider: '', model: '', effort: 'medium' };
+}
+
+/** Build the tiered default lineup (with L0..L3 market-rank model@effort specs) for a ready team. */
+export function buildTieredLineup(
+  base: RecommendedLineup,
+  selectableProviders: readonly string[],
+  catalog: Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers'> = BUILTIN_MODEL_CATALOG,
+): RecommendedLineup {
+  if (!base.ready || Object.keys(base.roles).length === 0) return base;
+  const effectiveProviders = selectableProviders.length > 0 ? selectableProviders : [...new Set(Object.values(base.roles))];
+  const roles: Record<string, string> = {};
+  const model_overrides: Record<string, string> = {};
+  for (const role of Object.keys(base.roles)) {
+    const rec = recommendRoleSpec(role, effectiveProviders, catalog);
+    const chosenProvider = rec.provider || base.roles[role];
+    roles[role] = chosenProvider;
+    if (rec.model) {
+      model_overrides[role] = formatRoleSpec(chosenProvider, rec.model, rec.effort);
+    }
+  }
+  return { ...base, roles, model_overrides };
+}
+
+/** Build a new lineup assigning every role to `providerId` with each role's tier-appropriate model & effort. */
+export function assignAllRoles(
+  lineup: RecommendedLineup,
+  providerId: string,
+  catalog: Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers'> = BUILTIN_MODEL_CATALOG,
+): RecommendedLineup {
+  const roles: Record<string, string> = {};
+  const model_overrides: Record<string, string> = {};
+  for (const role of Object.keys(lineup.roles)) {
+    roles[role] = providerId;
+    const rec = recommendRoleSpec(role, [providerId], catalog, providerId);
+    if (rec.model) {
+      model_overrides[role] = formatRoleSpec(providerId, rec.model, rec.effort);
+    }
+  }
+  return { ...lineup, roles, model_overrides };
+}
+
+/** Build a new lineup overriding one role's provider (plus auto-picking its best tier model under that provider). */
 export function assignRoleProvider(
   lineup: RecommendedLineup,
   role: string,
   providerId: string,
+  catalog: Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers'> = BUILTIN_MODEL_CATALOG,
 ): RecommendedLineup {
-  return { ...lineup, roles: { ...lineup.roles, [role]: providerId } };
+  const rec = recommendRoleSpec(role, [providerId], catalog, providerId);
+  const model_overrides = { ...(lineup.model_overrides ?? {}) };
+  if (rec.model) {
+    model_overrides[role] = formatRoleSpec(providerId, rec.model, rec.effort);
+  } else {
+    delete model_overrides[role];
+  }
+  return { ...lineup, roles: { ...lineup.roles, [role]: providerId }, model_overrides };
 }
 
-/** True when any role provider differs from the server-recommended baseline lineup. */
+/** Build a new lineup updating one role's explicit model or thinking effort without changing provider. */
+export function assignRoleModelSpec(
+  lineup: RecommendedLineup,
+  role: string,
+  providerId: string,
+  model: string,
+  effort: string,
+): RecommendedLineup {
+  const model_overrides = { ...(lineup.model_overrides ?? {}) };
+  if (model) {
+    model_overrides[role] = formatRoleSpec(providerId, model, effort);
+  } else {
+    delete model_overrides[role];
+  }
+  return { ...lineup, roles: { ...lineup.roles, [role]: providerId }, model_overrides };
+}
+
+/** True when any role provider or model@effort differs from the baseline lineup. */
 export function isLineupCustomized(
   base: RecommendedLineup | null,
   current: RecommendedLineup | null,
 ): boolean {
   if (!base || !current) return false;
-  return Object.keys(base.roles).some((role) => base.roles[role] !== current.roles[role]);
+  return Object.keys(base.roles).some((role) => (
+    base.roles[role] !== current.roles[role]
+    || (base.model_overrides?.[role] ?? '') !== (current.model_overrides?.[role] ?? '')
+  ));
 }
 
-/** One line listing who plays each role, e.g. `Planner: DSH, Coder: claude_sub`; falls back to the notes. */
-export function lineupSummary(lineup: RecommendedLineup, locale: Locale): string {
-  const roles = Object.entries(lineup.roles).map(
-    ([role, provider]) => `${translateRole(role, locale)}: ${formatProviderDisplay(provider)}`,
-  );
+/** One line listing who plays each role (with model & effort when specified); falls back to notes. */
+export function lineupSummary(
+  lineup: RecommendedLineup,
+  locale: Locale,
+  models: readonly ModelCatalogEntry[] = BUILTIN_MODEL_CATALOG.models,
+): string {
+  const roles = Object.entries(lineup.roles).map(([role, provider]) => {
+    const spec = lineup.model_overrides?.[role];
+    if (!spec) return `${translateRole(role, locale)}: ${formatProviderDisplay(provider)}`;
+    const parsed = parseRoleSpec(spec, provider);
+    const modelLabel = models.find((m) => m.id === parsed.model)?.label ?? parsed.model;
+    const effortLabel = parsed.effort ? (EFFORT_LABELS[parsed.effort] ?? parsed.effort) : '';
+    const detail = modelLabel
+      ? `${modelLabel}${effortLabel ? ` · ${effortLabel}` : ''} (${formatProviderDisplay(parsed.provider)})`
+      : formatProviderDisplay(parsed.provider);
+    return `${translateRole(role, locale)}: ${detail}`;
+  });
   if (roles.length === 0) return lineupNotes(lineup, locale);
   return roles.join(locale === 'zh' ? '，' : ', ');
 }
@@ -282,12 +515,16 @@ export interface GuidedSetupStepProps {
   apiMode?: ApiMode | null;
   /** Optional saved role->provider choices preserved when returning from Step 2. */
   initialRoles?: Record<string, string> | null;
+  /** Optional saved role->`provider:model@effort` choices preserved when returning from Step 2. */
+  initialModelOverrides?: Record<string, string> | null;
   /** Defaults to a `BatonApiClient`; tests pass a fake. */
   api?: GuidedSetupApi;
 }
 
 /** Guided step 1: pick the workspace, turn on Git, inspect/install AI coding tools, and customize the team. */
-export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null, api: injectedApi }: GuidedSetupStepProps) {
+export function GuidedSetupStep({
+  locale, onReady, apiMode, initialRoles = null, initialModelOverrides = null, api: injectedApi,
+}: GuidedSetupStepProps) {
   const api = injectedApi ?? getDefaultApi();
   const copy = MESSAGES[locale].guided.setup;
   const credentialLabels = MESSAGES[locale].credentials;
@@ -299,12 +536,17 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
   const [httpApiKeysPresent, setHttpApiKeysPresent] = useState<string[]>([]);
   const [lineup, setLineup] = useState<RecommendedLineup | null>(null);
   const [configuredProviders, setConfiguredProviders] = useState<string[] | undefined>(undefined);
+  const [modelCatalog, setModelCatalog] = useState<Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers' | 'efforts'>>(
+    () => BUILTIN_MODEL_CATALOG,
+  );
+  const [catalogFeedback, setCatalogFeedback] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<CredentialStatus[]>([]);
   const [apiKeysOpen, setApiKeysOpen] = useState(false);
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [apiKeyFeedback, setApiKeyFeedback] = useState<string | null>(null);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const [customRoles, setCustomRoles] = useState<Record<string, string> | null>(() => initialRoles);
+  const [customModelOverrides, setCustomModelOverrides] = useState<Record<string, string> | null>(() => initialModelOverrides);
   const [roleEditorOpen, setRoleEditorOpen] = useState(false);
   const [driverFilter, setDriverFilter] = useState<DriverFilter>('all');
   const [consent, setConsent] = useState<Record<string, boolean>>({});
@@ -338,20 +580,32 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
   useEffect(() => {
     if (apiMode === null) return;
     void run('load', async () => {
-      const [info, registry, rolesCfg, creds] = await Promise.all([
+      const [info, registry, rolesCfg, creds, remoteCatalog] = await Promise.all([
         api.getWorkspaceInfo(),
         api.getCliRegistry(),
         api.getRoles ? api.getRoles().catch(() => null) : Promise.resolve(null),
         api.listCredentials ? api.listCredentials().catch(() => []) : Promise.resolve([]),
+        api.getModelCatalog ? api.getModelCatalog().catch(() => null) : Promise.resolve(null),
       ]);
       setWorkspace(info);
       setPathInput(info.path);
       setDrivers(registry.drivers);
       setConfiguredProviders(rolesCfg ? Object.keys(rolesCfg.providers) : undefined);
       setCredentials(creds);
+      if (remoteCatalog) setModelCatalog(remoteCatalog);
       await scanRegistry(info.path);
     });
   }, [api, apiMode, run, scanRegistry]);
+
+  const syncModels = () => {
+    if (!api.syncModelCatalog) return;
+    void run('models_sync', async () => {
+      setCatalogFeedback(null);
+      const res = await api.syncModelCatalog!(true);
+      setModelCatalog(res.catalog);
+      setCatalogFeedback(copy.modelsSyncedDone(res.added_count));
+    });
+  };
 
   const openApiKeyEditor = (envKey?: string) => {
     setApiKeysOpen(true);
@@ -387,6 +641,7 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
     setWorkspace(info);
     setPathInput(info.path);
     setCustomRoles(null);
+    setCustomModelOverrides(null);
     await Promise.all([scanRegistry(info.path), refreshRolesConfig()]);
     setWorkspaceFeedback(copy.folderSelected);
   });
@@ -402,6 +657,7 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
     setWorkspace(picked.workspace);
     setPathInput(picked.workspace.path);
     setCustomRoles(null);
+    setCustomModelOverrides(null);
     await Promise.all([scanRegistry(picked.workspace.path), refreshRolesConfig()]);
     setWorkspaceFeedback(copy.folderSelected);
   });
@@ -454,19 +710,52 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
   }, [credentials]);
   const configuredKeyCount = credentials.filter((status) => status.configured).length;
 
-  const effectiveLineup = useMemo<RecommendedLineup | null>(() => {
-    if (!lineup || !lineup.ready || !customRoles) return lineup;
-    const allowed = new Set(selectableProviders);
-    const nextRoles = Object.fromEntries(
-      Object.entries(lineup.roles).map(([role, defaultProvider]) => {
-        const override = customRoles[role];
-        return [role, override && allowed.has(override) ? override : defaultProvider];
-      }),
-    );
-    return { ...lineup, roles: nextRoles };
-  }, [customRoles, lineup, selectableProviders]);
+  const baselineLineup = useMemo<RecommendedLineup | null>(
+    () => (lineup && lineup.ready ? buildTieredLineup(lineup, selectableProviders, modelCatalog) : lineup),
+    [lineup, modelCatalog, selectableProviders],
+  );
 
-  const isCustomized = isLineupCustomized(lineup, effectiveLineup);
+  const effectiveLineup = useMemo<RecommendedLineup | null>(() => {
+    if (!baselineLineup || !baselineLineup.ready) return baselineLineup;
+    if (!customRoles && !customModelOverrides) return baselineLineup;
+    const allowed = new Set(selectableProviders);
+    const nextRoles: Record<string, string> = {};
+    const nextOverrides: Record<string, string> = {};
+    for (const [role, defaultProvider] of Object.entries(baselineLineup.roles)) {
+      const overrideProvider = customRoles?.[role];
+      const chosenProvider = overrideProvider && allowed.has(overrideProvider) ? overrideProvider : defaultProvider;
+      nextRoles[role] = chosenProvider;
+      const spec = customModelOverrides?.[role];
+      const baseSpec = baselineLineup.model_overrides?.[role];
+      if (spec) {
+        const parsed = parseRoleSpec(spec, chosenProvider);
+        if (parsed.provider === chosenProvider) {
+          nextOverrides[role] = formatRoleSpec(chosenProvider, parsed.model, parsed.effort);
+        } else {
+          const rec = recommendRoleSpec(role, selectableProviders, modelCatalog, chosenProvider);
+          if (rec.model) nextOverrides[role] = formatRoleSpec(chosenProvider, rec.model, rec.effort);
+        }
+      } else if (chosenProvider !== defaultProvider) {
+        const rec = recommendRoleSpec(role, selectableProviders, modelCatalog, chosenProvider);
+        if (rec.model) nextOverrides[role] = formatRoleSpec(chosenProvider, rec.model, rec.effort);
+      } else if (baseSpec) {
+        nextOverrides[role] = baseSpec;
+      }
+    }
+    return { ...baselineLineup, roles: nextRoles, model_overrides: nextOverrides };
+  }, [baselineLineup, customModelOverrides, customRoles, modelCatalog, selectableProviders]);
+
+  const resetCustomization = () => {
+    setCustomRoles(null);
+    setCustomModelOverrides(null);
+  };
+
+  const applyCustomLineup = (updated: RecommendedLineup) => {
+    setCustomRoles(updated.roles);
+    setCustomModelOverrides(updated.model_overrides ?? null);
+  };
+
+  const isCustomized = isLineupCustomized(baselineLineup, effectiveLineup);
   const readyCount = drivers.filter((driver) => entries[driver.id]?.status === 'ready').length;
   const visibleDrivers = filterDrivers(drivers, entries, driverFilter);
 
@@ -698,27 +987,41 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
               <h3 className="guided-setup__title">{effectiveLineup.ready ? copy.lineupReady : copy.lineupMissing}</h3>
               {isCustomized ? <span className="guided-setup__pill" data-status="ready">{copy.customBadge}</span> : null}
             </div>
-            {effectiveLineup.ready && Object.keys(effectiveLineup.roles).length > 0 && selectableProviders.length > 1 ? (
-              <button
-                type="button"
-                className="guided-setup__button"
-                aria-expanded={roleEditorOpen}
-                onClick={() => setRoleEditorOpen((open) => !open)}
-              >
-                {roleEditorOpen ? copy.hideCustomizeRoles : copy.customizeRoles}
-              </button>
-            ) : null}
+            <div className="guided-setup__team-actions">
+              {api.syncModelCatalog ? (
+                <button
+                  type="button"
+                  className="guided-setup__button"
+                  disabled={busy !== null}
+                  onClick={syncModels}
+                >
+                  {busy === 'models_sync' ? copy.syncingModels : copy.syncModels}
+                </button>
+              ) : null}
+              {effectiveLineup.ready && Object.keys(effectiveLineup.roles).length > 0 ? (
+                <button
+                  type="button"
+                  className="guided-setup__button"
+                  aria-expanded={roleEditorOpen}
+                  onClick={() => setRoleEditorOpen((open) => !open)}
+                >
+                  {roleEditorOpen ? copy.hideCustomizeRoles : copy.customizeRoles}
+                </button>
+              ) : null}
+            </div>
           </div>
           {Object.keys(effectiveLineup.roles).length > 0 ? (
-            <p className="guided-setup__lineup">{lineupSummary(effectiveLineup, locale)}</p>
+            <p className="guided-setup__lineup">{lineupSummary(effectiveLineup, locale, modelCatalog.models)}</p>
           ) : null}
-          {effectiveLineup.ready && lineup && selectableProviders.length > 1 ? (
+          <p className="guided-setup__reason">{copy.modelsDailyHint}</p>
+          {catalogFeedback ? <p className="guided-setup__done-note" role="status">{catalogFeedback}</p> : null}
+          {effectiveLineup.ready && baselineLineup && selectableProviders.length > 1 ? (
             <div className="guided-setup__presets" role="group" aria-label={copy.customizeRoles}>
               <button
                 type="button"
                 className="guided-setup__chip"
                 aria-pressed={!isCustomized}
-                onClick={() => setCustomRoles(null)}
+                onClick={resetCustomization}
               >
                 {copy.presetRecommended}
               </button>
@@ -730,7 +1033,7 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
                     type="button"
                     className="guided-setup__chip"
                     aria-pressed={uniform}
-                    onClick={() => setCustomRoles(assignAllRoles(lineup, providerId).roles)}
+                    onClick={() => applyCustomLineup(assignAllRoles(baselineLineup, providerId, modelCatalog))}
                   >
                     {copy.presetAllProvider(formatProviderDisplay(providerId))}
                   </button>
@@ -738,24 +1041,84 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
               })}
             </div>
           ) : null}
-          {effectiveLineup.ready && lineup && roleEditorOpen && Object.keys(effectiveLineup.roles).length > 0 ? (
+          {effectiveLineup.ready && baselineLineup && roleEditorOpen && Object.keys(effectiveLineup.roles).length > 0 ? (
             <div className="guided-setup__role-grid">
-              {Object.entries(effectiveLineup.roles).map(([role, assigned]) => (
-                <label key={role} className="guided-setup__role-row">
-                  <span className="guided-setup__role-label">{translateRole(role, locale)}</span>
-                  <select
-                    className="guided-setup__select"
-                    value={assigned}
-                    onChange={(event) => setCustomRoles(assignRoleProvider(effectiveLineup, role, event.currentTarget.value).roles)}
-                  >
-                    {selectableProviders.map((providerId) => (
-                      <option key={providerId} value={providerId}>
-                        {formatProviderDisplay(providerId)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
+              {Object.entries(effectiveLineup.roles).map(([role, assignedProvider]) => {
+                const tier = modelCatalog.role_tiers[role] ?? 'L2';
+                const parsed = parseRoleSpec(effectiveLineup.model_overrides?.[role] ?? '', assignedProvider);
+                const providerModels = modelsForProvider(modelCatalog.models, assignedProvider);
+                const latestModels = providerModels.filter((m) => m.status === 'latest');
+                const legacyModels = providerModels.filter((m) => m.status === 'legacy');
+                const syncedModels = providerModels.filter((m) => m.status === 'synced');
+                const selectedModel = parsed.model || providerModels[0]?.id || '';
+                const selectedEffort = parsed.effort || (tier === 'L0' || tier === 'L1' ? 'medium' : 'max');
+                return (
+                  <div key={role} className="guided-setup__role-row">
+                    <div className="guided-setup__role-head">
+                      <span className="guided-setup__tier" data-tier="official">{tier}</span>
+                      <span className="guided-setup__role-label">{translateRole(role, locale)}</span>
+                    </div>
+                    <div className="guided-setup__role-controls">
+                      <select
+                        className="guided-setup__select"
+                        aria-label={`${translateRole(role, locale)} · ${copy.providerColumnLabel}`}
+                        value={assignedProvider}
+                        onChange={(event) => applyCustomLineup(assignRoleProvider(effectiveLineup, role, event.currentTarget.value, modelCatalog))}
+                      >
+                        {selectableProviders.map((providerId) => (
+                          <option key={providerId} value={providerId}>
+                            {formatProviderDisplay(providerId)}
+                          </option>
+                        ))}
+                      </select>
+                      {providerModels.length > 0 ? (
+                        <select
+                          className="guided-setup__select guided-setup__select--model"
+                          aria-label={`${translateRole(role, locale)} · ${copy.modelColumnLabel}`}
+                          value={selectedModel}
+                          onChange={(event) => applyCustomLineup(
+                            assignRoleModelSpec(effectiveLineup, role, assignedProvider, event.currentTarget.value, selectedEffort),
+                          )}
+                        >
+                          {latestModels.length > 0 ? (
+                            <optgroup label={copy.modelGroupLatest}>
+                              {latestModels.map((entry) => (
+                                <option key={entry.id} value={entry.id}>{entry.label}</option>
+                              ))}
+                            </optgroup>
+                          ) : null}
+                          {legacyModels.length > 0 ? (
+                            <optgroup label={copy.modelGroupLegacy}>
+                              {legacyModels.map((entry) => (
+                                <option key={entry.id} value={entry.id}>{entry.label}</option>
+                              ))}
+                            </optgroup>
+                          ) : null}
+                          {syncedModels.length > 0 ? (
+                            <optgroup label={copy.modelGroupSynced}>
+                              {syncedModels.map((entry) => (
+                                <option key={entry.id} value={entry.id}>{entry.label}</option>
+                              ))}
+                            </optgroup>
+                          ) : null}
+                        </select>
+                      ) : null}
+                      <select
+                        className="guided-setup__select guided-setup__select--effort"
+                        aria-label={`${translateRole(role, locale)} · ${copy.effortColumnLabel}`}
+                        value={selectedEffort}
+                        onChange={(event) => applyCustomLineup(
+                          assignRoleModelSpec(effectiveLineup, role, assignedProvider, selectedModel, event.currentTarget.value),
+                        )}
+                      >
+                        {modelCatalog.efforts.map((eff) => (
+                          <option key={eff.id} value={eff.id}>{eff.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : null}
           {effectiveLineup.ready ? (
@@ -773,7 +1136,7 @@ export function GuidedSetupStep({ locale, onReady, apiMode, initialRoles = null,
                   type="button"
                   className="guided-setup__button"
                   disabled={busy !== null}
-                  onClick={() => setCustomRoles(null)}
+                  onClick={resetCustomization}
                 >
                   {copy.resetLineup}
                 </button>

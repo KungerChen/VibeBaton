@@ -105,7 +105,14 @@ export async function confirmAndStart(
   lineup: RecommendedLineup,
 ): Promise<string> {
   const { rfc_path } = await api.brainstormConfirm(rfcMarkdown);
-  const { run_id } = await api.startRun({ rfc_path, mode: 'overnight', role_providers: { ...lineup.roles } });
+  const { run_id } = await api.startRun({
+    rfc_path,
+    mode: 'overnight',
+    role_providers: { ...lineup.roles },
+    ...(lineup.model_overrides && Object.keys(lineup.model_overrides).length > 0
+      ? { model_overrides: { ...lineup.model_overrides } }
+      : {}),
+  });
   return run_id;
 }
 

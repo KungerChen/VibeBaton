@@ -123,6 +123,22 @@ describe('chat -> confirm -> start flow', () => {
     }));
   });
 
+  test('forwards explicit model_overrides when present on the lineup', async () => {
+    const api = fakeApi([]);
+    const custom: RecommendedLineup = {
+      ...LINEUP,
+      roles: { brainstorm_and_final_gate: 'gemini_sub' },
+      model_overrides: { brainstorm_and_final_gate: 'gemini_sub:gemini-4-carbon@medium' },
+    };
+    await confirmAndStart(api, '# Todo', custom);
+    expect(api.startRun).toHaveBeenCalledWith({
+      rfc_path: '/repo/.baton/00_RFC.md',
+      mode: 'overnight',
+      role_providers: { brainstorm_and_final_gate: 'gemini_sub' },
+      model_overrides: { brainstorm_and_final_gate: 'gemini_sub:gemini-4-carbon@medium' },
+    });
+  });
+
   test('start is skipped when confirm fails', async () => {
     const api = fakeApi([]);
     api.brainstormConfirm.mockRejectedValueOnce(new Error('disk full'));

@@ -267,6 +267,7 @@ export function GuidedWorkbench({ locale, client, apiMode, liveSnapshot, onFollo
               api={client}
               apiMode={apiMode}
               initialRoles={lineup?.roles ?? null}
+              initialModelOverrides={lineup?.model_overrides ?? null}
               onReady={(ready) => {
                 setLineup(ready);
                 setStep(nextStep('setup'));

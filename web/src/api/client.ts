@@ -116,9 +116,54 @@ export interface RecommendedLineup {
   ready: boolean;
   /** Role name -> provider id. */
   roles: Record<string, string>;
+  /** Optional role name -> "provider:model@effort" override chosen by the user. */
+  model_overrides?: Record<string, string>;
   source: 'cli' | 'http' | 'mixed';
   notes_en: string;
   notes_zh: string;
+}
+
+export interface ModelCatalogEntry {
+  id: string;
+  label: string;
+  family: string;
+  providers: string[];
+  status: 'latest' | 'legacy' | 'synced';
+  cost_tier: 'flagship' | 'standard' | 'eco';
+  rank: number;
+  efforts: string[];
+  default_effort: string;
+}
+
+export interface TierRecommendation {
+  providers: string[];
+  model: string;
+  effort: string;
+  note_en: string;
+  note_zh: string;
+}
+
+export interface ModelCatalogResponse {
+  models: ModelCatalogEntry[];
+  tier_recommendations: Record<string, TierRecommendation[]>;
+  role_tiers: Record<string, string>;
+  efforts: { id: string; label: string }[];
+  cache: {
+    path: string;
+    fetched_at: number | null;
+    age_sec: number | null;
+    stale: boolean;
+    refresh_interval_hours: number;
+  };
+}
+
+export interface ModelCatalogSyncResponse {
+  ok: boolean;
+  fetched: boolean;
+  skipped_fresh: boolean;
+  added_count: number;
+  error: string | null;
+  catalog: ModelCatalogResponse;
 }
 
 export interface CliRegistryScanResponse {
@@ -667,6 +712,17 @@ export class BatonApiClient {
       body: { fingerprint },
     });
     return fingerprints;
+  }
+
+  getModelCatalog(): Promise<ModelCatalogResponse> {
+    return this.requestJson('/api/models/catalog');
+  }
+
+  syncModelCatalog(force = false): Promise<ModelCatalogSyncResponse> {
+    return this.requestJson('/api/models/catalog/sync', {
+      method: 'POST',
+      body: { force },
+    });
   }
 
   getRunTaskDetail(runId: string, taskId: string, locale?: 'en' | 'zh'): Promise<RunTaskDetail> {

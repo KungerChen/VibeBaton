@@ -26,7 +26,7 @@ from time import monotonic
 from typing import Any, Callable, Iterable, Mapping, Protocol, TypedDict
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, case_export, cli_registry, credentials, presets, pricing
+from . import __version__, case_export, cli_registry, credentials, model_catalog, presets, pricing
 from .brainstorm import RFC_RELATIVE_PATH, brainstorm_turn, confirm_blueprint
 from .config import (
     ALLOWED_BUDGET_PROFILES,
@@ -66,6 +66,8 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("GET", re.compile(r"/api/pricing"), "_get_pricing"),
     ("POST", re.compile(r"/api/pricing/sync"), "_post_pricing_sync"),
     ("PUT", re.compile(r"/api/pricing/custom"), "_put_pricing_custom"),
+    ("GET", re.compile(r"/api/models/catalog"), "_get_models_catalog"),
+    ("POST", re.compile(r"/api/models/catalog/sync"), "_post_models_catalog_sync"),
     ("POST", re.compile(r"/api/doctor/role"), "_post_doctor_role"),
     ("GET", re.compile(r"/api/credentials"), "_get_credentials"),
     ("POST", re.compile(r"/api/credentials"), "_post_credentials"),
@@ -109,6 +111,11 @@ _MAX_DISMISSED_ALERTS = 50
 def _dismissed_alerts_path(credentials_path: Path | None) -> Path:
     base = credentials.default_credentials_path(credentials_path)
     return base.parent / "dismissed_alerts.json"
+
+
+def _model_catalog_cache_path(credentials_path: Path | None) -> Path:
+    base = credentials.default_credentials_path(credentials_path)
+    return base.parent / "model_catalog_cache.json"
 
 
 def _read_dismissed_alerts(path: Path) -> list[str]:
@@ -1035,6 +1042,28 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             fetcher=self.server.pricing_fetcher,
         )
         self._send_json(200, {**asdict(result), "catalog": pricing.build_pricing_catalog(settings)})
+
+    def _get_models_catalog(self) -> None:
+        cache_path = _model_catalog_cache_path(self.server.credentials_path)
+        catalog = model_catalog.get_model_catalog(cache_path=cache_path)
+        if catalog["cache"]["stale"] and os.environ.get("VIBEBATON_DISABLE_MODEL_SYNC") != "1":
+            fetcher = getattr(self.server, "pricing_fetcher", None)
+            kwargs: dict[str, Any] = {"force": False, "cache_path": cache_path}
+            if fetcher is not None:
+                kwargs["fetcher"] = fetcher
+            threading.Thread(target=model_catalog.sync_model_catalog, kwargs=kwargs, daemon=True).start()
+        self._send_json(200, catalog)
+
+    def _post_models_catalog_sync(self) -> None:
+        force = self._read_json_body(optional=True).get("force", False)
+        if not isinstance(force, bool):
+            raise _BadRequest("force must be a boolean")
+        cache_path = _model_catalog_cache_path(self.server.credentials_path)
+        fetcher = getattr(self.server, "pricing_fetcher", None)
+        kwargs: dict[str, Any] = {"force": force, "cache_path": cache_path}
+        if fetcher is not None:
+            kwargs["fetcher"] = fetcher
+        self._send_json(200, model_catalog.sync_model_catalog(**kwargs))
 
     def _put_pricing_custom(self) -> None:
         payload = self._read_json_body(parse_float=Decimal)

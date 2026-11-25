@@ -112,10 +112,10 @@
 }
 
 .guided-setup__role-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  gap: 0.5rem;
-  padding: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.7rem;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   background: var(--muted);
@@ -123,10 +123,27 @@
 
 .guided-setup__role-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   font-size: 0.82rem;
+}
+
+.guided-setup__role-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 11rem;
+}
+
+.guided-setup__role-controls {
+  display: flex;
+  flex: 1 1 18rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
 }
 
 .guided-setup__role-label {
@@ -135,7 +152,8 @@
 }
 
 .guided-setup__select {
-  min-width: 8.5rem;
+  min-width: 7rem;
+  max-width: 100%;
   padding: 0.3rem 0.5rem;
   border: 1px solid var(--border);
   border-radius: 0.4rem;
@@ -143,6 +161,14 @@
   color: inherit;
   font: inherit;
   font-size: 0.8rem;
+}
+
+.guided-setup__select--model {
+  min-width: 11rem;
+}
+
+.guided-setup__select--effort {
+  min-width: 5.75rem;
 }
 
 .guided-setup__input {

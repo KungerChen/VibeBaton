@@ -219,18 +219,20 @@ class TestUpgradeRefreshSemantics(unittest.TestCase):
         ico_data = (public_dir / "favicon.ico").read_bytes()
         reserved, ico_type, count = struct.unpack_from("<HHH", ico_data, 0)
         self.assertEqual((reserved, ico_type), (0, 1))
-        self.assertGreaterEqual(count, 4)
+        self.assertGreaterEqual(count, 6)
         widths = [ico_data[6 + i * 16] for i in range(count)]
         self.assertIn(0, widths)  # 0 denotes 256x256 in ICO headers
+        self.assertIn(48, widths)
 
-        for name in ("icon-192.png", "icon-512.png"):
+        for name in ("icon-32.png", "icon-48.png", "icon-64.png", "icon-192.png", "icon-256.png", "icon-512.png"):
             png_bytes = (public_dir / name).read_bytes()
             self.assertTrue(png_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
 
         manifest = json.loads((public_dir / "manifest.webmanifest").read_text(encoding="utf-8"))
-        self.assertGreaterEqual(len(manifest.get("icons", [])), 2)
+        self.assertGreaterEqual(len(manifest.get("icons", [])), 4)
 
         index_html = (REPO_ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("./icon-256.png", index_html)
         self.assertIn("./favicon.ico", index_html)
         self.assertIn("./icon-192.png", index_html)
         self.assertIn("./manifest.webmanifest", index_html)

@@ -3,10 +3,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test, vi } from 'vitest';
 import type { CliDriver, CliScanEntry, RecommendedLineup, WorkspaceInfo } from '../../api/client';
 import {
+  BUILTIN_MODEL_CATALOG,
   GuidedDriverRow,
   assignAllRoles,
+  assignRoleModelSpec,
   assignRoleProvider,
   availableLineupProviders,
+  buildTieredLineup,
   canInstall,
   confirmLineup,
   driverDisplayName,
@@ -16,6 +19,7 @@ import {
   installWithConsent,
   isLineupCustomized,
   lineupSummary,
+  modelsForProvider,
   type GuidedDriverRowProps,
 } from './GuidedSetupStep';
 
@@ -234,16 +238,53 @@ describe('CLI filtering and team lineup customization helpers', () => {
     expect(driversNeedingApiKey([dsh, claude, gemini], entries, ['GEMINI_API_KEY'])).toEqual([]);
   });
 
-  test('assignAllRoles, assignRoleProvider, and isLineupCustomized update roles immutably', () => {
-    const base = lineup(true);
-    const uniform = assignAllRoles(base, 'claude_sub');
-    expect(uniform.roles).toEqual({ planner: 'claude_sub', coder: 'claude_sub' });
-    expect(base.roles).toEqual({ planner: 'dsh_opencode', coder: 'claude_sub' });
-    expect(isLineupCustomized(base, uniform)).toBe(true);
+  test('assignAllRoles, assignRoleProvider, assignRoleModelSpec, and isLineupCustomized update roles and overrides immutably', () => {
+    const base: RecommendedLineup = {
+      ready: true,
+      roles: {
+        brainstorm_and_final_gate: 'gemini_sub',
+        tactical_planner: 'claude_sub',
+        critical_executor: 'codex_sub',
+        bulk_worker: 'dsh_opencode',
+      },
+      source: 'cli',
+      notes_en: 'Ready.',
+      notes_zh: '就绪。',
+    };
+    const tiered = buildTieredLineup(base, ['gemini_sub', 'claude_sub', 'codex_sub', 'dsh_opencode'], BUILTIN_MODEL_CATALOG);
+    expect(tiered.model_overrides).toEqual({
+      brainstorm_and_final_gate: 'gemini_sub:gemini-4-carbon@medium',
+      tactical_planner: 'claude_sub:opus-5.5@medium',
+      critical_executor: 'codex_sub:gpt-6.2-sol@max',
+      bulk_worker: 'dsh_opencode:deepseek-v4.1-flash@max',
+    });
 
-    const singleChange = assignRoleProvider(base, 'coder', 'codex_sub');
-    expect(singleChange.roles).toEqual({ planner: 'dsh_opencode', coder: 'codex_sub' });
-    expect(isLineupCustomized(base, singleChange)).toBe(true);
-    expect(isLineupCustomized(base, { ...base, roles: { ...base.roles } })).toBe(false);
+    const summaryZh = lineupSummary(tiered, 'zh', BUILTIN_MODEL_CATALOG.models);
+    expect(summaryZh).toContain('Gemini 4C · Medium');
+    expect(summaryZh).toContain('Opus 5.5 · Medium');
+    expect(summaryZh).toContain('GPT-6.2 Sol · Max');
+    expect(summaryZh).toContain('DeepSeek V4.1 Flash · Max');
+    expect(summaryZh).not.toMatch(/opencode/i);
+
+    const legacyClaudeIds = modelsForProvider(BUILTIN_MODEL_CATALOG.models, 'claude_sub').map((m) => m.id);
+    expect(legacyClaudeIds).toContain('claude-opus-4-6');
+    expect(legacyClaudeIds).toContain('opus-5.5');
+
+    const uniform = assignAllRoles(tiered, 'claude_sub', BUILTIN_MODEL_CATALOG);
+    expect(uniform.roles).toEqual({
+      brainstorm_and_final_gate: 'claude_sub',
+      tactical_planner: 'claude_sub',
+      critical_executor: 'claude_sub',
+      bulk_worker: 'claude_sub',
+    });
+    expect(uniform.model_overrides?.brainstorm_and_final_gate).toBe('claude_sub:fable-5.2@medium');
+    expect(isLineupCustomized(tiered, uniform)).toBe(true);
+
+    const swappedModel = assignRoleModelSpec(tiered, 'tactical_planner', 'claude_sub', 'claude-opus-4-6', 'high');
+    expect(swappedModel.model_overrides?.tactical_planner).toBe('claude_sub:claude-opus-4-6@high');
+    expect(isLineupCustomized(tiered, swappedModel)).toBe(true);
+
+    const singleProviderSwap = assignRoleProvider(tiered, 'critical_executor', 'gemini_sub', BUILTIN_MODEL_CATALOG);
+    expect(singleProviderSwap.model_overrides?.critical_executor).toBe('gemini_sub:gemini-4-hydrogen@max');
   });
 });
