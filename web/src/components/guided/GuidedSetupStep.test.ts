@@ -20,6 +20,9 @@ import {
   isLineupCustomized,
   lineupSummary,
   modelsForProvider,
+  providerTemplateSupport,
+  scheduleStaleCatalogRefetch,
+  STALE_CATALOG_REFETCH_MS,
   type GuidedDriverRowProps,
 } from './GuidedSetupStep';
 
@@ -254,7 +257,7 @@ describe('CLI filtering and team lineup customization helpers', () => {
     const tiered = buildTieredLineup(base, ['gemini_sub', 'claude_sub', 'codex_sub', 'dsh_opencode'], BUILTIN_MODEL_CATALOG);
     expect(tiered.model_overrides).toEqual({
       brainstorm_and_final_gate: 'gemini_sub:gemini-4-carbon@medium',
-      tactical_planner: 'claude_sub:opus-5.5@medium',
+      tactical_planner: 'claude_sub:claude-opus-5-5@medium',
       critical_executor: 'codex_sub:gpt-6.2-sol@max',
       bulk_worker: 'dsh_opencode:deepseek-v4.1-flash@max',
     });
@@ -266,9 +269,8 @@ describe('CLI filtering and team lineup customization helpers', () => {
     expect(summaryZh).toContain('DeepSeek V4.1 Flash · Max');
     expect(summaryZh).not.toMatch(/opencode/i);
 
-    const legacyClaudeIds = modelsForProvider(BUILTIN_MODEL_CATALOG.models, 'claude_sub').map((m) => m.id);
-    expect(legacyClaudeIds).toContain('claude-opus-4-6');
-    expect(legacyClaudeIds).toContain('opus-5.5');
+    const offlineClaudeIds = modelsForProvider(BUILTIN_MODEL_CATALOG.models, 'claude_sub').map((m) => m.id);
+    expect(offlineClaudeIds).toEqual(['claude-fable-5-2', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
 
     const uniform = assignAllRoles(tiered, 'claude_sub', BUILTIN_MODEL_CATALOG);
     expect(uniform.roles).toEqual({
@@ -277,7 +279,7 @@ describe('CLI filtering and team lineup customization helpers', () => {
       critical_executor: 'claude_sub',
       bulk_worker: 'claude_sub',
     });
-    expect(uniform.model_overrides?.brainstorm_and_final_gate).toBe('claude_sub:fable-5.2@medium');
+    expect(uniform.model_overrides?.brainstorm_and_final_gate).toBe('claude_sub:claude-fable-5-2@medium');
     expect(isLineupCustomized(tiered, uniform)).toBe(true);
 
     const swappedModel = assignRoleModelSpec(tiered, 'tactical_planner', 'claude_sub', 'claude-opus-4-6', 'high');
@@ -286,5 +288,60 @@ describe('CLI filtering and team lineup customization helpers', () => {
 
     const singleProviderSwap = assignRoleProvider(tiered, 'critical_executor', 'gemini_sub', BUILTIN_MODEL_CATALOG);
     expect(singleProviderSwap.model_overrides?.critical_executor).toBe('gemini_sub:gemini-4-hydrogen@max');
+  });
+
+  test('the offline fallback catalog only carries the recommended models; the server owns the full list', () => {
+    const recommended = new Set(Object.values(BUILTIN_MODEL_CATALOG.tier_recommendations).flat().map((rec) => rec.model));
+    expect(new Set(BUILTIN_MODEL_CATALOG.models.map((m) => m.id))).toEqual(recommended);
+  });
+});
+
+describe('scheduleStaleCatalogRefetch', () => {
+  const cache = (stale: boolean) => ({
+    cache: { path: 'c.json', fetched_at: null, age_sec: null, stale, refresh_interval_hours: 24, last_error: null },
+  });
+
+  test('re-reads a stale catalog once after the delay and can be cancelled', () => {
+    vi.useFakeTimers();
+    try {
+      const refetch = vi.fn();
+      const cancel = scheduleStaleCatalogRefetch(cache(true), refetch);
+      expect(cancel).toBeTypeOf('function');
+      vi.advanceTimersByTime(STALE_CATALOG_REFETCH_MS - 1);
+      expect(refetch).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(refetch).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(STALE_CATALOG_REFETCH_MS * 5);
+      expect(refetch).toHaveBeenCalledTimes(1);
+
+      const cancelledRefetch = vi.fn();
+      scheduleStaleCatalogRefetch(cache(true), cancelledRefetch)?.();
+      vi.advanceTimersByTime(STALE_CATALOG_REFETCH_MS);
+      expect(cancelledRefetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('does nothing for a fresh catalog or when the catalog is unavailable', () => {
+    const refetch = vi.fn();
+    expect(scheduleStaleCatalogRefetch(cache(false), refetch)).toBeNull();
+    expect(scheduleStaleCatalogRefetch(null, refetch)).toBeNull();
+    expect(refetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('providerTemplateSupport', () => {
+  test('reads which pickers the loaded command template actually uses', () => {
+    expect(providerTemplateSupport(['claude', '-p', '--model', '{model_name}', '--effort', '{effort}'])).toEqual({ model: true, effort: true });
+    expect(providerTemplateSupport(['gemini', '--model', '{model_name}', '-p', '.'])).toEqual({ model: true, effort: false });
+    expect(providerTemplateSupport(['dsh', '--profile', 'headless', '--json', '-'])).toEqual({ model: false, effort: false });
+    // {model} carries the whole model@effort spec.
+    expect(providerTemplateSupport(['tool', '--model={model}'])).toEqual({ model: true, effort: true });
+  });
+
+  test('HTTP providers (no command) and unknown providers keep both pickers', () => {
+    expect(providerTemplateSupport([])).toEqual({ model: true, effort: true });
+    expect(providerTemplateSupport(undefined)).toEqual({ model: true, effort: true });
   });
 });

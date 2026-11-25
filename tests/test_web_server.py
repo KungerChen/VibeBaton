@@ -842,6 +842,29 @@ class TestCredentialsApi(WebServerTestCase):
         bad_sync, _, _ = self.send_json("/api/models/catalog/sync", {"force": "yes"})
         self.assertEqual(bad_sync, 400)
 
+    def test_model_catalog_get_never_starts_a_network_sync(self) -> None:
+        # The daily background loop owns syncing; a stale GET only reports staleness.
+        with patch("vibebaton.web_server.model_catalog.sync_model_catalog") as sync:
+            status, _, body = self._request(Request(self.base + "/api/models/catalog"))
+        self.assertEqual(status, 200)
+        self.assertTrue(body["cache"]["stale"])
+        self.assertIn("last_error", body["cache"])
+        sync.assert_not_called()
+
+    def test_studio_server_starts_the_daily_model_sync_loop(self) -> None:
+        ui = VibeBatonWebServer(self.repo, port=0, credentials_path=self.credentials_path)
+        self.addCleanup(ui.server.server_close)
+        with (
+            patch("vibebaton.web_server.model_catalog.start_daily_sync") as start,
+            patch.object(ui.server, "serve_forever") as serve,
+        ):
+            ui.serve_forever()
+        serve.assert_called_once_with()
+        start.assert_called_once()
+        kwargs = start.call_args.kwargs
+        self.assertEqual(kwargs["cache_path"], self.credentials_path.resolve().parent / "model_catalog_cache.json")
+        self.assertIs(kwargs["stop_event"], ui.server.shutdown_event)
+
 
 class TestRFCApi(WebServerTestCase):
     def test_brainstorm_generates_a_document_that_the_check_endpoint_can_score(self) -> None:

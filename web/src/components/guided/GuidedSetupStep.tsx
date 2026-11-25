@@ -129,6 +129,7 @@ function builtinEntry(
   return { id, label, family, providers, status, cost_tier, rank, efforts: ALL_EFFORT_IDS, default_effort };
 }
 
+/** Offline fallback only: the recommended models. The full, daily-synced list comes from GET /api/models/catalog. */
 export const BUILTIN_MODEL_CATALOG: Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers' | 'efforts'> = {
   efforts: [
     { id: 'low', label: 'Low' },
@@ -148,22 +149,22 @@ export const BUILTIN_MODEL_CATALOG: Pick<ModelCatalogResponse, 'models' | 'tier_
   tier_recommendations: {
     L0: [
       { providers: ['gemini_sub', 'gemini_http'], model: 'gemini-4-carbon', effort: 'medium', note_en: '', note_zh: '' },
-      { providers: ['claude_sub'], model: 'fable-5.2', effort: 'medium', note_en: '', note_zh: '' },
+      { providers: ['claude_sub'], model: 'claude-fable-5-2', effort: 'medium', note_en: '', note_zh: '' },
       { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.2-astra', effort: 'xhigh', note_en: '', note_zh: '' },
     ],
     L1: [
-      { providers: ['claude_sub'], model: 'opus-5.5', effort: 'medium', note_en: '', note_zh: '' },
+      { providers: ['claude_sub'], model: 'claude-opus-5-5', effort: 'medium', note_en: '', note_zh: '' },
       { providers: ['gemini_sub', 'gemini_http'], model: 'gemini-4-neon', effort: 'medium', note_en: '', note_zh: '' },
       { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.2-sol', effort: 'max', note_en: '', note_zh: '' },
     ],
     L2: [
       { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.2-sol', effort: 'max', note_en: '', note_zh: '' },
-      { providers: ['claude_sub'], model: 'sonnet-5.5', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['claude_sub'], model: 'claude-sonnet-5-5', effort: 'max', note_en: '', note_zh: '' },
       { providers: ['gemini_sub', 'gemini_http'], model: 'gemini-4-hydrogen', effort: 'max', note_en: '', note_zh: '' },
     ],
     L3: [
       { providers: ['dsh_opencode', 'dsh_deepseek'], model: 'deepseek-v4.1-flash', effort: 'max', note_en: '', note_zh: '' },
-      { providers: ['claude_sub'], model: 'haiku-5.5', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['claude_sub'], model: 'claude-haiku-5-5', effort: 'max', note_en: '', note_zh: '' },
       { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.1-terra', effort: 'max', note_en: '', note_zh: '' },
       { providers: ['codex_sub', 'openai_http'], model: 'gpt-6-luna', effort: 'max', note_en: '', note_zh: '' },
     ],
@@ -172,32 +173,15 @@ export const BUILTIN_MODEL_CATALOG: Pick<ModelCatalogResponse, 'models' | 'tier_
     builtinEntry('gemini-4-carbon', 'Gemini 4C', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'flagship', 1, 'medium'),
     builtinEntry('gemini-4-neon', 'Gemini 4N', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'standard', 2, 'medium'),
     builtinEntry('gemini-4-hydrogen', 'Gemini 4H', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'eco', 3, 'max'),
-    builtinEntry('gemini-2.5-pro', 'Gemini 2.5 Pro', 'gemini', ['gemini_sub', 'gemini_http'], 'legacy', 'flagship', 4, 'medium'),
-    builtinEntry('gemini-2.5-flash', 'Gemini 2.5 Flash', 'gemini', ['gemini_sub', 'gemini_http'], 'legacy', 'eco', 5, 'max'),
-    builtinEntry('gemini-2.0-flash', 'Gemini 2.0 Flash', 'gemini', ['gemini_sub', 'gemini_http'], 'legacy', 'eco', 6, 'high'),
-    builtinEntry('fable-5.2', 'Fable 5.2', 'claude', ['claude_sub'], 'latest', 'flagship', 1, 'medium'),
-    builtinEntry('opus-5.5', 'Opus 5.5', 'claude', ['claude_sub'], 'latest', 'flagship', 2, 'medium'),
-    builtinEntry('sonnet-5.5', 'Sonnet 5.5', 'claude', ['claude_sub'], 'latest', 'standard', 3, 'max'),
-    builtinEntry('haiku-5.5', 'Haiku 5.5', 'claude', ['claude_sub'], 'latest', 'eco', 4, 'max'),
-    builtinEntry('claude-opus-4-6', 'Claude Opus 4.6', 'claude', ['claude_sub'], 'legacy', 'flagship', 5, 'high'),
-    builtinEntry('claude-sonnet-4-6', 'Claude Sonnet 4.6', 'claude', ['claude_sub'], 'legacy', 'standard', 6, 'high'),
-    builtinEntry('claude-opus-4-5', 'Claude Opus 4.5', 'claude', ['claude_sub'], 'legacy', 'flagship', 7, 'high'),
-    builtinEntry('claude-haiku-4-5', 'Claude Haiku 4.5', 'claude', ['claude_sub'], 'legacy', 'eco', 8, 'max'),
+    builtinEntry('claude-fable-5-2', 'Fable 5.2', 'claude', ['claude_sub'], 'latest', 'flagship', 1, 'medium'),
+    builtinEntry('claude-opus-5-5', 'Opus 5.5', 'claude', ['claude_sub'], 'latest', 'flagship', 2, 'medium'),
+    builtinEntry('claude-sonnet-5-5', 'Sonnet 5.5', 'claude', ['claude_sub'], 'latest', 'standard', 3, 'max'),
+    builtinEntry('claude-haiku-5-5', 'Haiku 5.5', 'claude', ['claude_sub'], 'latest', 'eco', 4, 'max'),
     builtinEntry('gpt-6.2-astra', 'GPT-6.2 Astra', 'openai', ['codex_sub', 'openai_http'], 'latest', 'flagship', 1, 'xhigh'),
     builtinEntry('gpt-6.2-sol', 'GPT-6.2 Sol', 'openai', ['codex_sub', 'openai_http'], 'latest', 'standard', 2, 'max'),
     builtinEntry('gpt-6.1-terra', 'GPT-6.1 Terra', 'openai', ['codex_sub', 'openai_http'], 'latest', 'eco', 3, 'max'),
     builtinEntry('gpt-6-luna', 'GPT-6 Luna', 'openai', ['codex_sub', 'openai_http'], 'latest', 'eco', 4, 'max'),
-    builtinEntry('gpt-5-codex', 'GPT-5 Codex', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'standard', 5, 'high'),
-    builtinEntry('gpt-5', 'GPT-5', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'standard', 6, 'high'),
-    builtinEntry('gpt-5-mini', 'GPT-5 Mini', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'eco', 7, 'high'),
-    builtinEntry('gpt-4.1', 'GPT-4.1', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'standard', 8, 'high'),
-    builtinEntry('gpt-4o', 'GPT-4o', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'standard', 9, 'high'),
-    builtinEntry('o3', 'o3', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'standard', 10, 'high'),
-    builtinEntry('o4-mini', 'o4-mini', 'openai', ['codex_sub', 'openai_http'], 'legacy', 'eco', 11, 'high'),
     builtinEntry('deepseek-v4.1-flash', 'DeepSeek V4.1 Flash', 'deepseek', ['dsh_opencode', 'dsh_deepseek'], 'latest', 'eco', 1, 'max'),
-    builtinEntry('deepseek-v4-pro', 'DeepSeek V4 Pro', 'deepseek', ['dsh_opencode', 'dsh_deepseek'], 'latest', 'standard', 2, 'high'),
-    builtinEntry('deepseek-reasoner', 'DeepSeek Reasoner', 'deepseek', ['dsh_opencode', 'dsh_deepseek'], 'legacy', 'standard', 3, 'high'),
-    builtinEntry('deepseek-chat', 'DeepSeek Chat', 'deepseek', ['dsh_opencode', 'dsh_deepseek'], 'legacy', 'eco', 4, 'high'),
   ],
 };
 
@@ -218,6 +202,30 @@ export function parseRoleSpec(spec: string, fallbackProvider: string): { provide
 export function formatRoleSpec(provider: string, model: string, effort: string): string {
   if (!model) return provider;
   return effort ? `${provider}:${model}@${effort}` : `${provider}:${model}`;
+}
+
+/**
+ * Which role pickers take effect for a provider, judged from its loaded command template.
+ * HTTP providers (empty command) send model and reasoning effort in the request; unknown providers keep both.
+ */
+export function providerTemplateSupport(command: readonly string[] | undefined): { model: boolean; effort: boolean } {
+  if (!command || command.length === 0) return { model: true, effort: true };
+  const uses = (placeholder: string) => command.some((token) => token.includes(placeholder));
+  return { model: uses('{model_name}') || uses('{model}'), effort: uses('{effort}') || uses('{model}') };
+}
+
+/** Wait for the server's start-up sync (20s fetch timeout) before re-reading a stale catalog. */
+export const STALE_CATALOG_REFETCH_MS = 30_000;
+
+/** Re-read a stale catalog once after a delay; returns a cancel function, or null when nothing is scheduled. */
+export function scheduleStaleCatalogRefetch(
+  catalog: Pick<ModelCatalogResponse, 'cache'> | null,
+  refetch: () => void,
+  delayMs: number = STALE_CATALOG_REFETCH_MS,
+): (() => void) | null {
+  if (!catalog?.cache?.stale) return null;
+  const timer = setTimeout(refetch, delayMs);
+  return () => clearTimeout(timer);
 }
 
 /** List all active + legacy models supported by `providerId` in ranked order. */
@@ -536,10 +544,13 @@ export function GuidedSetupStep({
   const [httpApiKeysPresent, setHttpApiKeysPresent] = useState<string[]>([]);
   const [lineup, setLineup] = useState<RecommendedLineup | null>(null);
   const [configuredProviders, setConfiguredProviders] = useState<string[] | undefined>(undefined);
+  const [providerCommands, setProviderCommands] = useState<Record<string, string[]>>({});
   const [modelCatalog, setModelCatalog] = useState<Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers' | 'efforts'>>(
     () => BUILTIN_MODEL_CATALOG,
   );
   const [catalogFeedback, setCatalogFeedback] = useState<string | null>(null);
+  const [catalogSyncFailed, setCatalogSyncFailed] = useState(false);
+  const cancelCatalogRefetch = useRef<(() => void) | null>(null);
   const [credentials, setCredentials] = useState<CredentialStatus[]>([]);
   const [apiKeysOpen, setApiKeysOpen] = useState(false);
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
@@ -575,6 +586,11 @@ export function GuidedSetupStep({
     setLineup(result.lineup);
   }, [api]);
 
+  const applyRemoteCatalog = useCallback((catalog: ModelCatalogResponse) => {
+    setModelCatalog(catalog);
+    setCatalogSyncFailed(Boolean(catalog.cache?.last_error));
+  }, []);
+
   const scan = useCallback((repoPath?: string) => run('scan', () => scanRegistry(repoPath)), [run, scanRegistry]);
 
   useEffect(() => {
@@ -591,19 +607,30 @@ export function GuidedSetupStep({
       setPathInput(info.path);
       setDrivers(registry.drivers);
       setConfiguredProviders(rolesCfg ? Object.keys(rolesCfg.providers) : undefined);
+      setProviderCommands(rolesCfg
+        ? Object.fromEntries(Object.entries(rolesCfg.providers).map(([id, provider]) => [id, provider.command ?? []]))
+        : {});
       setCredentials(creds);
-      if (remoteCatalog) setModelCatalog(remoteCatalog);
+      if (remoteCatalog) {
+        applyRemoteCatalog(remoteCatalog);
+        cancelCatalogRefetch.current?.();
+        cancelCatalogRefetch.current = scheduleStaleCatalogRefetch(remoteCatalog, () => {
+          void api.getModelCatalog?.().then(applyRemoteCatalog).catch(() => {});
+        });
+      }
       await scanRegistry(info.path);
     });
-  }, [api, apiMode, run, scanRegistry]);
+  }, [api, apiMode, run, scanRegistry, applyRemoteCatalog]);
+
+  useEffect(() => () => cancelCatalogRefetch.current?.(), []);
 
   const syncModels = () => {
     if (!api.syncModelCatalog) return;
     void run('models_sync', async () => {
       setCatalogFeedback(null);
       const res = await api.syncModelCatalog!(true);
-      setModelCatalog(res.catalog);
-      setCatalogFeedback(copy.modelsSyncedDone(res.added_count));
+      applyRemoteCatalog(res.catalog);
+      setCatalogFeedback(res.ok ? copy.modelsSyncedDone(res.added_count) : copy.modelsSyncFailed);
     });
   };
 
@@ -1015,6 +1042,9 @@ export function GuidedSetupStep({
           ) : null}
           <p className="guided-setup__reason">{copy.modelsDailyHint}</p>
           {catalogFeedback ? <p className="guided-setup__done-note" role="status">{catalogFeedback}</p> : null}
+          {!catalogFeedback && catalogSyncFailed ? (
+            <p className="guided-setup__done-note" role="status">{copy.modelsSyncFailed}</p>
+          ) : null}
           {effectiveLineup.ready && baselineLineup && selectableProviders.length > 1 ? (
             <div className="guided-setup__presets" role="group" aria-label={copy.customizeRoles}>
               <button
@@ -1052,6 +1082,7 @@ export function GuidedSetupStep({
                 const syncedModels = providerModels.filter((m) => m.status === 'synced');
                 const selectedModel = parsed.model || providerModels[0]?.id || '';
                 const selectedEffort = parsed.effort || (tier === 'L0' || tier === 'L1' ? 'medium' : 'max');
+                const pickers = providerTemplateSupport(providerCommands[assignedProvider]);
                 return (
                   <div key={role} className="guided-setup__role-row">
                     <div className="guided-setup__role-head">
@@ -1071,7 +1102,7 @@ export function GuidedSetupStep({
                           </option>
                         ))}
                       </select>
-                      {providerModels.length > 0 ? (
+                      {pickers.model && providerModels.length > 0 ? (
                         <select
                           className="guided-setup__select guided-setup__select--model"
                           aria-label={`${translateRole(role, locale)} · ${copy.modelColumnLabel}`}
@@ -1103,18 +1134,20 @@ export function GuidedSetupStep({
                           ) : null}
                         </select>
                       ) : null}
-                      <select
-                        className="guided-setup__select guided-setup__select--effort"
-                        aria-label={`${translateRole(role, locale)} · ${copy.effortColumnLabel}`}
-                        value={selectedEffort}
-                        onChange={(event) => applyCustomLineup(
-                          assignRoleModelSpec(effectiveLineup, role, assignedProvider, selectedModel, event.currentTarget.value),
-                        )}
-                      >
-                        {modelCatalog.efforts.map((eff) => (
-                          <option key={eff.id} value={eff.id}>{eff.label}</option>
-                        ))}
-                      </select>
+                      {pickers.effort ? (
+                        <select
+                          className="guided-setup__select guided-setup__select--effort"
+                          aria-label={`${translateRole(role, locale)} · ${copy.effortColumnLabel}`}
+                          value={selectedEffort}
+                          onChange={(event) => applyCustomLineup(
+                            assignRoleModelSpec(effectiveLineup, role, assignedProvider, selectedModel, event.currentTarget.value),
+                          )}
+                        >
+                          {modelCatalog.efforts.map((eff) => (
+                            <option key={eff.id} value={eff.id}>{eff.label}</option>
+                          ))}
+                        </select>
+                      ) : null}
                     </div>
                   </div>
                 );

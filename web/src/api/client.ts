@@ -153,6 +153,8 @@ export interface ModelCatalogResponse {
     fetched_at: number | null;
     age_sec: number | null;
     stale: boolean;
+    /** Last background sync failure; cleared after the next successful fetch. */
+    last_error?: string | null;
     refresh_interval_hours: number;
   };
 }

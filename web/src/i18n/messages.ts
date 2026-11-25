@@ -547,6 +547,7 @@ export interface Messages {
       syncingModels: string;
       modelsSyncedDone: (added: number) => string;
       modelsDailyHint: string;
+      modelsSyncFailed: string;
       providerColumnLabel: string;
       modelColumnLabel: string;
       effortColumnLabel: string;
@@ -1362,7 +1363,8 @@ export const MESSAGES: Record<Locale, Messages> = {
         syncModels: 'Check Latest Models',
         syncingModels: 'Checking models...',
         modelsSyncedDone: (added) => (added > 0 ? `Catalog synced (${added} new models added).` : 'Model catalog is up to date.'),
-        modelsDailyHint: 'Auto-checks daily (all active & legacy models remain selectable).',
+        modelsDailyHint: 'Auto-checks daily; retired models are removed automatically.',
+        modelsSyncFailed: 'Could not refresh the model list right now. Showing the last saved list; it will retry every hour.',
         providerColumnLabel: 'Provider',
         modelColumnLabel: 'Model',
         effortColumnLabel: 'Thinking Effort',
@@ -2195,8 +2197,9 @@ export const MESSAGES: Record<Locale, Messages> = {
         teamNeedsApiKeyNote: (names, keys) => `检测到本机已安装 ${names}，在上方「API 密钥」填写 ${keys} 后即可在团队中选用。`,
         syncModels: '检查最新模型',
         syncingModels: '正在检查更新……',
-        modelsSyncedDone: (added) => (added > 0 ? `已检查模型库，新增 ${added} 个模型。` : '模型库已是最新（所有历史可用模型均保留）。'),
-        modelsDailyHint: '每天自动检查一次最新模型；历史可用模型同样全量保留，可按需要自由挑选。',
+        modelsSyncedDone: (added) => (added > 0 ? `已检查模型库，新增 ${added} 个模型。` : '模型库已是最新。'),
+        modelsDailyHint: '每天自动检查一次最新模型，已下架的模型会自动移除。',
+        modelsSyncFailed: '暂时没能更新模型列表，先显示上次保存的版本，之后每小时会自动重试。',
         providerColumnLabel: '提供方',
         modelColumnLabel: '模型',
         effortColumnLabel: '思考强度',

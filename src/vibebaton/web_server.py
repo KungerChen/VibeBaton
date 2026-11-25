@@ -1045,14 +1045,8 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
 
     def _get_models_catalog(self) -> None:
         cache_path = _model_catalog_cache_path(self.server.credentials_path)
-        catalog = model_catalog.get_model_catalog(cache_path=cache_path)
-        if catalog["cache"]["stale"] and os.environ.get("VIBEBATON_DISABLE_MODEL_SYNC") != "1":
-            fetcher = getattr(self.server, "pricing_fetcher", None)
-            kwargs: dict[str, Any] = {"force": False, "cache_path": cache_path}
-            if fetcher is not None:
-                kwargs["fetcher"] = fetcher
-            threading.Thread(target=model_catalog.sync_model_catalog, kwargs=kwargs, daemon=True).start()
-        self._send_json(200, catalog)
+        # The daily loop started with the Studio server refreshes the cache; a stale reply tells the UI to re-poll.
+        self._send_json(200, model_catalog.get_model_catalog(cache_path=cache_path))
 
     def _post_models_catalog_sync(self) -> None:
         force = self._read_json_body(optional=True).get("force", False)
@@ -1877,6 +1871,10 @@ class VibeBatonWebServer:
         self.url = f"http://{host}:{self.server.server_address[1]}"
 
     def serve_forever(self) -> None:
+        model_catalog.start_daily_sync(
+            cache_path=_model_catalog_cache_path(self.server.credentials_path),
+            stop_event=self.server.shutdown_event,
+        )
         self.server.serve_forever()
 
     def shutdown(self) -> None:
