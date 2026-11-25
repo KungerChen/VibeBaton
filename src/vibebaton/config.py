@@ -16,6 +16,13 @@ from typing import Any, Literal
 ALLOWED_BUDGET_PROFILES = ("eco", "balanced", "max_quality")
 _WEBHOOK_FORMATS = ("auto", "generic", "slack", "discord", "feishu", "wecom", "dingtalk")
 _DYNAMIC_EFFORTS = ("low", "high", "max")
+# Ids the model picker used to emit; `claude --model` rejects them, so saved overrides are mapped to the real ids.
+_LEGACY_CLAUDE_MODEL_IDS = {
+    "fable-5.2": "claude-fable-5-2",
+    "opus-5.5": "claude-opus-5-5",
+    "sonnet-5.5": "claude-sonnet-5-5",
+    "haiku-5.5": "claude-haiku-5-5",
+}
 CostTier = Literal["eco", "standard", "flagship"]
 
 # Match whole tokens in the base model name, in table order. Other models are standard.
@@ -194,6 +201,9 @@ class BatonConfig:
                 provider_name, model_name = override.split(":", 1)
             else:
                 model_name = override
+            if provider_name == "claude_sub":
+                base_model, at, effort = model_name.partition("@")
+                model_name = _LEGACY_CLAUDE_MODEL_IDS.get(base_model, base_model) + at + effort
 
         resolved_role = RoleConfig(
             name=base_role.name,

@@ -42,6 +42,31 @@ def _init_temp_git_repo(repo_dir: Path) -> None:
 
 
 class TestConfigAndSchemas(unittest.TestCase):
+    def test_legacy_claude_model_ids_in_overrides_are_migrated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_file = Path(tmp) / "baton.toml"
+            cfg_file.write_text(
+                '[providers.claude_sub]\ncommand = ["echo"]\n'
+                '[providers.p2]\ncommand = ["echo"]\n'
+                '[roles.worker]\nprovider = "claude_sub"\nmodel = "opus@high"\n',
+                encoding="utf-8",
+            )
+            cfg = HotReloadConfig(cfg_file).current
+            cases = {
+                "claude_sub:opus-5.5@medium": "claude-opus-5-5@medium",
+                "claude_sub:fable-5.2": "claude-fable-5-2",
+                "sonnet-5.5@max": "claude-sonnet-5-5@max",
+                "haiku-5.5": "claude-haiku-5-5",
+                "claude_sub:claude-opus-5-5@high": "claude-opus-5-5@high",
+                "opus@high": "opus@high",
+            }
+            for override, expected in cases.items():
+                role, _ = cfg.resolve_role("worker", model_overrides={"worker": override})
+                self.assertEqual(role.model, expected, override)
+            # Other providers keep whatever id they were given.
+            role, prov = cfg.resolve_role("worker", model_overrides={"worker": "p2:opus-5.5@high"})
+            self.assertEqual((prov.name, role.model), ("p2", "opus-5.5@high"))
+
     def test_hot_reload_and_role_override(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg_file = Path(tmp) / "baton.toml"
