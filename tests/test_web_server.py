@@ -815,6 +815,24 @@ class TestCredentialsApi(WebServerTestCase):
         self.assertIn("outside the repository", body["error"])
         self.assertEqual(self.config_path.read_bytes(), original)
 
+    def test_attention_dismissed_persists_deduplicates_and_validates(self) -> None:
+        status, _, body = self._request(Request(self.base + "/api/attention/dismissed"))
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {"fingerprints": []})
+
+        bad_status, _, _ = self.send_json("/api/attention/dismiss", {"fingerprint": "   "})
+        self.assertEqual(bad_status, 400)
+
+        fp = "run-123|ready_for_final_gate|||99.5"
+        for _ in range(2):
+            post_status, _, post_body = self.send_json("/api/attention/dismiss", {"fingerprint": fp})
+            self.assertEqual(post_status, 200)
+            self.assertEqual(post_body, {"fingerprints": [fp]})
+
+        get_status, _, get_body = self._request(Request(self.base + "/api/attention/dismissed"))
+        self.assertEqual(get_status, 200)
+        self.assertEqual(get_body, {"fingerprints": [fp]})
+
 
 class TestRFCApi(WebServerTestCase):
     def test_brainstorm_generates_a_document_that_the_check_endpoint_can_score(self) -> None:

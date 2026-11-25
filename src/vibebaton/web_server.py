@@ -69,6 +69,8 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(r"/api/doctor/role"), "_post_doctor_role"),
     ("GET", re.compile(r"/api/credentials"), "_get_credentials"),
     ("POST", re.compile(r"/api/credentials"), "_post_credentials"),
+    ("GET", re.compile(r"/api/attention/dismissed"), "_get_attention_dismissed"),
+    ("POST", re.compile(r"/api/attention/dismiss"), "_post_attention_dismiss"),
     ("POST", re.compile(r"/api/rfc/check"), "_post_rfc_check"),
     ("POST", re.compile(r"/api/rfc/brainstorm"), "_post_rfc_brainstorm"),
     ("GET", re.compile(r"/api/cli-registry"), "_get_cli_registry"),
@@ -100,6 +102,43 @@ _TOML_STRING_KEY_LINE = re.compile(
     r"""(?P<suffix>[ \t]*(?:#.*)?)"""
 )
 _PROBE_TTL_SEC = 60.0
+_DISMISSED_ALERTS_LOCK = threading.Lock()
+_MAX_DISMISSED_ALERTS = 50
+
+
+def _dismissed_alerts_path(credentials_path: Path | None) -> Path:
+    base = credentials.default_credentials_path(credentials_path)
+    return base.parent / "dismissed_alerts.json"
+
+
+def _read_dismissed_alerts(path: Path) -> list[str]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, ValueError, RecursionError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, str) and item]
+
+
+def _record_dismissed_alert(path: Path, fingerprint: str, limit: int = _MAX_DISMISSED_ALERTS) -> list[str]:
+    with _DISMISSED_ALERTS_LOCK:
+        items = [item for item in _read_dismissed_alerts(path) if item != fingerprint]
+        items.append(fingerprint)
+        items = items[-limit:]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_file = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False)
+        temp_path = Path(temp_file.name)
+        try:
+            with temp_file:
+                json.dump(items, temp_file, indent=2)
+                temp_file.write("\n")
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            os.replace(temp_path, path)
+        finally:
+            temp_path.unlink(missing_ok=True)
+        return items
 
 _STATIC_MIME_TYPES = {
     ".html": "text/html",
@@ -1056,6 +1095,20 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
 
         self.server.provider_probe_cache.invalidate(self.server.credentials_path)
         self._send_json(200, statuses)
+
+    def _get_attention_dismissed(self) -> None:
+        path = _dismissed_alerts_path(self.server.credentials_path)
+        self._send_json(200, {"fingerprints": _read_dismissed_alerts(path)})
+
+    def _post_attention_dismiss(self) -> None:
+        fingerprint = _text_field(self._read_json_body(), "fingerprint")
+        path = _dismissed_alerts_path(self.server.credentials_path)
+        try:
+            fingerprints = _record_dismissed_alert(path, fingerprint)
+        except OSError:
+            self._send_json(500, {"error": "Dismissed notifications could not be saved"})
+            return
+        self._send_json(200, {"fingerprints": fingerprints})
 
     def _post_rfc_check(self) -> None:
         markdown = _text_field(self._read_json_body(), "rfc_markdown")

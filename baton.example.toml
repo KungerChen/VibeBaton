@@ -109,9 +109,10 @@ cooldown_backoff_sec = [60, 300, 900]
 # ---------------------------------------------------------------------------
 
 [roles.brainstorm_and_final_gate]
-provider = "host_native"
-model = "gemini-4-neon-high"
+provider = "gemini_sub"
+model = "gemini-2.5-pro"
 prompt_file = "prompts/l0_final_gate.md"
+fallback = [{ provider = "claude_sub", model = "opus@high" }]
 
 [roles.tactical_planner]
 provider = "claude_sub"

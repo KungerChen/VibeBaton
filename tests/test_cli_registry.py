@@ -518,6 +518,14 @@ class RecommendedLineupContractTests(unittest.TestCase):
         self.assertEqual(lineup["source"], "cli")
         self.assertEqual(lineup["roles"], {role: "gemini_sub" for role in self.cfg.roles})
 
+    def test_full_host_lineup_assigns_gemini_sub_to_brainstorm_and_final_gate(self) -> None:
+        lineup = build_recommended_lineup(
+            self.scan_result({"claude": "ready", "codex": "ready", "dsh": "ready", "gemini": "ready"}),
+            self.cfg,  # type: ignore[arg-type]
+        )
+        self.assertIs(lineup["ready"], True)
+        self.assertEqual(lineup["roles"]["brainstorm_and_final_gate"], "gemini_sub")
+
     def test_ready_opencode_alone_cannot_back_dsh_provider(self) -> None:
         # dsh_opencode runs the `dsh` binary, which an opencode-only host does not have.
         lineup = build_recommended_lineup(self.scan_result({"opencode": "ready"}), self.cfg)  # type: ignore[arg-type]

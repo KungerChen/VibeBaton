@@ -210,6 +210,7 @@ function AppContent() {
   const runId = typeof run?.run_id === 'string' ? run.run_id : typeof run?.id === 'string' ? run.id : null;
   const fingerprint = buildAlertFingerprint(runId, attentionAlert);
   const [dismissedFingerprints, setDismissedFingerprints] = useState<Set<string>>(() => readDismissedFingerprints());
+  const [dismissedReady, setDismissedReady] = useState(false);
   const [battleReportToken, setBattleReportToken] = useState(0);
   const announcedFingerprints = useRef(new Set<string>());
   const initialSnapshotHydratedRef = useRef(false);
@@ -217,7 +218,9 @@ function AppContent() {
     () => typeof window === 'undefined' ? 'unsupported' : (window.Notification?.permission ?? 'unsupported'),
   );
   // Rejecting a decision pauses the run and resolves the attention episode in the same update.
-  const visibleFingerprint = fingerprint && !dismissedFingerprints.has(fingerprint) && !wasPausedByRejection(liveSnapshot) ? fingerprint : null;
+  const visibleFingerprint = dismissedReady && fingerprint && !dismissedFingerprints.has(fingerprint) && !wasPausedByRejection(liveSnapshot)
+    ? fingerprint
+    : null;
   const visibleAttentionAlert = visibleFingerprint ? attentionAlert : null;
   const baseTitle = messages.docTitle;
   const isSelectedRunActive = isRunStatusActive(liveSnapshot?.run?.status);
@@ -315,6 +318,32 @@ function AppContent() {
   useEffect(() => {
     writePaneWidths(paneWidths);
   }, [paneWidths]);
+
+  useEffect(() => {
+    if (mode === null) return;
+    if (mode !== 'local') {
+      setDismissedReady(true);
+      return;
+    }
+    let active = true;
+    setDismissedReady(false);
+    void client.getDismissedAttention().then(
+      (serverFingerprints) => {
+        if (!active || serverFingerprints.length === 0) return;
+        setDismissedFingerprints((current) => {
+          let next = current;
+          for (const item of serverFingerprints) {
+            next = recordDismissedFingerprint(item, next);
+          }
+          return next;
+        });
+      },
+      () => {},
+    ).finally(() => {
+      if (active) setDismissedReady(true);
+    });
+    return () => { active = false; };
+  }, [client, mode]);
 
   useEffect(() => {
     let active = true;
@@ -1017,6 +1046,7 @@ function AppContent() {
       onDismiss={() => {
         if (fingerprint) {
           setDismissedFingerprints((current) => recordDismissedFingerprint(fingerprint, current));
+          void client.dismissAttention(fingerprint).catch(() => {});
         }
       }}
     />

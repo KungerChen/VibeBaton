@@ -654,6 +654,21 @@ export class BatonApiClient {
     return this.requestJson('/api/brainstorm/confirm', { method: 'POST', body: { rfc_markdown: rfcMarkdown } });
   }
 
+  async getDismissedAttention(): Promise<string[]> {
+    if (this.mode === 'demo') return [];
+    const { fingerprints } = await this.requestJson<{ fingerprints: string[] }>('/api/attention/dismissed');
+    return fingerprints;
+  }
+
+  async dismissAttention(fingerprint: string): Promise<string[]> {
+    if (this.mode === 'demo') return [fingerprint];
+    const { fingerprints } = await this.requestJson<{ fingerprints: string[] }>('/api/attention/dismiss', {
+      method: 'POST',
+      body: { fingerprint },
+    });
+    return fingerprints;
+  }
+
   getRunTaskDetail(runId: string, taskId: string, locale?: 'en' | 'zh'): Promise<RunTaskDetail> {
     const query = locale === 'zh' ? '?lang=zh' : '';
     return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}${query}`);
