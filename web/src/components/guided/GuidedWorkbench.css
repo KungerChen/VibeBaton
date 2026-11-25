@@ -12,6 +12,11 @@
   background: var(--background);
 }
 
+.guided-app__attention {
+  flex-shrink: 0;
+  padding: 0.5rem 0.85rem 0;
+}
+
 .guided-app > .guided-workbench {
   flex: 1;
   min-height: 0;

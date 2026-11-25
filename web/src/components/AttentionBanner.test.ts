@@ -2,6 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test, vi } from 'vitest';
+import appSource from '../App.tsx?raw';
 import { MESSAGES } from '../i18n/messages';
 import type { AttentionCategory, RunAttentionState } from '../types/graph';
 import {
@@ -304,5 +305,12 @@ describe('AttentionBanner', () => {
         vi.unstubAllGlobals();
       }
     }
+  });
+
+  test('is wired in App for both Guided and Pro modes and switches to Pro for battle report', () => {
+    expect(appSource).toContain("studioMode === 'guided' && visibleAttentionAlert");
+    expect(appSource).toContain('className="guided-app__attention">{attentionBanner}');
+    expect(appSource).toContain("studioMode === 'pro' ? attentionBanner : null");
+    expect(appSource).toContain("if (studioMode !== 'pro') onStudioModeChange('pro');");
   });
 });

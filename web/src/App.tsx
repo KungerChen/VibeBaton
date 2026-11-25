@@ -998,12 +998,36 @@ function AppContent() {
   const glossaryDrawer = (
     <GlossaryDrawer open={glossaryOpen} onClose={() => setGlossaryOpen(false)} locale={locale} />
   );
+  const attentionBanner = (
+    <AttentionBanner
+      key={visibleFingerprint}
+      alert={visibleAttentionAlert}
+      runId={runId}
+      locale={locale}
+      notificationPermission={notificationPermission}
+      busy={runControls.busy}
+      controlsDisabled={!runSynced}
+      onApprove={() => onAttentionRunAction('approve')}
+      onReject={(note) => onAttentionRunAction('reject', note)}
+      onResume={() => onAttentionRunAction('resume')}
+      onOpenBattleReport={() => {
+        if (studioMode !== 'pro') onStudioModeChange('pro');
+        onRequirePane('inspector', 'live');
+        setBattleReportToken((n) => n + 1);
+      }}
+      onEnableNotifications={() => void onEnableNotifications()}
+      onDismiss={() => setDismissedFingerprint(fingerprint)}
+    />
+  );
 
   return (
     <>
       {hasOpenedGuided && (
         <div className="guided-app" hidden={studioMode !== 'guided'}>
           {studioMode === 'guided' ? headerBar : null}
+          {studioMode === 'guided' && visibleAttentionAlert ? (
+            <div className="guided-app__attention">{attentionBanner}</div>
+          ) : null}
           <GuidedWorkbench
             locale={locale}
             client={client}
@@ -1025,24 +1049,7 @@ function AppContent() {
         } as CSSProperties}
       >
         {studioMode === 'pro' ? headerBar : null}
-      <AttentionBanner
-        key={visibleFingerprint}
-        alert={visibleAttentionAlert}
-        runId={runId}
-        locale={locale}
-        notificationPermission={notificationPermission}
-        busy={runControls.busy}
-        controlsDisabled={!runSynced}
-        onApprove={() => onAttentionRunAction('approve')}
-        onReject={(note) => onAttentionRunAction('reject', note)}
-        onResume={() => onAttentionRunAction('resume')}
-        onOpenBattleReport={() => {
-          onRequirePane('inspector', 'live');
-          setBattleReportToken((n) => n + 1);
-        }}
-        onEnableNotifications={() => void onEnableNotifications()}
-        onDismiss={() => setDismissedFingerprint(fingerprint)}
-      />
+      {studioMode === 'pro' ? attentionBanner : null}
       <nav className="app-tabs tabs" aria-label={messages.tabs.ariaLabel}>
         {panes.map(({ id, label }) => (
           <button
