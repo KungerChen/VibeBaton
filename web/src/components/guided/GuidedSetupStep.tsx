@@ -112,6 +112,7 @@ export const EFFORT_LABELS: Record<string, string> = {
   high: 'High',
   xhigh: 'XHigh',
   max: 'Max',
+  ultra: 'Ultra',
 };
 
 const ALL_EFFORT_IDS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -170,18 +171,18 @@ export const BUILTIN_MODEL_CATALOG: Pick<ModelCatalogResponse, 'models' | 'tier_
     ],
   },
   models: [
-    builtinEntry('gemini-4-carbon', 'Gemini 4C', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'flagship', 1, 'medium'),
-    builtinEntry('gemini-4-neon', 'Gemini 4N', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'standard', 2, 'medium'),
-    builtinEntry('gemini-4-hydrogen', 'Gemini 4H', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'eco', 3, 'max'),
-    builtinEntry('claude-fable-5-2', 'Fable 5.2', 'claude', ['claude_sub'], 'latest', 'flagship', 1, 'medium'),
-    builtinEntry('claude-opus-5-5', 'Opus 5.5', 'claude', ['claude_sub'], 'latest', 'flagship', 2, 'medium'),
-    builtinEntry('claude-sonnet-5-5', 'Sonnet 5.5', 'claude', ['claude_sub'], 'latest', 'standard', 3, 'max'),
-    builtinEntry('claude-haiku-5-5', 'Haiku 5.5', 'claude', ['claude_sub'], 'latest', 'eco', 4, 'max'),
+    builtinEntry('gemini-4-carbon', 'Gemini 4 Carbon', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'flagship', 1, 'medium'),
+    builtinEntry('gemini-4-neon', 'Gemini 4 Neon', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'standard', 2, 'medium'),
+    builtinEntry('gemini-4-hydrogen', 'Gemini 4 Hydrogen', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'eco', 3, 'max'),
+    builtinEntry('claude-fable-5-2', 'Claude Fable 5.2', 'claude', ['claude_sub'], 'latest', 'flagship', 1, 'medium'),
+    builtinEntry('claude-opus-5-5', 'Claude Opus 5.5', 'claude', ['claude_sub'], 'latest', 'flagship', 2, 'medium'),
+    builtinEntry('claude-sonnet-5-5', 'Claude Sonnet 5.5', 'claude', ['claude_sub'], 'latest', 'standard', 3, 'max'),
+    builtinEntry('claude-haiku-5-5', 'Claude Haiku 5.5', 'claude', ['claude_sub'], 'latest', 'eco', 4, 'max'),
     builtinEntry('gpt-6.2-astra', 'GPT-6.2 Astra', 'openai', ['codex_sub', 'openai_http'], 'latest', 'flagship', 1, 'xhigh'),
     builtinEntry('gpt-6.2-sol', 'GPT-6.2 Sol', 'openai', ['codex_sub', 'openai_http'], 'latest', 'standard', 2, 'max'),
     builtinEntry('gpt-6.1-terra', 'GPT-6.1 Terra', 'openai', ['codex_sub', 'openai_http'], 'latest', 'eco', 3, 'max'),
     builtinEntry('gpt-6-luna', 'GPT-6 Luna', 'openai', ['codex_sub', 'openai_http'], 'latest', 'eco', 4, 'max'),
-    builtinEntry('deepseek-v4.1-flash', 'DeepSeek V4.1 Flash', 'deepseek', ['dsh_opencode', 'dsh_deepseek'], 'latest', 'eco', 1, 'max'),
+    builtinEntry('deepseek-v4.1-flash', 'DeepSeek V4.1 Flash', 'deepseek', ['dsh_opencode'], 'latest', 'eco', 1, 'max'),
   ],
 };
 
@@ -204,14 +205,38 @@ export function formatRoleSpec(provider: string, model: string, effort: string):
   return effort ? `${provider}:${model}@${effort}` : `${provider}:${model}`;
 }
 
+/** Bundled presets that read the whole `model@effort` spec from the VIBEBATON_MODEL environment variable. */
+const ENV_MODEL_PRESETS = ['dsh-headless-opencode-go.patch.yml'];
+
 /**
  * Which role pickers take effect for a provider, judged from its loaded command template.
  * HTTP providers (empty command) send model and reasoning effort in the request; unknown providers keep both.
+ * A template loading an env-driven preset (DSH's patch file) gets the spec via VIBEBATON_MODEL instead.
  */
 export function providerTemplateSupport(command: readonly string[] | undefined): { model: boolean; effort: boolean } {
   if (!command || command.length === 0) return { model: true, effort: true };
   const uses = (placeholder: string) => command.some((token) => token.includes(placeholder));
+  if (ENV_MODEL_PRESETS.some(uses)) return { model: true, effort: true };
   return { model: uses('{model_name}') || uses('{model}'), effort: uses('{effort}') || uses('{model}') };
+}
+
+/** Efforts a model offers on a provider: the CLI's own list when it reported one, else the catalog default. */
+export function effortOptionsFor(
+  entry: Pick<ModelCatalogEntry, 'provider_efforts'> | undefined,
+  providerId: string,
+  efforts: readonly { id: string; label: string }[],
+): { id: string; label: string }[] {
+  const reported = entry?.provider_efforts?.[providerId];
+  if (!reported || reported.length === 0) return [...efforts];
+  return reported.map((id) => ({ id, label: efforts.find((e) => e.id === id)?.label ?? EFFORT_LABELS[id] ?? id }));
+}
+
+/** Keep `effort` when offered, else `fallback` when offered, else the strongest offered effort. */
+export function coerceEffort(effort: string, options: readonly { id: string }[], fallback: string): string {
+  const ids = options.map((option) => option.id);
+  if (ids.includes(effort)) return effort;
+  if (ids.includes(fallback)) return fallback;
+  return ids.at(-1) ?? effort;
 }
 
 /** Wait for the server's start-up sync (20s fetch timeout) before re-reading a stale catalog. */
@@ -246,9 +271,11 @@ export function recommendRoleSpec(
   const recs: readonly TierRecommendation[] = catalog.tier_recommendations[tier] ?? [];
 
   if (preferredProvider) {
-    const rec = recs.find((item) => item.providers.includes(preferredProvider));
-    if (rec) return { provider: preferredProvider, model: rec.model, effort: rec.effort };
     const choices = modelsForProvider(catalog.models, preferredProvider);
+    const rec = recs.find((item) => item.providers.includes(preferredProvider));
+    // Mirrors the backend's recommend_role_assignment: a recommended model the provider does not offer
+    // falls back to the provider's best model of the same cost tier.
+    if (rec && choices.some((m) => m.id === rec.model)) return { provider: preferredProvider, model: rec.model, effort: rec.effort };
     if (choices.length > 0) {
       const targetTier = tier === 'L0' ? 'flagship' : tier === 'L3' ? 'eco' : 'standard';
       const chosen = choices.find((m) => m.cost_tier === targetTier) ?? choices[0];
@@ -264,7 +291,7 @@ export function recommendRoleSpec(
   const readySet = new Set(selectableProviders);
   for (const rec of recs) {
     const matched = rec.providers.find((pid) => readySet.has(pid));
-    if (matched) return { provider: matched, model: rec.model, effort: rec.effort };
+    if (matched) return recommendRoleSpec(role, selectableProviders, catalog, matched);
   }
 
   const fallback = selectableProviders[0] ?? '';
@@ -1078,10 +1105,15 @@ export function GuidedSetupStep({
                 const parsed = parseRoleSpec(effectiveLineup.model_overrides?.[role] ?? '', assignedProvider);
                 const providerModels = modelsForProvider(modelCatalog.models, assignedProvider);
                 const latestModels = providerModels.filter((m) => m.status === 'latest');
-                const legacyModels = providerModels.filter((m) => m.status === 'legacy');
-                const syncedModels = providerModels.filter((m) => m.status === 'synced');
+                // Legacy and synced models share one list ranked by version.
+                const otherModels = providerModels.filter((m) => m.status !== 'latest');
                 const selectedModel = parsed.model || providerModels[0]?.id || '';
-                const selectedEffort = parsed.effort || (tier === 'L0' || tier === 'L1' ? 'medium' : 'max');
+                const tierEffort = tier === 'L0' || tier === 'L1' ? 'medium' : 'max';
+                const effortFor = (modelId: string) => effortOptionsFor(
+                  providerModels.find((m) => m.id === modelId), assignedProvider, modelCatalog.efforts,
+                );
+                const effortOptions = effortFor(selectedModel);
+                const selectedEffort = coerceEffort(parsed.effort || tierEffort, effortOptions, tierEffort);
                 const pickers = providerTemplateSupport(providerCommands[assignedProvider]);
                 return (
                   <div key={role} className="guided-setup__role-row">
@@ -1108,7 +1140,10 @@ export function GuidedSetupStep({
                           aria-label={`${translateRole(role, locale)} · ${copy.modelColumnLabel}`}
                           value={selectedModel}
                           onChange={(event) => applyCustomLineup(
-                            assignRoleModelSpec(effectiveLineup, role, assignedProvider, event.currentTarget.value, selectedEffort),
+                            assignRoleModelSpec(
+                              effectiveLineup, role, assignedProvider, event.currentTarget.value,
+                              coerceEffort(selectedEffort, effortFor(event.currentTarget.value), tierEffort),
+                            ),
                           )}
                         >
                           {latestModels.length > 0 ? (
@@ -1118,16 +1153,9 @@ export function GuidedSetupStep({
                               ))}
                             </optgroup>
                           ) : null}
-                          {legacyModels.length > 0 ? (
+                          {otherModels.length > 0 ? (
                             <optgroup label={copy.modelGroupLegacy}>
-                              {legacyModels.map((entry) => (
-                                <option key={entry.id} value={entry.id}>{entry.label}</option>
-                              ))}
-                            </optgroup>
-                          ) : null}
-                          {syncedModels.length > 0 ? (
-                            <optgroup label={copy.modelGroupSynced}>
-                              {syncedModels.map((entry) => (
+                              {otherModels.map((entry) => (
                                 <option key={entry.id} value={entry.id}>{entry.label}</option>
                               ))}
                             </optgroup>
@@ -1143,11 +1171,13 @@ export function GuidedSetupStep({
                             assignRoleModelSpec(effectiveLineup, role, assignedProvider, selectedModel, event.currentTarget.value),
                           )}
                         >
-                          {modelCatalog.efforts.map((eff) => (
+                          {effortOptions.map((eff) => (
                             <option key={eff.id} value={eff.id}>{eff.label}</option>
                           ))}
                         </select>
-                      ) : null}
+                      ) : (
+                        <span className="guided-setup__effort-note">{copy.effortUnsupported}</span>
+                      )}
                     </div>
                   </div>
                 );

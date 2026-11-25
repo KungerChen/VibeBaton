@@ -630,6 +630,7 @@ class _CanvasHTTPServer(ThreadingHTTPServer):
     provider_probe: _ProviderProbe
     provider_probe_cache: _ProviderProbeCache
     pricing_fetcher: pricing.PricingFetcher | None
+    cli_model_probe: Callable[[], model_catalog.CliModels]
     folder_picker: Callable[[Path], str | None] | None
 
     def server_bind(self) -> None:
@@ -1054,7 +1055,11 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             raise _BadRequest("force must be a boolean")
         cache_path = _model_catalog_cache_path(self.server.credentials_path)
         fetcher = getattr(self.server, "pricing_fetcher", None)
-        kwargs: dict[str, Any] = {"force": force, "cache_path": cache_path}
+        kwargs: dict[str, Any] = {
+            "force": force,
+            "cache_path": cache_path,
+            "cli_probe": getattr(self.server, "cli_model_probe", model_catalog.probe_cli_models),
+        }
         if fetcher is not None:
             kwargs["fetcher"] = fetcher
         self._send_json(200, model_catalog.sync_model_catalog(**kwargs))

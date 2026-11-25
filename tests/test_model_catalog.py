@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -92,7 +93,8 @@ class ModelCatalogTests(unittest.TestCase):
                 self.assertIn("gpt-6.3-nova", ids)
                 self.assertIn("gemini-4-carbon", ids)
                 self.assertIn("claude-opus-4-6", ids)
-                self.assertIn("gpt-4o", ids)
+                # The feed carries OpenAI rows but no gpt-4o row at all, so the bundled entry is treated as gone.
+                self.assertNotIn("gpt-4o", ids)
                 self.assertIn("deepseek-chat", ids)
                 self.assertNotIn("text-embedding-3-large", ids)
                 self.assertNotIn("deprecated-gpt-3", ids)
@@ -275,10 +277,15 @@ class NoiseAndLabelTests(unittest.TestCase):
         self.assertEqual(synced["gpt-7.0-mini"]["cost_tier"], "eco")
         self.assertEqual(synced["deepseek-v5-flash"]["cost_tier"], "eco")
 
-    def test_ranks_follow_version_within_family_after_bundled(self) -> None:
+    def test_ranks_follow_version_within_family_together_with_bundled(self) -> None:
         synced = self._synced()
-        bundled_max = max(m["rank"] for m in model_catalog.BUNDLED_MODELS)
-        self.assertTrue(all(m["rank"] > bundled_max for m in synced.values()))
+        with tempfile.TemporaryDirectory() as tmp:
+            feed = {**self.FEED, "claude-fable-5-2": {"litellm_provider": "anthropic", "mode": "chat"},
+                    "gemini/gemini-4-carbon": {"litellm_provider": "gemini", "mode": "chat"}}
+            models = {m["id"]: m for m in _sync(Path(tmp) / "c.json", feed)["catalog"]["models"]}
+        # Newer synced versions rank ahead of older bundled ones instead of always trailing them.
+        self.assertLess(models["claude-opus-6-1"]["rank"], models["claude-fable-5-2"]["rank"])
+        self.assertLess(models["gemini-5-pro-preview"]["rank"], models["gemini-4-carbon"]["rank"])
         self.assertLess(synced["gpt-7.3-2026-10-01"]["rank"], synced["gpt-7.1"]["rank"])
         self.assertLess(synced["gpt-7.1"]["rank"], synced["gpt-7.0-mini"]["rank"])
         self.assertLess(synced["claude-opus-6-1"]["rank"], synced["claude-sonnet-6"]["rank"])
@@ -356,7 +363,7 @@ class DailySyncTests(unittest.TestCase):
             stop = threading.Event()
             thread = model_catalog.start_daily_sync(
                 cache_path=Path(tmp) / "c.json", stop_event=stop, fetcher=fetch,
-                now_fn=lambda: clock[0], wait_fn=sleeper,
+                now_fn=lambda: clock[0], wait_fn=sleeper, cli_probe=lambda: {},
             )
             self.assertIsNotNone(thread)
             assert thread is not None
@@ -370,6 +377,234 @@ class DailySyncTests(unittest.TestCase):
     def test_background_loop_is_disabled_by_env_switch(self) -> None:
         with patch.dict(os.environ, {"VIBEBATON_DISABLE_MODEL_SYNC": "1"}):
             self.assertIsNone(model_catalog.start_daily_sync(cache_path="unused.json", stop_event=threading.Event()))
+
+
+GEMINI_LIST_OUTPUT = """Available Gemini Models:
+
+auto (Auto)
+  Description:   Let Gemini CLI decide the best model for the task: gemini-2.5-pro, gemini-3.5-flash
+  Context limit: 1,048,576 input tokens / 65,536 output tokens
+
+gemini-2.5-pro (gemini-2.5-pro)
+  Context limit: 1,048,576 input tokens / 65,536 output tokens
+
+gemini-3.5-flash (gemini-3.5-flash)
+  Context limit: 1,048,576 input tokens / 65,536 output tokens
+
+gemini-3.1-flash-lite (gemini-3.1-flash-lite)
+  Context limit: 1,048,576 input tokens / 65,536 output tokens
+"""
+
+CODEX_CACHE = {
+    "models": [
+        {"slug": "gpt-6.2-sol", "visibility": "list",
+         "supported_reasoning_levels": [{"effort": e} for e in ("low", "medium", "high", "xhigh", "max", "ultra")]},
+        {"slug": "gpt-6.2-astra", "visibility": "list",
+         "supported_reasoning_levels": [{"effort": e} for e in ("low", "medium", "high", "xhigh", "max", "ultra")]},
+        {"slug": "gpt-reserve", "visibility": "hide", "supported_reasoning_levels": [{"effort": "low"}]},
+        {"slug": "gpt-6-luna", "visibility": "list",
+         "supported_reasoning_levels": [{"effort": e} for e in ("low", "medium", "high", "xhigh", "max")]},
+        {"slug": "gpt-5.6-terra", "visibility": "list", "supported_reasoning_levels": [{"effort": "low"}, {"effort": "max"}]},
+        {"slug": "codex-auto-review", "visibility": "hide", "supported_reasoning_levels": [{"effort": "medium"}]},
+    ],
+}
+
+CLI_MODELS = {
+    "gemini_sub": {m: [] for m in model_catalog.parse_gemini_model_list(GEMINI_LIST_OUTPUT)},
+    "codex_sub": model_catalog.parse_codex_models_cache(CODEX_CACHE),
+}
+
+
+def _providers(models: list[dict[str, object]], provider: str) -> list[str]:
+    return [str(m["id"]) for m in models if provider in m["providers"]]
+
+
+class CliReportedModelTests(unittest.TestCase):
+    def test_gemini_list_parser_skips_auto_and_detail_lines(self) -> None:
+        self.assertEqual(
+            model_catalog.parse_gemini_model_list(GEMINI_LIST_OUTPUT),
+            ["gemini-2.5-pro", "gemini-3.5-flash", "gemini-3.1-flash-lite"],
+        )
+        self.assertEqual(model_catalog.parse_gemini_model_list("Unknown option --list-models\n"), [])
+        # Launchers that set FORCE_COLOR make the CLI wrap IDs in ANSI bold codes.
+        colored = "\x1b[1mAvailable Gemini Models:\x1b[22m\n\n\x1b[1mauto\x1b[22m (Auto)\n\n\x1b[1mgemini-2.5-pro\x1b[22m (gemini-2.5-pro)\n"
+        self.assertEqual(model_catalog.parse_gemini_model_list(colored), ["gemini-2.5-pro"])
+
+    def test_codex_cache_parser_keeps_listed_models_with_their_efforts(self) -> None:
+        parsed = model_catalog.parse_codex_models_cache(CODEX_CACHE)
+        self.assertEqual(list(parsed), ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6-luna", "gpt-5.6-terra"])
+        self.assertEqual(parsed["gpt-6.2-sol"][-1], "ultra")
+        self.assertNotIn("ultra", parsed["gpt-6-luna"])
+        self.assertEqual(model_catalog.parse_codex_models_cache({"models": "nope"}), {})
+        self.assertEqual(model_catalog.parse_codex_models_cache([]), {})
+
+    def test_sync_caches_cli_lists_and_subscription_providers_show_only_those(self) -> None:
+        feed = {"gpt-7.1": {"litellm_provider": "openai", "mode": "chat"},
+                "gpt-6.2-sol": {"litellm_provider": "openai", "mode": "chat"},
+                "gemini/gemini-4-carbon": {"litellm_provider": "gemini", "mode": "chat"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = Path(tmp) / "c.json"
+            _sync(cache_path, feed, cli_probe=lambda: CLI_MODELS)
+            # Read back from the cache: no CLI runs on a plain read.
+            models = model_catalog.get_model_catalog(cache_path=cache_path, now_fn=lambda: NOW_2026_11_25)["models"]
+        self.assertEqual(sorted(_providers(models, "gemini_sub")),
+                         ["gemini-2.5-pro", "gemini-3.1-flash-lite", "gemini-3.5-flash"])
+        self.assertEqual(sorted(_providers(models, "codex_sub")),
+                         ["gpt-5.6-terra", "gpt-6-luna", "gpt-6.2-astra", "gpt-6.2-sol"])
+        # API providers keep the feed mapping.
+        self.assertIn("gemini-4-carbon", _providers(models, "gemini_http"))
+        self.assertIn("gpt-7.1", _providers(models, "openai_http"))
+        by_id = {m["id"]: m for m in models}
+        self.assertEqual(by_id["gemini-3.1-flash-lite"]["label"], "Gemini 3.1 Flash Lite")
+        self.assertEqual(by_id["gemini-3.1-flash-lite"]["cost_tier"], "eco")
+        self.assertEqual(by_id["gpt-6.2-sol"]["provider_efforts"]["codex_sub"][-1], "ultra")
+        self.assertEqual(by_id["gpt-5.6-terra"]["provider_efforts"]["codex_sub"], ["low", "max"])
+        self.assertNotIn("openai_http", by_id["gpt-6.2-sol"]["provider_efforts"])
+        # The bundled roster itself is never mutated.
+        self.assertTrue(all(not m["provider_efforts"] for m in model_catalog.BUNDLED_MODELS))
+
+    def test_missing_cli_list_falls_back_to_feed_mapping(self) -> None:
+        feed = {"gpt-7.1": {"litellm_provider": "openai", "mode": "chat"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            models = _sync(Path(tmp) / "c.json", feed, cli_probe=lambda: {})["catalog"]["models"]
+        self.assertIn("gemini-4-carbon", _providers(models, "gemini_sub"))
+        self.assertIn("gpt-7.1", _providers(models, "codex_sub"))
+
+    def test_old_cache_without_cli_lists_is_due_for_a_refresh(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = Path(tmp) / "c.json"
+            cache_path.write_text(json.dumps({"fetched_at": NOW_2026_11_25, "models": [], "retired_ids": []}), encoding="utf-8")
+            catalog = model_catalog.get_model_catalog(cache_path=cache_path, now_fn=lambda: NOW_2026_11_25)
+        self.assertTrue(catalog["cache"]["stale"])
+
+    def test_probe_reads_both_clis_without_a_real_cli(self) -> None:
+        calls: list[list[str]] = []
+
+        def run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout=GEMINI_LIST_OUTPUT, stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_path = Path(tmp) / "models_cache.json"
+            codex_path.write_text(json.dumps(CODEX_CACHE), encoding="utf-8")
+            found = model_catalog.probe_cli_models(run=run, which=lambda name: f"/bin/{name}", codex_cache_path=codex_path)
+        self.assertEqual(calls, [["/bin/gemini", "--list-models"]])
+        self.assertEqual(list(found["gemini_sub"]), ["gemini-2.5-pro", "gemini-3.5-flash", "gemini-3.1-flash-lite"])
+        self.assertIn("gpt-6.2-sol", found["codex_sub"])
+
+    def test_probe_failures_leave_the_provider_out(self) -> None:
+        def timeout(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            raise subprocess.TimeoutExpired(cmd, 30)
+
+        def failing(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(cmd, 1, stdout=GEMINI_LIST_OUTPUT, stderr="boom")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "absent.json"
+            garbled = Path(tmp) / "garbled.json"
+            garbled.write_text("{not json", encoding="utf-8")
+            self.assertEqual(model_catalog.probe_cli_models(run=timeout, which=lambda n: n, codex_cache_path=missing), {})
+            self.assertEqual(model_catalog.probe_cli_models(run=failing, which=lambda n: n, codex_cache_path=garbled), {})
+            self.assertEqual(model_catalog.probe_cli_models(run=timeout, which=lambda n: None, codex_cache_path=missing), {})
+
+
+class CleanupTests(unittest.TestCase):
+    def test_bundled_model_absent_from_a_successful_feed_is_hidden_except_channel_ids(self) -> None:
+        feed = {"gemini/gemini-4-carbon": {"litellm_provider": "gemini", "mode": "chat"},
+                "gemini/gemini-5-pro": {"litellm_provider": "gemini", "mode": "chat"},
+                "deepseek-v4-pro": {"litellm_provider": "deepseek", "mode": "chat"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            ids = {m["id"] for m in _sync(Path(tmp) / "c.json", feed)["catalog"]["models"]}
+        self.assertNotIn("gemini-2.0-flash", ids)
+        self.assertIn("gemini-4-carbon", ids)
+        # OpenCode's channel-only ID never appears in the first-party feed.
+        self.assertIn("deepseek-v4.1-flash", ids)
+        # A family the feed does not mention at all is left alone.
+        self.assertIn("claude-opus-5-5", ids)
+
+    def test_restricted_mythos_models_are_not_listed(self) -> None:
+        feed = {"claude-mythos-5-2": {"litellm_provider": "anthropic", "mode": "chat"},
+                "claude-opus-6": {"litellm_provider": "anthropic", "mode": "chat"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            ids = {m["id"] for m in _sync(Path(tmp) / "c.json", feed)["catalog"]["models"]}
+        self.assertNotIn("claude-mythos-5-2", ids)
+        self.assertIn("claude-opus-6", ids)
+
+    def test_deepseek_channels_are_split(self) -> None:
+        feed = {"deepseek-v4-flash": {"litellm_provider": "deepseek", "mode": "chat"},
+                "deepseek-v4-pro": {"litellm_provider": "deepseek", "mode": "chat"},
+                "deepseek-v5": {"litellm_provider": "deepseek", "mode": "chat"},
+                "deepseek/deepseek-r1": {"litellm_provider": "deepseek", "mode": "chat"},
+                "deepseek/deepseek-coder": {"litellm_provider": "deepseek", "mode": "chat"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            models = _sync(Path(tmp) / "c.json", feed)["catalog"]["models"]
+        self.assertEqual(_providers(models, "dsh_opencode"), ["deepseek-v4.1-flash", "deepseek-v4-pro"])
+        official = _providers(models, "dsh_deepseek")
+        self.assertIn("deepseek-v4-flash", official)
+        self.assertIn("deepseek-v5", official)
+        self.assertNotIn("deepseek-v4.1-flash", official)
+        self.assertNotIn("deepseek-r1", official)
+        self.assertNotIn("deepseek-coder", official)
+
+    def test_labels_are_uniform(self) -> None:
+        for entry in model_catalog.BUNDLED_MODELS:
+            self.assertEqual(entry["label"], model_catalog._model_label(entry["id"]))
+        self.assertEqual(model_catalog._model_label("gemini-4-carbon"), "Gemini 4 Carbon")
+        self.assertEqual(model_catalog._model_label("gemini-4-argon"), "Gemini 4 Argon")
+        self.assertEqual(model_catalog._model_label("gpt-4o"), "GPT-4o")
+        self.assertEqual(model_catalog._model_label("gpt-4o-mini"), "GPT-4o Mini")
+
+    def test_luna_and_terra_are_eco(self) -> None:
+        feed = {"gpt-5.6-luna": {"litellm_provider": "openai", "mode": "chat"},
+                "gpt-5.6-terra": {"litellm_provider": "openai", "mode": "chat"},
+                "gpt-5.6-sol": {"litellm_provider": "openai", "mode": "chat"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            models = {m["id"]: m for m in _sync(Path(tmp) / "c.json", feed)["catalog"]["models"]}
+        self.assertEqual(models["gpt-5.6-luna"]["cost_tier"], "eco")
+        self.assertEqual(models["gpt-5.6-terra"]["cost_tier"], "eco")
+        self.assertEqual(models["gpt-5.6-sol"]["cost_tier"], "standard")
+
+
+class RecommendationAvailabilityTests(unittest.TestCase):
+    def _cli_catalog(self) -> list[dict[str, object]]:
+        feed = {"gemini/gemini-4-carbon": {"litellm_provider": "gemini", "mode": "chat"},
+                "deepseek-v4-flash": {"litellm_provider": "deepseek", "mode": "chat"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            return _sync(Path(tmp) / "c.json", feed, cli_probe=lambda: CLI_MODELS)["catalog"]["models"]
+
+    def test_recommendation_falls_back_inside_the_provider_when_model_is_unavailable(self) -> None:
+        models = self._cli_catalog()
+        # gemini-4-carbon is Gemini API only; the Gemini CLI's flagship is gemini-2.5-pro.
+        self.assertEqual(
+            model_catalog.recommend_role_assignment("brainstorm_and_final_gate", ["gemini_sub", "claude_sub"], models),
+            {"provider": "gemini_sub", "model": "gemini-2.5-pro", "effort": "medium"},
+        )
+        self.assertEqual(
+            model_catalog.recommend_role_assignment("brainstorm_and_final_gate", ["gemini_http"], models),
+            {"provider": "gemini_http", "model": "gemini-4-carbon", "effort": "medium"},
+        )
+        # deepseek-v4.1-flash is OpenCode-only; the official API gets its own eco model.
+        self.assertEqual(
+            model_catalog.recommend_role_assignment("bulk_worker", ["dsh_deepseek"], models),
+            {"provider": "dsh_deepseek", "model": "deepseek-v4-flash", "effort": "max"},
+        )
+        self.assertEqual(
+            model_catalog.recommend_role_assignment("bulk_worker", ["dsh_opencode"], models),
+            {"provider": "dsh_opencode", "model": "deepseek-v4.1-flash", "effort": "max"},
+        )
+
+
+class UltraEffortPassThroughTests(unittest.TestCase):
+    def test_ultra_reaches_the_codex_command_and_pricing_strips_it(self) -> None:
+        from vibebaton import cli_runner, pricing
+
+        template = ["codex", "exec", "--model", "{model_name}", "-c", 'model_reasoning_effort="{effort}"', "-"]
+        cmd = cli_runner.format_command_template(
+            template, model="gpt-6.2-sol@ultra", workdir=Path("."), prompt_file=Path("p"), output_file=Path("o"),
+        )
+        self.assertIn('model_reasoning_effort="ultra"', cmd)
+        self.assertIn("gpt-6.2-sol", cmd)
+        self.assertEqual(pricing.normalize_model_name("gpt-6.2-sol@ultra"), "gpt-6.2-sol")
 
 
 if __name__ == "__main__":

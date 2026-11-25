@@ -133,6 +133,8 @@ export interface ModelCatalogEntry {
   rank: number;
   efforts: string[];
   default_effort: string;
+  /** Per-provider efforts a CLI reported for this model (e.g. Codex's supported reasoning levels). */
+  provider_efforts?: Record<string, string[]>;
 }
 
 export interface TierRecommendation {

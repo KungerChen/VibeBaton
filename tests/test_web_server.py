@@ -842,6 +842,15 @@ class TestCredentialsApi(WebServerTestCase):
         bad_sync, _, _ = self.send_json("/api/models/catalog/sync", {"force": "yes"})
         self.assertEqual(bad_sync, 400)
 
+    def test_forced_model_sync_refreshes_subscription_cli_lists(self) -> None:
+        self.server.pricing_fetcher = lambda _url, _timeout: {"gpt-7.1": {"litellm_provider": "openai", "mode": "chat"}}
+        self.server.cli_model_probe = lambda: {"gemini_sub": {"gemini-2.5-pro": []}}
+        status, _, body = self.send_json("/api/models/catalog/sync", {"force": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        gemini_sub = [m["id"] for m in body["catalog"]["models"] if "gemini_sub" in m["providers"]]
+        self.assertEqual(gemini_sub, ["gemini-2.5-pro"])
+
     def test_model_catalog_get_never_starts_a_network_sync(self) -> None:
         # The daily background loop owns syncing; a stale GET only reports staleness.
         with patch("vibebaton.web_server.model_catalog.sync_model_catalog") as sync:

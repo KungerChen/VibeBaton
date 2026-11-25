@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test, vi } from 'vitest';
-import type { CliDriver, CliScanEntry, RecommendedLineup, WorkspaceInfo } from '../../api/client';
+import type { CliDriver, CliScanEntry, ModelCatalogEntry, RecommendedLineup, WorkspaceInfo } from '../../api/client';
 import {
   BUILTIN_MODEL_CATALOG,
   GuidedDriverRow,
@@ -19,8 +19,11 @@ import {
   installWithConsent,
   isLineupCustomized,
   lineupSummary,
+  coerceEffort,
+  effortOptionsFor,
   modelsForProvider,
   providerTemplateSupport,
+  recommendRoleSpec,
   scheduleStaleCatalogRefetch,
   STALE_CATALOG_REFETCH_MS,
   type GuidedDriverRowProps,
@@ -263,8 +266,8 @@ describe('CLI filtering and team lineup customization helpers', () => {
     });
 
     const summaryZh = lineupSummary(tiered, 'zh', BUILTIN_MODEL_CATALOG.models);
-    expect(summaryZh).toContain('Gemini 4C · Medium');
-    expect(summaryZh).toContain('Opus 5.5 · Medium');
+    expect(summaryZh).toContain('Gemini 4 Carbon · Medium');
+    expect(summaryZh).toContain('Claude Opus 5.5 · Medium');
     expect(summaryZh).toContain('GPT-6.2 Sol · Max');
     expect(summaryZh).toContain('DeepSeek V4.1 Flash · Max');
     expect(summaryZh).not.toMatch(/opencode/i);
@@ -340,8 +343,68 @@ describe('providerTemplateSupport', () => {
     expect(providerTemplateSupport(['tool', '--model={model}'])).toEqual({ model: true, effort: true });
   });
 
+  test('DSH reads model@effort from VIBEBATON_MODEL through the bundled patch file', () => {
+    const dshCommand = [
+      'dsh', '--profile', 'headless', '--patch', '{package_root}/presets/dsh-headless-opencode-go.patch.yml', '--json', '-',
+    ];
+    expect(providerTemplateSupport(dshCommand)).toEqual({ model: true, effort: true });
+  });
+
   test('HTTP providers (no command) and unknown providers keep both pickers', () => {
     expect(providerTemplateSupport([])).toEqual({ model: true, effort: true });
     expect(providerTemplateSupport(undefined)).toEqual({ model: true, effort: true });
+  });
+});
+
+function model(id: string, providers: string[], cost_tier: ModelCatalogEntry['cost_tier'], rank: number, extra: Partial<ModelCatalogEntry> = {}): ModelCatalogEntry {
+  return {
+    id, label: id, family: 'x', providers, status: 'latest', cost_tier, rank,
+    efforts: ['low', 'medium', 'high', 'xhigh', 'max'], default_effort: 'high', ...extra,
+  };
+}
+
+describe('recommendations stay inside what the provider offers', () => {
+  const catalog = {
+    ...BUILTIN_MODEL_CATALOG,
+    models: [
+      model('gemini-2.5-pro', ['gemini_sub', 'gemini_http'], 'flagship', 2),
+      model('gemini-3.5-flash', ['gemini_sub'], 'eco', 3),
+      model('gemini-4-carbon', ['gemini_http'], 'flagship', 1),
+      model('deepseek-v4.1-flash', ['dsh_opencode'], 'eco', 1),
+      model('deepseek-v4-flash', ['dsh_deepseek'], 'eco', 2),
+    ],
+  };
+
+  test('a recommended model the CLI does not list falls back to the same tier in that provider', () => {
+    expect(recommendRoleSpec('brainstorm_and_final_gate', ['gemini_sub', 'claude_sub'], catalog))
+      .toEqual({ provider: 'gemini_sub', model: 'gemini-2.5-pro', effort: 'medium' });
+    expect(recommendRoleSpec('brainstorm_and_final_gate', ['gemini_http'], catalog))
+      .toEqual({ provider: 'gemini_http', model: 'gemini-4-carbon', effort: 'medium' });
+    expect(recommendRoleSpec('bulk_worker', ['dsh_deepseek'], catalog, 'dsh_deepseek'))
+      .toEqual({ provider: 'dsh_deepseek', model: 'deepseek-v4-flash', effort: 'max' });
+    expect(recommendRoleSpec('bulk_worker', ['dsh_opencode'], catalog))
+      .toEqual({ provider: 'dsh_opencode', model: 'deepseek-v4.1-flash', effort: 'max' });
+  });
+});
+
+describe('effort options', () => {
+  const sol = model('gpt-6.2-sol', ['codex_sub', 'openai_http'], 'standard', 1, {
+    provider_efforts: { codex_sub: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
+  });
+
+  test('Codex models offer exactly the efforts Codex reports, including ultra', () => {
+    const codex = effortOptionsFor(sol, 'codex_sub', BUILTIN_MODEL_CATALOG.efforts);
+    expect(codex.map((e) => e.id)).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+    expect(codex.at(-1)).toEqual({ id: 'ultra', label: 'Ultra' });
+    expect(effortOptionsFor(sol, 'openai_http', BUILTIN_MODEL_CATALOG.efforts).map((e) => e.id))
+      .toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    expect(effortOptionsFor(undefined, 'claude_sub', BUILTIN_MODEL_CATALOG.efforts)).toEqual(BUILTIN_MODEL_CATALOG.efforts);
+  });
+
+  test('an effort the chosen model does not offer is replaced by one it does', () => {
+    const options = [{ id: 'low', label: 'Low' }, { id: 'max', label: 'Max' }];
+    expect(coerceEffort('max', options, 'low')).toBe('max');
+    expect(coerceEffort('ultra', options, 'low')).toBe('low');
+    expect(coerceEffort('ultra', options, 'medium')).toBe('max');
   });
 });

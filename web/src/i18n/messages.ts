@@ -553,7 +553,7 @@ export interface Messages {
       effortColumnLabel: string;
       modelGroupLatest: string;
       modelGroupLegacy: string;
-      modelGroupSynced: string;
+      effortUnsupported: string;
     };
     brainstorm: {
       scenariosTitle: string;
@@ -1369,8 +1369,8 @@ export const MESSAGES: Record<Locale, Messages> = {
         modelColumnLabel: 'Model',
         effortColumnLabel: 'Thinking Effort',
         modelGroupLatest: 'Latest Recommended',
-        modelGroupLegacy: 'Available Legacy Models',
-        modelGroupSynced: 'Synced from Feed',
+        modelGroupLegacy: 'More Models',
+        effortUnsupported: 'This CLI has no thinking-effort option',
       },
       brainstorm: {
         scenariosTitle: 'What would you like to do?',
@@ -2204,8 +2204,8 @@ export const MESSAGES: Record<Locale, Messages> = {
         modelColumnLabel: '模型',
         effortColumnLabel: '思考强度',
         modelGroupLatest: '最新推荐模型',
-        modelGroupLegacy: '经典 / 历史可用模型',
-        modelGroupSynced: '联网同步新增',
+        modelGroupLegacy: '更多可选模型',
+        effortUnsupported: '该 CLI 不支持设置思考强度',
       },
       brainstorm: {
         scenariosTitle: '你想做什么？',

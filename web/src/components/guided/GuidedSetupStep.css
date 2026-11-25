@@ -171,6 +171,12 @@
   min-width: 5.75rem;
 }
 
+.guided-setup__effort-note {
+  align-self: center;
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+}
+
 .guided-setup__input {
   flex: 1;
   min-width: 0;
