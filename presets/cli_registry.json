@@ -80,9 +80,9 @@
       "login_cmd": ["gemini"],
       "auth_check_cmd": null,
       "official_url": "https://github.com/google-gemini/gemini-cli",
-      "command_template": ["gemini", "--model", "{model_name}", "--output-format", "json", "--yolo", "-p", "{prompt}"],
+      "command_template": ["gemini", "--model", "{model_name}", "--output-format", "json", "--approval-mode", "yolo", "-p", "{prompt}"],
       "version_cmd": ["gemini", "--version"],
-      "provider_ids": ["gemini_http"],
+      "provider_ids": ["gemini_sub", "gemini_http"],
       "env_keys": ["GEMINI_API_KEY"]
     },
     {

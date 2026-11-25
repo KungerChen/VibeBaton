@@ -7,11 +7,14 @@ import {
 } from '../liquid-theme/liquidAudio';
 import type { LiveRunSnapshot, RunAttentionState, RunTelemetry } from '../types/graph';
 import {
+  DISMISSED_FINGERPRINTS_STORAGE_KEY,
   buildAlertFingerprint,
   deriveAttentionAlert,
   dispatchBrowserNotification,
   formatAttentionDocumentTitle,
   playAttentionChime,
+  readDismissedFingerprints,
+  recordDismissedFingerprint,
   shouldAnnounceAttentionEpisode,
 } from './attentionAlerts';
 
@@ -262,5 +265,31 @@ describe('playAttentionChime', () => {
     }
     expect(playAttentionChime('waiting_human', true, 0.5)).toBe(false);
     expect(playAttentionChime('waiting_human', true, 0.5, BlockedAudioContext as unknown as typeof AudioContext)).toBe(false);
+  });
+});
+
+describe('dismissed alert persistence', () => {
+  test('persists, reloads, caps at 50 entries, and ignores corrupted storage', () => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+    };
+
+    expect(readDismissedFingerprints(storage)).toEqual(new Set());
+
+    let set = recordDismissedFingerprint('run-1|ready_for_final_gate|||10', new Set(), storage);
+    expect(readDismissedFingerprints(storage)).toEqual(set);
+
+    for (let i = 0; i < 60; i += 1) {
+      set = recordDismissedFingerprint(`run-${i}|failed|||${i}`, set, storage);
+    }
+    const restored = readDismissedFingerprints(storage);
+    expect(restored.size).toBe(50);
+    expect(restored.has('run-1|ready_for_final_gate|||10')).toBe(false);
+    expect(restored.has('run-59|failed|||59')).toBe(true);
+
+    store.set(DISMISSED_FINGERPRINTS_STORAGE_KEY, '{broken-json');
+    expect(readDismissedFingerprints(storage)).toEqual(new Set());
   });
 });

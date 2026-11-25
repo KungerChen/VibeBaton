@@ -40,6 +40,8 @@ import {
   dispatchBrowserNotification,
   formatAttentionDocumentTitle,
   playAttentionChime,
+  readDismissedFingerprints,
+  recordDismissedFingerprint,
   shouldAnnounceAttentionEpisode,
 } from './engine/attentionAlerts';
 import {
@@ -207,7 +209,7 @@ function AppContent() {
   const run = liveSnapshot?.run;
   const runId = typeof run?.run_id === 'string' ? run.run_id : typeof run?.id === 'string' ? run.id : null;
   const fingerprint = buildAlertFingerprint(runId, attentionAlert);
-  const [dismissedFingerprint, setDismissedFingerprint] = useState<string | null>(null);
+  const [dismissedFingerprints, setDismissedFingerprints] = useState<Set<string>>(() => readDismissedFingerprints());
   const [battleReportToken, setBattleReportToken] = useState(0);
   const announcedFingerprints = useRef(new Set<string>());
   const initialSnapshotHydratedRef = useRef(false);
@@ -215,7 +217,7 @@ function AppContent() {
     () => typeof window === 'undefined' ? 'unsupported' : (window.Notification?.permission ?? 'unsupported'),
   );
   // Rejecting a decision pauses the run and resolves the attention episode in the same update.
-  const visibleFingerprint = dismissedFingerprint !== fingerprint && !wasPausedByRejection(liveSnapshot) ? fingerprint : null;
+  const visibleFingerprint = fingerprint && !dismissedFingerprints.has(fingerprint) && !wasPausedByRejection(liveSnapshot) ? fingerprint : null;
   const visibleAttentionAlert = visibleFingerprint ? attentionAlert : null;
   const baseTitle = messages.docTitle;
   const isSelectedRunActive = isRunStatusActive(liveSnapshot?.run?.status);
@@ -280,10 +282,6 @@ function AppContent() {
     writeSavedCases(savedCases);
     lastSavedCases.current = savedCases;
   }, [savedCases]);
-
-  useEffect(() => {
-    setDismissedFingerprint(null);
-  }, [fingerprint]);
 
   const announceAttention = useEffectEvent((episode: string) => {
     if (!visibleAttentionAlert || !shouldAnnounceAttentionEpisode(episode, announcedFingerprints.current, initialSnapshotHydratedRef.current)) {
@@ -1016,7 +1014,11 @@ function AppContent() {
         setBattleReportToken((n) => n + 1);
       }}
       onEnableNotifications={() => void onEnableNotifications()}
-      onDismiss={() => setDismissedFingerprint(fingerprint)}
+      onDismiss={() => {
+        if (fingerprint) {
+          setDismissedFingerprints((current) => recordDismissedFingerprint(fingerprint, current));
+        }
+      }}
     />
   );
 

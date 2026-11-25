@@ -169,6 +169,21 @@ class TestParseCLIOutput(unittest.TestCase):
                     ParsedCLIOutput(stdout),
                 )
 
+    def test_gemini_json_output_and_usage(self) -> None:
+        stdout = json.dumps({
+            "response": "Gemini task complete",
+            "stats": {"models": {"gemini-2.5-pro": {"tokens": {"prompt": 100, "candidates": 40, "cached": 10}}}},
+        })
+        self.assertEqual(
+            parse_cli_output_and_usage(
+                stdout, "", None,
+                provider_type="cli",
+                command=["gemini", "--output-format", "json", "-p", "."],
+                provider_name="gemini_sub",
+            ),
+            ParsedCLIOutput("Gemini task complete", 100, 40, 10, structured=True),
+        )
+
     def test_example_templates_parse_with_native_json_flags(self) -> None:
         path = Path(__file__).resolve().parents[1] / "baton.example.toml"
         cfg = parse_config_dict(tomllib.loads(path.read_text(encoding="utf-8")))

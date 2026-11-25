@@ -55,7 +55,7 @@ class ParsedCLIOutput:
     structured: bool = False
 
 
-_CLIFormat = Literal["claude", "codex", "dsh"]
+_CLIFormat = Literal["claude", "codex", "dsh", "gemini"]
 _JSONEvent = dict[str, object]
 _DSH_USAGE_KEYS = ("usage", "token_usage", "metrics")
 _DSH_RESPONSE_TYPES = ("assistant", "assistant_message", "message", "result", "text", "final", "done")
@@ -99,12 +99,14 @@ def _detect_cli_format(
     events: list[_JSONEvent], provider_type: str, command: list[str], provider_name: str,
 ) -> _CLIFormat | None:
     provider_type = provider_type.lower()
-    if provider_type in ("claude", "codex", "dsh"):
+    if provider_type in ("claude", "codex", "dsh", "gemini"):
         return cast(_CLIFormat, provider_type)
 
     binary = PureWindowsPath(command[0]).stem.lower() if command else ""
     name = provider_name.lower().replace("-", "_").split("_", 1)[0]
     hints = {binary, name}
+    if "gemini" in hints:
+        return "gemini"
     arg_pairs = list(zip(command, command[1:]))
     if any(
         ("--output-format", mode) in arg_pairs or f"--output-format={mode}" in command
@@ -263,6 +265,29 @@ def _parse_dsh_output(events: list[_JSONEvent], file_text: str | None, stdout: s
     return ParsedCLIOutput(text or file_text or stdout, prompt, completion, cached, structured=True)
 
 
+def _parse_gemini_output(events: list[_JSONEvent], file_text: str | None, stdout: str) -> ParsedCLIOutput:
+    prompt = completion = cached = 0
+    for event in events:
+        stats = event.get("stats")
+        models = stats.get("models") if isinstance(stats, dict) else None
+        if isinstance(models, dict):
+            for entry in models.values():
+                tokens = entry.get("tokens") if isinstance(entry, dict) else None
+                if isinstance(tokens, dict):
+                    prompt += _token_count(tokens, "prompt", "input", "prompt_tokens")
+                    completion += _token_count(tokens, "candidates", "output", "completion_tokens")
+                    cached += _token_count(tokens, "cached", "cached_tokens")
+    text = next(
+        (
+            val for event in reversed(events)
+            for key in ("response", "result")
+            if isinstance(val := event.get(key), str) and val.strip()
+        ),
+        "",
+    )
+    return ParsedCLIOutput(text or file_text or stdout, prompt, completion, cached, structured=True)
+
+
 def parse_cli_output_and_usage(
     stdout: str,
     stderr: str,
@@ -293,6 +318,8 @@ def parse_cli_output_and_usage(
         return _parse_codex_output(events, file_text, stdout)
     if output_format == "dsh":
         return _parse_dsh_output(events, file_text, stdout)
+    if output_format == "gemini":
+        return _parse_gemini_output(events, file_text, stdout)
     return ParsedCLIOutput(stdout)
 
 

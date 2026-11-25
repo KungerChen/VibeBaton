@@ -58,6 +58,9 @@ export function deriveAttentionAlert(snapshot: LiveRunSnapshot | null): RunAtten
   };
 }
 
+export const DISMISSED_FINGERPRINTS_STORAGE_KEY = 'vibebaton.dismissedAttentionFingerprints';
+const MAX_DISMISSED_FINGERPRINTS = 50;
+
 export function buildAlertFingerprint(
   runId: string | null | undefined,
   alert: RunAttentionState | null,
@@ -65,6 +68,48 @@ export function buildAlertFingerprint(
   if (!runId || !alert) return null;
   const { category, milestone_id, task_id, created_at } = alert;
   return `${runId}|${category}|${milestone_id ?? ''}|${task_id ?? ''}|${created_at ?? ''}`;
+}
+
+/** Read previously dismissed attention alert fingerprints from storage. */
+export function readDismissedFingerprints(
+  storage: Pick<Storage, 'getItem'> | null | undefined = typeof window === 'undefined' ? undefined : window.localStorage,
+): Set<string> {
+  if (!storage) return new Set();
+  try {
+    const raw = storage.getItem(DISMISSED_FINGERPRINTS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((item): item is string => typeof item === 'string' && item.length > 0));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Record a dismissed alert fingerprint (bounded to 50 most recent) and persist to storage. */
+export function recordDismissedFingerprint(
+  fingerprint: string,
+  current: ReadonlySet<string>,
+  storage: Pick<Storage, 'setItem'> | null | undefined = typeof window === 'undefined' ? undefined : window.localStorage,
+): Set<string> {
+  const next = new Set(current);
+  if (fingerprint) {
+    next.delete(fingerprint);
+    next.add(fingerprint);
+  }
+  while (next.size > MAX_DISMISSED_FINGERPRINTS) {
+    const oldest = next.values().next().value;
+    if (oldest === undefined) break;
+    next.delete(oldest);
+  }
+  if (storage) {
+    try {
+      storage.setItem(DISMISSED_FINGERPRINTS_STORAGE_KEY, JSON.stringify([...next]));
+    } catch {
+      // Ignore storage quota or restricted context errors.
+    }
+  }
+  return next;
 }
 
 /**

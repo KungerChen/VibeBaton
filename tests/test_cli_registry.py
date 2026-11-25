@@ -177,7 +177,7 @@ class CliRegistrySchemaTests(unittest.TestCase):
 
     def test_every_driver_has_required_fields_with_argv_commands(self) -> None:
         provider_ids = set(HotReloadConfig(EXAMPLE_CONFIG).current.providers) | {
-            "codex_sub", "claude_sub", "dsh_opencode", "dsh_deepseek", "gemini_http", "openai_http",
+            "codex_sub", "claude_sub", "dsh_opencode", "dsh_deepseek", "gemini_sub", "gemini_http", "openai_http",
         }
         for driver in self.registry["drivers"]:
             with self.subTest(driver=driver["id"]):
@@ -503,19 +503,20 @@ class RecommendedLineupContractTests(unittest.TestCase):
         self.assertEqual(lineup["roles"]["tactical_planner"], "claude_sub")
         self.assertNotIn("codex_sub", lineup["roles"].values())
 
-    def test_ready_gemini_cli_without_key_is_not_ready(self) -> None:
-        # gemini -> gemini_http is an HTTP provider; a Google-account sign-in alone cannot run it.
+    def test_ready_gemini_cli_without_key_uses_gemini_sub(self) -> None:
         lineup = build_recommended_lineup(self.scan_result({"gemini": "ready"}), self.cfg)  # type: ignore[arg-type]
         self.assert_lineup(lineup)
-        self.assertIs(lineup["ready"], False)
-        self.assertEqual(lineup["roles"], {})
+        self.assertIs(lineup["ready"], True)
+        self.assertEqual(lineup["source"], "cli")
+        self.assertEqual(lineup["roles"], {role: "gemini_sub" for role in self.cfg.roles})
 
-    def test_ready_gemini_cli_with_key_uses_gemini_http(self) -> None:
+    def test_ready_gemini_cli_with_key_prefers_cli_provider(self) -> None:
         lineup = build_recommended_lineup(
             self.scan_result({"gemini": "ready"}, keys=["GEMINI_API_KEY"]), self.cfg  # type: ignore[arg-type]
         )
         self.assertIs(lineup["ready"], True)
-        self.assertEqual(lineup["roles"], {role: "gemini_http" for role in self.cfg.roles})
+        self.assertEqual(lineup["source"], "cli")
+        self.assertEqual(lineup["roles"], {role: "gemini_sub" for role in self.cfg.roles})
 
     def test_ready_opencode_alone_cannot_back_dsh_provider(self) -> None:
         # dsh_opencode runs the `dsh` binary, which an opencode-only host does not have.
@@ -545,16 +546,16 @@ class RecommendedLineupContractTests(unittest.TestCase):
         self.assertIn("`codex login`", lineup["notes_en"])
         self.assertIn("`codex login`", lineup["notes_zh"])
 
-    def test_lineup_model_overrides_resolves_gemini_http_from_panel_members(self) -> None:
+    def test_lineup_model_overrides_resolves_gemini_http_and_gemini_sub(self) -> None:
         overrides = cli_registry.lineup_model_overrides(
-            {"tactical_planner": "gemini_http", "bulk_worker": "gemini_http"},
+            {"tactical_planner": "gemini_http", "bulk_worker": "gemini_sub"},
             self.cfg,
         )
         self.assertEqual(
             overrides,
             {
                 "tactical_planner": "gemini_http:gemini-4-neon-high",
-                "bulk_worker": "gemini_http:gemini-4-neon-high",
+                "bulk_worker": "gemini_sub:gemini-2.5-pro",
             },
         )
 

@@ -69,6 +69,17 @@ prompt_via = "stdin"
 stall_timeout_sec = 240
 hard_timeout_sec = 1200
 
+# Native headless Gemini CLI provider (uses your signed-in `gemini` CLI session).
+[providers.gemini_sub]
+type = "cli"
+max_concurrency = 1
+cooldown_backoff_sec = [60, 300, 900]
+rate_limit_regex = "(rate.?limit|quota|429|RESOURCE_EXHAUSTED|too many requests|overloaded)"
+command = ["gemini", "--model", "{model_name}", "--output-format", "json", "--approval-mode", "yolo", "-p", "."]
+prompt_via = "stdin"
+stall_timeout_sec = 900
+hard_timeout_sec = 2400
+
 # OpenAI-compatible Gemini endpoint used by the "Visual & Structure" panel
 # specialist below. Set GEMINI_API_KEY before running `--mode panel`.
 [providers.gemini_http]
@@ -111,7 +122,7 @@ prompt_file = "prompts/l1_planner.md"
 provider = "claude_sub"
 model = "opus@high"
 prompt_file = "prompts/l1_milestone_reviewer.md"
-fallback = [{ provider = "codex_sub", model = "gpt-6.2-astra@xhigh" }]
+fallback = [{ provider = "codex_sub", model = "gpt-6.2-astra@xhigh" }, { provider = "gemini_sub", model = "gemini-2.5-pro" }]
 
 [roles.micro_orchestrator]
 provider = "codex_sub"

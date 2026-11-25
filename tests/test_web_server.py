@@ -259,16 +259,16 @@ class TestWebApi(WebServerTestCase):
             )
             self.assertEqual(self._request(Request(first + "/api/config/roles"))[0], 200)
             self.assertCountEqual([call.kwargs["provider"] for call in probe.call_args_list], [
-                "claude_sub", "codex_sub", "dsh_opencode", "gemini_http",
+                "claude_sub", "codex_sub", "dsh_opencode", "gemini_sub", "gemini_http",
             ])
 
             clock.return_value = 159.999
             self.assertEqual(self._request(Request(second + "/api/presets"))[0], 200)
-            self.assertEqual(probe.call_count, 4)
+            self.assertEqual(probe.call_count, 5)
 
             clock.return_value = 160.0
             self.assertEqual(self._request(Request(second + "/api/config/roles"))[0], 200)
-            self.assertEqual(probe.call_count, 8)
+            self.assertEqual(probe.call_count, 10)
 
     def test_flagship_preset_details(self) -> None:
         status, _, body = self.get("/api/presets/flagship_4tier")
@@ -803,7 +803,7 @@ class TestCredentialsApi(WebServerTestCase):
 
         self.assertEqual(self.send_json("/api/credentials", {"OPENAI_API_KEY": "test-credential"})[0], 200)
         self.assertEqual(self.get("/api/config/roles")[0], 200)
-        self.assertEqual(self.provider_probe.call_count, 4)
+        self.assertEqual(self.provider_probe.call_count, 5)
 
     def test_credentials_post_cannot_write_into_the_served_repository(self) -> None:
         original = self.config_path.read_bytes()
