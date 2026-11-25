@@ -133,17 +133,17 @@ def _model_label(model_id: str) -> str:
 # keeping both latest models and older non-retired models selectable; labels come from ``_model_label``.
 BUNDLED_MODELS: tuple[ModelCatalogEntry, ...] = (
     # Gemini family
-    _model("gemini-4-carbon", "gemini", ("gemini_sub", "gemini_http"), "latest", "flagship", 1, "medium"),
-    _model("gemini-4-neon", "gemini", ("gemini_sub", "gemini_http"), "latest", "standard", 2, "medium"),
-    _model("gemini-4-hydrogen", "gemini", ("gemini_sub", "gemini_http"), "latest", "eco", 3, "max"),
-    _model("gemini-2.5-pro", "gemini", ("gemini_sub", "gemini_http"), "legacy", "flagship", 4, "medium"),
-    _model("gemini-2.5-flash", "gemini", ("gemini_sub", "gemini_http"), "legacy", "eco", 5, "max"),
+    _model("gemini-4-carbon", "gemini", ("agy_sub", "gemini_sub", "gemini_http"), "latest", "flagship", 1, "medium"),
+    _model("gemini-4-neon", "gemini", ("agy_sub", "gemini_sub", "gemini_http"), "latest", "standard", 2, "medium"),
+    _model("gemini-4-hydrogen", "gemini", ("agy_sub", "gemini_sub", "gemini_http"), "latest", "eco", 3, "max"),
+    _model("gemini-2.5-pro", "gemini", ("agy_sub", "gemini_sub", "gemini_http"), "legacy", "flagship", 4, "medium"),
+    _model("gemini-2.5-flash", "gemini", ("agy_sub", "gemini_sub", "gemini_http"), "legacy", "eco", 5, "max"),
     _model("gemini-2.0-flash", "gemini", ("gemini_sub", "gemini_http"), "legacy", "eco", 6, "high"),
     # Claude family
     _model("claude-fable-5-2", "claude", ("claude_sub",), "latest", "flagship", 1, "medium"),
-    _model("claude-opus-5-5", "claude", ("claude_sub",), "latest", "flagship", 2, "medium"),
-    _model("claude-sonnet-5-5", "claude", ("claude_sub",), "latest", "standard", 3, "max"),
-    _model("claude-haiku-5-5", "claude", ("claude_sub",), "latest", "eco", 4, "max"),
+    _model("claude-opus-5-5", "claude", ("claude_sub", "agy_sub"), "latest", "flagship", 2, "medium"),
+    _model("claude-sonnet-5-5", "claude", ("claude_sub", "agy_sub"), "latest", "standard", 3, "max"),
+    _model("claude-haiku-5-5", "claude", ("claude_sub", "agy_sub"), "latest", "eco", 4, "max"),
     _model("claude-opus-4-6", "claude", ("claude_sub",), "legacy", "flagship", 5, "high"),
     _model("claude-sonnet-4-6", "claude", ("claude_sub",), "legacy", "standard", 6, "high"),
     _model("claude-opus-4-5", "claude", ("claude_sub",), "legacy", "flagship", 7, "high"),
@@ -177,7 +177,7 @@ _FEED_ABSENCE_EXEMPT_IDS = frozenset({"deepseek-v4.1-flash"})
 TIER_RECOMMENDATIONS: dict[RoleTier, list[TierRecommendation]] = {
     "L0": [
         {
-            "providers": ["gemini_sub", "gemini_http"],
+            "providers": ["agy_sub", "gemini_sub", "gemini_http"],
             "model": "gemini-4-carbon",
             "effort": "medium",
             "note_en": "Flagship top-ranked architect model at balanced medium effort.",
@@ -207,7 +207,7 @@ TIER_RECOMMENDATIONS: dict[RoleTier, list[TierRecommendation]] = {
             "note_zh": "L1 首选：Opus 5.5（中等思考强度，稳健规划与把关）。",
         },
         {
-            "providers": ["gemini_sub", "gemini_http"],
+            "providers": ["agy_sub", "gemini_sub", "gemini_http"],
             "model": "gemini-4-neon",
             "effort": "medium",
             "note_en": "Secondary L1 planning model at medium effort.",
@@ -237,7 +237,7 @@ TIER_RECOMMENDATIONS: dict[RoleTier, list[TierRecommendation]] = {
             "note_zh": "次选：Sonnet 5.5（Max 思考强度）。",
         },
         {
-            "providers": ["gemini_sub", "gemini_http"],
+            "providers": ["agy_sub", "gemini_sub", "gemini_http"],
             "model": "gemini-4-hydrogen",
             "effort": "max",
             "note_en": "Third L2 specialist at Max effort.",
@@ -297,7 +297,7 @@ def _default_fetcher(url: str, timeout_sec: float) -> bytes:
 _FIRST_PARTY_PROVIDERS: dict[str, tuple[str, list[str]]] = {
     "anthropic": ("claude", ["claude_sub"]),
     "openai": ("openai", ["codex_sub", "openai_http"]),
-    "gemini": ("gemini", ["gemini_sub", "gemini_http"]),
+    "gemini": ("gemini", ["agy_sub", "gemini_sub", "gemini_http"]),
     # Only DeepSeek's own API; the OpenCode channel (dsh_opencode) is defined by the DSH patch file.
     "deepseek": ("deepseek", ["dsh_deepseek"]),
 }
@@ -433,6 +433,7 @@ CliModels = dict[str, dict[str, list[str]]]
 _CLI_FEED_PROVIDER = {"gemini_sub": "gemini", "codex_sub": "openai"}
 _GEMINI_MODEL_LINE = re.compile(r"^(gemini-[\w.\-]+) \(")
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_AGY_MODEL_ID_RE = re.compile(r"\b((?:gemini|claude|gpt)-[\w.\-]+)\b", re.IGNORECASE)
 CLI_PROBE_TIMEOUT_SEC = 30.0
 
 
@@ -442,6 +443,52 @@ def parse_gemini_model_list(text: str) -> list[str]:
     plain = _ANSI_ESCAPE.sub("", text)
     found = (match.group(1) for line in plain.splitlines() if (match := _GEMINI_MODEL_LINE.match(line)))
     return list(dict.fromkeys(found))
+
+
+def parse_agy_model_list(text: str) -> list[str]:
+    """Model IDs from ``agy models`` (plain text, ANSI-styled table, or JSON list/object)."""
+    clean = _ANSI_ESCAPE.sub("", text).strip()
+    if not clean:
+        return []
+    if clean.startswith(("[", "{")):
+        try:
+            payload = json.loads(clean)
+        except (ValueError, RecursionError):
+            payload = None
+        items = payload.get("models") if isinstance(payload, Mapping) else payload
+        if isinstance(items, list):
+            extracted: list[str] = []
+            for item in items:
+                raw_id = item if isinstance(item, str) else (
+                    next(
+                        (item.get(k) for k in ("id", "slug", "modelId", "name") if isinstance(item.get(k), str)),
+                        None,
+                    )
+                    if isinstance(item, Mapping) else None
+                )
+                if raw_id and _AGY_MODEL_ID_RE.fullmatch(raw_id.strip()):
+                    extracted.append(raw_id.strip().lower())
+            if extracted:
+                return list(dict.fromkeys(extracted))
+    found: list[str] = []
+    for line in clean.splitlines():
+        for match in _AGY_MODEL_ID_RE.finditer(line):
+            model_id = match.group(1).lower()
+            if model_id != "auto":
+                found.append(model_id)
+    return list(dict.fromkeys(found))
+
+
+def _infer_cli_feed_provider(provider: str, model_id: str) -> str:
+    lower = model_id.lower()
+    if provider == "agy_sub":
+        if lower.startswith("gemini-"):
+            return "gemini"
+        if lower.startswith("claude-"):
+            return "anthropic"
+        if lower.startswith("gpt-") or re.match(r"^o\d", lower):
+            return "openai"
+    return _CLI_FEED_PROVIDER.get(provider, "")
 
 
 def parse_codex_models_cache(payload: Any) -> dict[str, list[str]]:
@@ -466,6 +513,14 @@ def _default_codex_cache_path() -> Path:
     return Path(os.environ.get("CODEX_HOME") or "~/.codex").expanduser() / "models_cache.json"
 
 
+def _resolve_agy_for_probe(which: Callable[[str], str | None]) -> str | None:
+    found = which("agy")
+    if found or which is not shutil.which:
+        return found
+    from .cli_runner import resolve_cli_binary
+    return resolve_cli_binary("agy")
+
+
 def probe_cli_models(
     *,
     run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
@@ -475,6 +530,18 @@ def probe_cli_models(
 ) -> CliModels:
     """Ask each subscription CLI what it offers; a missing, slow, or unreadable CLI is simply left out."""
     found: CliModels = {}
+    agy = _resolve_agy_for_probe(which)
+    if agy:
+        try:
+            proc = run(
+                [agy, "models"], capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=timeout_sec,
+            )
+            agy_models = parse_agy_model_list(proc.stdout or "") if proc.returncode == 0 else []
+            if agy_models:
+                found["agy_sub"] = {model_id: [] for model_id in agy_models}
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
     gemini = which("gemini")
     if gemini:
         try:
@@ -509,7 +576,7 @@ def _apply_cli_models(models: list[ModelCatalogEntry], cli_models: CliModels) ->
             entry = by_id.get(model_id)
             if entry is None:
                 base = bundled.get(model_id) or _classify_remote_model(
-                    model_id, {"litellm_provider": _CLI_FEED_PROVIDER.get(provider, "")},
+                    model_id, {"litellm_provider": _infer_cli_feed_provider(provider, model_id)},
                 )
                 if base is None:
                     continue

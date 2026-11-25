@@ -177,7 +177,7 @@ class CliRegistrySchemaTests(unittest.TestCase):
 
     def test_every_driver_has_required_fields_with_argv_commands(self) -> None:
         provider_ids = set(HotReloadConfig(EXAMPLE_CONFIG).current.providers) | {
-            "codex_sub", "claude_sub", "dsh_opencode", "dsh_deepseek", "gemini_sub", "gemini_http", "openai_http",
+            "agy_sub", "codex_sub", "claude_sub", "dsh_opencode", "dsh_deepseek", "gemini_sub", "gemini_http", "openai_http",
         }
         for driver in self.registry["drivers"]:
             with self.subTest(driver=driver["id"]):
@@ -525,6 +525,14 @@ class RecommendedLineupContractTests(unittest.TestCase):
         )
         self.assertIs(lineup["ready"], True)
         self.assertEqual(lineup["roles"]["brainstorm_and_final_gate"], "gemini_sub")
+
+    def test_full_host_with_agy_assigns_agy_sub_to_brainstorm_and_final_gate(self) -> None:
+        lineup = build_recommended_lineup(
+            self.scan_result({"agy": "ready", "claude": "ready", "codex": "ready", "dsh": "ready", "gemini": "ready"}),
+            self.cfg,  # type: ignore[arg-type]
+        )
+        self.assertIs(lineup["ready"], True)
+        self.assertEqual(lineup["roles"]["brainstorm_and_final_gate"], "agy_sub")
 
     def test_ready_opencode_alone_cannot_back_dsh_provider(self) -> None:
         # dsh_opencode runs the `dsh` binary, which an opencode-only host does not have.

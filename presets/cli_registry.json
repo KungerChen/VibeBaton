@@ -152,6 +152,23 @@
       "version_cmd": ["copilot", "--version"],
       "provider_ids": ["openai_http"],
       "env_keys": []
+    },
+    {
+      "id": "agy",
+      "name": "Antigravity CLI",
+      "tier": "official",
+      "binary": "agy",
+      "summary_en": "Google Antigravity's official terminal coding agent; runs Gemini 4 and Claude flagship models using your Google AI Pro/Ultra subscription.",
+      "summary_zh": "Google Antigravity 官方终端编程智能体，使用你的 Google AI Pro/Ultra 订阅运行 Gemini 4 与 Claude 旗舰模型。",
+      "prereq": [],
+      "install_cmd": ["winget", "install", "--id", "Google.Antigravity", "-e"],
+      "login_cmd": ["agy"],
+      "auth_check_cmd": null,
+      "official_url": "https://antigravity.google/docs/getting-started",
+      "command_template": ["agy", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "json"],
+      "version_cmd": ["agy", "--version"],
+      "provider_ids": ["agy_sub"],
+      "env_keys": []
     }
   ]
 }

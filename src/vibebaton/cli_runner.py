@@ -55,7 +55,7 @@ class ParsedCLIOutput:
     structured: bool = False
 
 
-_CLIFormat = Literal["claude", "codex", "dsh", "gemini"]
+_CLIFormat = Literal["claude", "codex", "dsh", "gemini", "agy"]
 _JSONEvent = dict[str, object]
 _DSH_USAGE_KEYS = ("usage", "token_usage", "metrics")
 _DSH_RESPONSE_TYPES = ("assistant", "assistant_message", "message", "result", "text", "final", "done")
@@ -99,7 +99,7 @@ def _detect_cli_format(
     events: list[_JSONEvent], provider_type: str, command: list[str], provider_name: str,
 ) -> _CLIFormat | None:
     provider_type = provider_type.lower()
-    if provider_type in ("claude", "codex", "dsh", "gemini"):
+    if provider_type in ("claude", "codex", "dsh", "gemini", "agy"):
         return cast(_CLIFormat, provider_type)
 
     binary = PureWindowsPath(command[0]).stem.lower() if command else ""
@@ -107,6 +107,8 @@ def _detect_cli_format(
     hints = {binary, name}
     if "gemini" in hints:
         return "gemini"
+    if "agy" in hints:
+        return "agy"
     arg_pairs = list(zip(command, command[1:]))
     if any(
         ("--output-format", mode) in arg_pairs or f"--output-format={mode}" in command
@@ -288,6 +290,23 @@ def _parse_gemini_output(events: list[_JSONEvent], file_text: str | None, stdout
     return ParsedCLIOutput(text or file_text or stdout, prompt, completion, cached, structured=True)
 
 
+def _parse_agy_output(events: list[_JSONEvent], file_text: str | None, stdout: str) -> ParsedCLIOutput:
+    prompt = completion = cached = 0
+    for usage in _usage_blocks(events, "usage"):
+        prompt += _token_count(usage, "input_tokens", "prompt_tokens")
+        completion += _token_count(usage, "output_tokens", "completion_tokens")
+        cached += _token_count(usage, "cache_read_tokens", "cache_read_input_tokens", "cached_tokens")
+    text = next(
+        (
+            val for event in reversed(events)
+            for key in ("response", "result")
+            if isinstance(val := event.get(key), str) and val.strip()
+        ),
+        "",
+    )
+    return ParsedCLIOutput(text or file_text or stdout, prompt, completion, cached, structured=True)
+
+
 def parse_cli_output_and_usage(
     stdout: str,
     stderr: str,
@@ -320,6 +339,8 @@ def parse_cli_output_and_usage(
         return _parse_dsh_output(events, file_text, stdout)
     if output_format == "gemini":
         return _parse_gemini_output(events, file_text, stdout)
+    if output_format == "agy":
+        return _parse_agy_output(events, file_text, stdout)
     return ParsedCLIOutput(stdout)
 
 
@@ -409,6 +430,18 @@ def resolve_cli_binary(binary: str) -> str | None:
                 newest = codex_bins[0]
                 if not found or newest.stat().st_mtime > Path(found).stat().st_mtime:
                     return str(newest)
+    if found is None and binary.lower() in ("agy", "agy.exe"):
+        if sys.platform == "win32":
+            candidates = []
+            local_app = os.environ.get("LOCALAPPDATA")
+            if local_app:
+                candidates.append(Path(local_app) / "agy" / "bin" / "agy.exe")
+            candidates.append(Path.home() / "AppData" / "Local" / "agy" / "bin" / "agy.exe")
+        else:
+            candidates = [Path.home() / ".local" / "bin" / "agy"]
+        for candidate in candidates:
+            if candidate.exists():
+                return str(candidate)
     return found
 
 

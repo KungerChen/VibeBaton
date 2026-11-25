@@ -458,7 +458,10 @@ def build_recommended_lineup(scan_result: CliScanResult, cfg: BatonConfig) -> Re
         return {"ready": False, "roles": {}, "source": "cli", "notes_en": notes_en, "notes_zh": notes_zh}
 
     roles = {
-        name: role.provider if role.provider in ready else ready[0]
+        name: next(
+            (p for p in (role.provider, *(fb.provider for fb in role.fallback)) if p in ready),
+            ready[0],
+        )
         for name, role in cfg.roles.items()
     }
     kinds = {"http" if cfg.providers[pid].type == "http" else "cli" for pid in roles.values()}

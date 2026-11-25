@@ -69,6 +69,17 @@ prompt_via = "stdin"
 stall_timeout_sec = 240
 hard_timeout_sec = 1200
 
+# Native headless Antigravity CLI provider (uses your signed-in `agy` / Google AI Ultra session).
+[providers.agy_sub]
+type = "cli"
+max_concurrency = 1
+cooldown_backoff_sec = [60, 300, 900]
+rate_limit_regex = "(rate.?limit|usage.?limit|quota|429|RESOURCE_EXHAUSTED|too many requests|overloaded)"
+command = ["agy", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "json"]
+prompt_via = "stdin"
+stall_timeout_sec = 900
+hard_timeout_sec = 2400
+
 # Native headless Gemini CLI provider (uses your signed-in `gemini` CLI session).
 [providers.gemini_sub]
 type = "cli"
@@ -109,10 +120,10 @@ cooldown_backoff_sec = [60, 300, 900]
 # ---------------------------------------------------------------------------
 
 [roles.brainstorm_and_final_gate]
-provider = "gemini_sub"
-model = "gemini-2.5-pro"
+provider = "agy_sub"
+model = "gemini-4-carbon@medium"
 prompt_file = "prompts/l0_final_gate.md"
-fallback = [{ provider = "claude_sub", model = "opus@high" }]
+fallback = [{ provider = "gemini_sub", model = "gemini-2.5-pro" }, { provider = "claude_sub", model = "opus@high" }]
 
 [roles.tactical_planner]
 provider = "claude_sub"

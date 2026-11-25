@@ -16,9 +16,13 @@ from vibebaton import model_catalog
 
 class ModelCatalogTests(unittest.TestCase):
     def test_tiered_recommendations_on_full_host(self) -> None:
-        all_providers = ["gemini_sub", "claude_sub", "codex_sub", "dsh_opencode"]
+        all_providers = ["agy_sub", "gemini_sub", "claude_sub", "codex_sub", "dsh_opencode"]
         self.assertEqual(
             model_catalog.recommend_role_assignment("brainstorm_and_final_gate", all_providers),
+            {"provider": "agy_sub", "model": "gemini-4-carbon", "effort": "medium"},
+        )
+        self.assertEqual(
+            model_catalog.recommend_role_assignment("brainstorm_and_final_gate", ["gemini_sub", "claude_sub", "codex_sub"]),
             {"provider": "gemini_sub", "model": "gemini-4-carbon", "effort": "medium"},
         )
         self.assertEqual(
@@ -477,18 +481,46 @@ class CliReportedModelTests(unittest.TestCase):
             catalog = model_catalog.get_model_catalog(cache_path=cache_path, now_fn=lambda: NOW_2026_11_25)
         self.assertTrue(catalog["cache"]["stale"])
 
+    def test_agy_model_list_parser_supports_text_ansi_and_json(self) -> None:
+        text_output = (
+            "Available models:\n"
+            "  auto                  Automatic router\n"
+            "  \x1b[1mgemini-4-carbon\x1b[22m       Gemini 4 Carbon (Ultra)\n"
+            "  gemini-4-neon         Gemini 4 Neon\n"
+            "  claude-opus-5-5       Claude Opus 5.5\n"
+        )
+        self.assertEqual(
+            model_catalog.parse_agy_model_list(text_output),
+            ["gemini-4-carbon", "gemini-4-neon", "claude-opus-5-5"],
+        )
+        json_output = json.dumps([
+            {"id": "gemini-4-carbon"},
+            {"slug": "claude-sonnet-5-5"},
+            {"modelId": "gemini-4-argon"},
+        ])
+        self.assertEqual(
+            model_catalog.parse_agy_model_list(json_output),
+            ["gemini-4-carbon", "claude-sonnet-5-5", "gemini-4-argon"],
+        )
+        self.assertEqual(model_catalog.parse_agy_model_list(""), [])
+
     def test_probe_reads_both_clis_without_a_real_cli(self) -> None:
         calls: list[list[str]] = []
 
         def run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
             calls.append(cmd)
+            if cmd[0].endswith("agy"):
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="gemini-4-carbon\nclaude-opus-5-5\ngemini-4-argon\n", stderr="",
+                )
             return subprocess.CompletedProcess(cmd, 0, stdout=GEMINI_LIST_OUTPUT, stderr="")
 
         with tempfile.TemporaryDirectory() as tmp:
             codex_path = Path(tmp) / "models_cache.json"
             codex_path.write_text(json.dumps(CODEX_CACHE), encoding="utf-8")
             found = model_catalog.probe_cli_models(run=run, which=lambda name: f"/bin/{name}", codex_cache_path=codex_path)
-        self.assertEqual(calls, [["/bin/gemini", "--list-models"]])
+        self.assertEqual(calls, [["/bin/agy", "models"], ["/bin/gemini", "--list-models"]])
+        self.assertEqual(list(found["agy_sub"]), ["gemini-4-carbon", "claude-opus-5-5", "gemini-4-argon"])
         self.assertEqual(list(found["gemini_sub"]), ["gemini-2.5-pro", "gemini-3.5-flash", "gemini-3.1-flash-lite"])
         self.assertIn("gpt-6.2-sol", found["codex_sub"])
 

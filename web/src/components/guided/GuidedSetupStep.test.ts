@@ -376,6 +376,8 @@ describe('recommendations stay inside what the provider offers', () => {
   };
 
   test('a recommended model the CLI does not list falls back to the same tier in that provider', () => {
+    expect(recommendRoleSpec('brainstorm_and_final_gate', ['agy_sub', 'gemini_sub', 'claude_sub'], BUILTIN_MODEL_CATALOG))
+      .toEqual({ provider: 'agy_sub', model: 'gemini-4-carbon', effort: 'medium' });
     expect(recommendRoleSpec('brainstorm_and_final_gate', ['gemini_sub', 'claude_sub'], catalog))
       .toEqual({ provider: 'gemini_sub', model: 'gemini-2.5-pro', effort: 'medium' });
     expect(recommendRoleSpec('brainstorm_and_final_gate', ['gemini_http'], catalog))

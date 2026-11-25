@@ -184,12 +184,49 @@ class TestParseCLIOutput(unittest.TestCase):
             ParsedCLIOutput("Gemini task complete", 100, 40, 10, structured=True),
         )
 
+    def test_agy_json_output_usage_and_command_template(self) -> None:
+        from vibebaton import cli_runner
+
+        stdout = json.dumps({
+            "conversation_id": "055a398f-db14-4c5f-abbb-1bf03f8120a7",
+            "status": "SUCCESS",
+            "response": "Antigravity task complete",
+            "usage": {
+                "input_tokens": 10415,
+                "output_tokens": 657,
+                "thinking_tokens": 616,
+                "cache_read_tokens": 8113,
+                "total_tokens": 11072,
+            },
+        })
+        self.assertEqual(
+            parse_cli_output_and_usage(
+                stdout, "", None,
+                provider_type="cli",
+                command=["agy", "-p", "--model", "gemini-4-carbon", "--effort", "medium", "--output-format", "json"],
+                provider_name="agy_sub",
+            ),
+            ParsedCLIOutput("Antigravity task complete", 10415, 657, 8113, structured=True),
+        )
+        cmd = cli_runner.format_command_template(
+            ["agy", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "json"],
+            model="gemini-4-carbon@medium", workdir=Path("."), prompt_file=Path("p"), output_file=Path("o"),
+        )
+        self.assertEqual(
+            cmd,
+            ["agy", "-p", "--model", "gemini-4-carbon", "--effort", "medium", "--dangerously-skip-permissions", "--output-format", "json"],
+        )
+
     def test_example_templates_parse_with_native_json_flags(self) -> None:
         path = Path(__file__).resolve().parents[1] / "baton.example.toml"
         cfg = parse_config_dict(tomllib.loads(path.read_text(encoding="utf-8")))
         claude = cfg.providers["claude_sub"].command
         mode_index = claude.index("--output-format") + 1
         self.assertEqual(claude[mode_index], "json")
+        agy = cfg.providers["agy_sub"].command
+        self.assertEqual(agy[agy.index("--output-format") + 1], "json")
+        self.assertEqual(cfg.roles["brainstorm_and_final_gate"].provider, "agy_sub")
+        self.assertEqual(cfg.roles["brainstorm_and_final_gate"].model, "gemini-4-carbon@medium")
         self.assertIn("--json", cfg.providers["codex_sub"].command)
         self.assertIn("--json", cfg.providers["dsh_opencode"].command)
         self.assertEqual(cfg.pricing, PricingSettings())

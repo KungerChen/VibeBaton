@@ -149,19 +149,19 @@ export const BUILTIN_MODEL_CATALOG: Pick<ModelCatalogResponse, 'models' | 'tier_
   },
   tier_recommendations: {
     L0: [
-      { providers: ['gemini_sub', 'gemini_http'], model: 'gemini-4-carbon', effort: 'medium', note_en: '', note_zh: '' },
+      { providers: ['agy_sub', 'gemini_sub', 'gemini_http'], model: 'gemini-4-carbon', effort: 'medium', note_en: '', note_zh: '' },
       { providers: ['claude_sub'], model: 'claude-fable-5-2', effort: 'medium', note_en: '', note_zh: '' },
       { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.2-astra', effort: 'xhigh', note_en: '', note_zh: '' },
     ],
     L1: [
       { providers: ['claude_sub'], model: 'claude-opus-5-5', effort: 'medium', note_en: '', note_zh: '' },
-      { providers: ['gemini_sub', 'gemini_http'], model: 'gemini-4-neon', effort: 'medium', note_en: '', note_zh: '' },
+      { providers: ['agy_sub', 'gemini_sub', 'gemini_http'], model: 'gemini-4-neon', effort: 'medium', note_en: '', note_zh: '' },
       { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.2-sol', effort: 'max', note_en: '', note_zh: '' },
     ],
     L2: [
       { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.2-sol', effort: 'max', note_en: '', note_zh: '' },
       { providers: ['claude_sub'], model: 'claude-sonnet-5-5', effort: 'max', note_en: '', note_zh: '' },
-      { providers: ['gemini_sub', 'gemini_http'], model: 'gemini-4-hydrogen', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['agy_sub', 'gemini_sub', 'gemini_http'], model: 'gemini-4-hydrogen', effort: 'max', note_en: '', note_zh: '' },
     ],
     L3: [
       { providers: ['dsh_opencode', 'dsh_deepseek'], model: 'deepseek-v4.1-flash', effort: 'max', note_en: '', note_zh: '' },
@@ -171,13 +171,13 @@ export const BUILTIN_MODEL_CATALOG: Pick<ModelCatalogResponse, 'models' | 'tier_
     ],
   },
   models: [
-    builtinEntry('gemini-4-carbon', 'Gemini 4 Carbon', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'flagship', 1, 'medium'),
-    builtinEntry('gemini-4-neon', 'Gemini 4 Neon', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'standard', 2, 'medium'),
-    builtinEntry('gemini-4-hydrogen', 'Gemini 4 Hydrogen', 'gemini', ['gemini_sub', 'gemini_http'], 'latest', 'eco', 3, 'max'),
+    builtinEntry('gemini-4-carbon', 'Gemini 4 Carbon', 'gemini', ['agy_sub', 'gemini_sub', 'gemini_http'], 'latest', 'flagship', 1, 'medium'),
+    builtinEntry('gemini-4-neon', 'Gemini 4 Neon', 'gemini', ['agy_sub', 'gemini_sub', 'gemini_http'], 'latest', 'standard', 2, 'medium'),
+    builtinEntry('gemini-4-hydrogen', 'Gemini 4 Hydrogen', 'gemini', ['agy_sub', 'gemini_sub', 'gemini_http'], 'latest', 'eco', 3, 'max'),
     builtinEntry('claude-fable-5-2', 'Claude Fable 5.2', 'claude', ['claude_sub'], 'latest', 'flagship', 1, 'medium'),
-    builtinEntry('claude-opus-5-5', 'Claude Opus 5.5', 'claude', ['claude_sub'], 'latest', 'flagship', 2, 'medium'),
-    builtinEntry('claude-sonnet-5-5', 'Claude Sonnet 5.5', 'claude', ['claude_sub'], 'latest', 'standard', 3, 'max'),
-    builtinEntry('claude-haiku-5-5', 'Claude Haiku 5.5', 'claude', ['claude_sub'], 'latest', 'eco', 4, 'max'),
+    builtinEntry('claude-opus-5-5', 'Claude Opus 5.5', 'claude', ['claude_sub', 'agy_sub'], 'latest', 'flagship', 2, 'medium'),
+    builtinEntry('claude-sonnet-5-5', 'Claude Sonnet 5.5', 'claude', ['claude_sub', 'agy_sub'], 'latest', 'standard', 3, 'max'),
+    builtinEntry('claude-haiku-5-5', 'Claude Haiku 5.5', 'claude', ['claude_sub', 'agy_sub'], 'latest', 'eco', 4, 'max'),
     builtinEntry('gpt-6.2-astra', 'GPT-6.2 Astra', 'openai', ['codex_sub', 'openai_http'], 'latest', 'flagship', 1, 'xhigh'),
     builtinEntry('gpt-6.2-sol', 'GPT-6.2 Sol', 'openai', ['codex_sub', 'openai_http'], 'latest', 'standard', 2, 'max'),
     builtinEntry('gpt-6.1-terra', 'GPT-6.1 Terra', 'openai', ['codex_sub', 'openai_http'], 'latest', 'eco', 3, 'max'),
