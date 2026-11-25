@@ -1,7 +1,7 @@
 import './GuidedWorkbench.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNodesState } from '@xyflow/react';
-import type { BatonApiClient, FinalizeAction, RecommendedLineup } from '../../api/client';
+import type { ApiMode, BatonApiClient, FinalizeAction, RecommendedLineup } from '../../api/client';
 import { graphToFlow } from '../../engine/flowAdapter';
 import { buildLiveRunGraph, projectLiveRunCanvas } from '../../engine/liveRunGraph';
 import { MESSAGES, type Locale } from '../../i18n/messages';
@@ -11,7 +11,7 @@ import { CanvasWorkspace } from '../CanvasWorkspace';
 import type { BatonFlowNode } from '../nodes/BatonNode';
 import { GuidedBrainstormStep } from './GuidedBrainstormStep';
 import { GuidedDecisionModal, optionsFromEvent, type GuidedDecisionOption } from './GuidedDecisionModal';
-import { GuidedSetupStep } from './GuidedSetupStep';
+import { GuidedSetupStep, lineupSummary } from './GuidedSetupStep';
 import { GuidedSignOffPanel, type SignOffSummary } from './GuidedSignOffPanel';
 import { localizeGuidedError } from './guidedErrors';
 import { NodeDetailDrawer } from './NodeDetailDrawer';
@@ -171,6 +171,8 @@ export interface GuidedWorkbenchProps {
   locale: Locale;
   /** The app's local API client; every guided step talks to the Studio server through it. */
   client: BatonApiClient;
+  /** Resolved client mode (`null` while `/api/health` initialization is still running). */
+  apiMode?: ApiMode | null;
   /** The app's live run snapshot (SSE-driven). Only the run launched here is shown. */
   liveSnapshot: LiveRunSnapshot | null;
   /** Asks the app to follow (and refetch) this run: after launch and after a sign-off action. */
@@ -178,7 +180,7 @@ export interface GuidedWorkbenchProps {
 }
 
 /** Guided Mode shell: Workspace → Blueprint → Build (live canvas) → Sign-Off. */
-export function GuidedWorkbench({ locale, client, liveSnapshot, onFollowRun }: GuidedWorkbenchProps) {
+export function GuidedWorkbench({ locale, client, apiMode, liveSnapshot, onFollowRun }: GuidedWorkbenchProps) {
   const copy = MESSAGES[locale].guided;
   const [step, setStep] = useState<GuidedStep>('setup');
   const [lineup, setLineup] = useState<RecommendedLineup | null>(null);
@@ -220,23 +222,41 @@ export function GuidedWorkbench({ locale, client, liveSnapshot, onFollowRun }: G
   return (
     <div className="guided-workbench">
       <ol className="guided-workbench__rail" aria-label={copy.workbench.stepsAria}>
-        {copy.steps.map(({ title, hint }, index) => (
-          <li
-            key={GUIDED_STEPS[index]}
-            className={cn(
-              'guided-workbench__step',
-              index === shownIndex && 'guided-workbench__step--current',
-              index < shownIndex && 'guided-workbench__step--done',
-            )}
-            aria-current={index === shownIndex ? 'step' : undefined}
-          >
-            <span className="guided-workbench__step-index" aria-hidden="true">{index + 1}</span>
-            <span className="guided-workbench__step-text">
-              <span className="guided-workbench__step-title">{title}</span>
-              <span className="guided-workbench__step-hint">{hint}</span>
-            </span>
-          </li>
-        ))}
+        {copy.steps.map(({ title, hint }, index) => {
+          const canReturnToSetup = index === 0 && !runId && shownStep === 'brainstorm';
+          const content = (
+            <>
+              <span className="guided-workbench__step-index" aria-hidden="true">{index + 1}</span>
+              <span className="guided-workbench__step-text">
+                <span className="guided-workbench__step-title">{title}</span>
+                <span className="guided-workbench__step-hint">{hint}</span>
+              </span>
+            </>
+          );
+          return (
+            <li
+              key={GUIDED_STEPS[index]}
+              className={cn(
+                'guided-workbench__step',
+                index === shownIndex && 'guided-workbench__step--current',
+                index < shownIndex && 'guided-workbench__step--done',
+              )}
+              aria-current={index === shownIndex ? 'step' : undefined}
+            >
+              {canReturnToSetup ? (
+                <button
+                  type="button"
+                  className="guided-workbench__step-btn"
+                  onClick={() => setStep('setup')}
+                >
+                  {content}
+                </button>
+              ) : (
+                content
+              )}
+            </li>
+          );
+        })}
       </ol>
 
       <section className="guided-workbench__body" data-step={shownStep}>
@@ -245,6 +265,8 @@ export function GuidedWorkbench({ locale, client, liveSnapshot, onFollowRun }: G
             <GuidedSetupStep
               locale={locale}
               api={client}
+              apiMode={apiMode}
+              initialRoles={lineup?.roles ?? null}
               onReady={(ready) => {
                 setLineup(ready);
                 setStep(nextStep('setup'));
@@ -255,6 +277,18 @@ export function GuidedWorkbench({ locale, client, liveSnapshot, onFollowRun }: G
 
         {shownStep === 'brainstorm' && lineup && (
           <div className="guided-workbench__panel">
+            <div className="guided-workbench__team-bar">
+              <span className="guided-workbench__team-text">
+                <strong>{copy.workbench.currentTeamPrefix}</strong> {lineupSummary(lineup, locale)}
+              </span>
+              <button
+                type="button"
+                className="guided-workbench__button"
+                onClick={() => setStep('setup')}
+              >
+                {copy.workbench.changeTeam}
+              </button>
+            </div>
             <GuidedBrainstormStep
               locale={locale}
               lineup={lineup}

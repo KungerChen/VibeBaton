@@ -34,6 +34,117 @@
   justify-content: space-between;
 }
 
+.guided-setup__row--wrap {
+  flex-wrap: wrap;
+}
+
+.guided-setup__title-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.guided-setup__count {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+
+.guided-setup__count[data-ready='true'] {
+  color: var(--emerald);
+  border-color: color-mix(in srgb, var(--emerald) 35%, var(--border));
+}
+
+.guided-setup__filters,
+.guided-setup__presets,
+.guided-setup__team-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.guided-setup__chip {
+  padding: 0.28rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.guided-setup__chip[aria-pressed='true'] {
+  border-color: var(--primary);
+  background: var(--accent-soft);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.guided-setup__version {
+  padding: 0.05rem 0.45rem;
+  border-radius: 0.375rem;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+}
+
+.guided-setup__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.guided-setup__binary {
+  align-self: flex-start;
+  padding: 0.12rem 0.45rem;
+  border-radius: 0.35rem;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.guided-setup__role-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.5rem;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--muted);
+}
+
+.guided-setup__role-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.guided-setup__role-label {
+  font-weight: 500;
+  color: var(--text-strong);
+}
+
+.guided-setup__select {
+  min-width: 8.5rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
 .guided-setup__input {
   flex: 1;
   min-width: 0;

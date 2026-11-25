@@ -489,6 +489,8 @@ export interface Messages {
       pausedBanner: string;
       resumeRun: string;
       newBlueprint: string;
+      changeTeam: string;
+      currentTeamPrefix: string;
     };
     setup: {
       pickFolder: string;
@@ -502,6 +504,10 @@ export interface Messages {
       initGit: string;
       scanClis: string;
       scanning: string;
+      scanSummary: (ready: number, total: number) => string;
+      filterAll: string;
+      filterReady: string;
+      filterNeedsSetup: string;
       install: string;
       installing: string;
       installConsent: string;
@@ -513,7 +519,14 @@ export interface Messages {
       tiers: { official: string; community: string };
       lineupReady: string;
       lineupMissing: string;
+      presetRecommended: string;
+      presetAllProvider: (provider: string) => string;
+      customizeRoles: string;
+      hideCustomizeRoles: string;
+      resetLineup: string;
+      customBadge: string;
       useLineup: string;
+      useCustomLineup: string;
       installedDone: string;
       folderSelected: string;
       gitEnabledDone: string;
@@ -1262,6 +1275,8 @@ export const MESSAGES: Record<Locale, Messages> = {
         pausedBanner: 'The run is paused. You can resume where it stopped or start a new blueprint.',
         resumeRun: 'Resume Run',
         newBlueprint: 'Start New Blueprint',
+        changeTeam: 'Change Team',
+        currentTeamPrefix: 'Current team:',
       },
       steps: [
         { title: 'Workspace', hint: 'Choose your project folder and confirm the AI coding tools on this computer.' },
@@ -1281,6 +1296,10 @@ export const MESSAGES: Record<Locale, Messages> = {
         initGit: 'Turn On Version History',
         scanClis: 'Scan AI Coding Tools',
         scanning: 'Scanning this computer…',
+        scanSummary: (ready, total) => `${ready}/${total} ready`,
+        filterAll: 'All',
+        filterReady: 'Ready',
+        filterNeedsSetup: 'Needs Setup',
         install: 'Install',
         installing: 'Installing…',
         installConsent: 'Allow VibeBaton to run this install command:',
@@ -1292,7 +1311,14 @@ export const MESSAGES: Record<Locale, Messages> = {
         tiers: { official: 'Official', community: 'Community' },
         lineupReady: 'Your AI team is ready to work.',
         lineupMissing: 'Install or sign in to at least one AI coding tool to form a team.',
+        presetRecommended: 'Recommended',
+        presetAllProvider: (provider) => `All ${provider}`,
+        customizeRoles: 'Customize Roles',
+        hideCustomizeRoles: 'Hide Role Editor',
+        resetLineup: 'Reset to Recommended',
+        customBadge: 'Customized',
         useLineup: 'Use This Team',
+        useCustomLineup: 'Continue with This Team',
         installedDone: 'Installed and rescanned.',
         folderSelected: 'Project folder updated.',
         gitEnabledDone: 'Version history turned on.',
@@ -2059,6 +2085,8 @@ export const MESSAGES: Record<Locale, Messages> = {
         pausedBanner: '运行已暂停，你可以从暂停处继续运行，或重新制定一份蓝图。',
         resumeRun: '继续运行',
         newBlueprint: '重新制定蓝图',
+        changeTeam: '调整团队',
+        currentTeamPrefix: '当前团队：',
       },
       steps: [
         { title: '工作区', hint: '选择项目文件夹，并确认本机已有的 AI 编程工具。' },
@@ -2078,6 +2106,10 @@ export const MESSAGES: Record<Locale, Messages> = {
         initGit: '开启版本记录',
         scanClis: '扫描 AI 编程工具',
         scanning: '正在扫描本机……',
+        scanSummary: (ready, total) => `已就绪 ${ready}/${total}`,
+        filterAll: '全部',
+        filterReady: '已就绪',
+        filterNeedsSetup: '待配置',
         install: '安装',
         installing: '正在安装……',
         installConsent: '允许 VibeBaton 执行以下安装命令：',
@@ -2089,7 +2121,14 @@ export const MESSAGES: Record<Locale, Messages> = {
         tiers: { official: '官方', community: '社区' },
         lineupReady: '你的 AI 团队已准备就绪。',
         lineupMissing: '请至少安装并登录一个 AI 编程工具来组建团队。',
+        presetRecommended: '推荐搭配',
+        presetAllProvider: (provider) => `全部使用 ${provider}`,
+        customizeRoles: '自定义角色分工',
+        hideCustomizeRoles: '收起角色分工',
+        resetLineup: '恢复推荐搭配',
+        customBadge: '已自定义',
         useLineup: '使用这支团队',
+        useCustomLineup: '使用当前搭配，进入下一步',
         installedDone: '安装完成并已重新扫描。',
         folderSelected: '项目文件夹已切换。',
         gitEnabledDone: '版本记录已开启。',

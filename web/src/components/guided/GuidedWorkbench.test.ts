@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest';
 import type { BatonApiClient } from '../../api/client';
 import { MESSAGES } from '../../i18n/messages';
 import type { LiveRunSnapshot } from '../../types/graph';
+import workbenchSource from './GuidedWorkbench.tsx?raw';
 import {
   GUIDED_STEPS,
   GuidedWorkbench,
@@ -135,5 +136,12 @@ describe('GuidedWorkbench', () => {
       expect(html).toContain('data-step="setup"');
       expect(html).toContain('aria-current="step"');
     }
+  });
+
+  test('preserves customized team lineup and exposes change-team return controls in Brainstorm', () => {
+    expect(workbenchSource).toContain('initialRoles={lineup?.roles ?? null}');
+    expect(workbenchSource).toContain('apiMode={apiMode}');
+    expect(workbenchSource).toContain('copy.workbench.changeTeam');
+    expect(workbenchSource).toContain('guided-workbench__step-btn');
   });
 });

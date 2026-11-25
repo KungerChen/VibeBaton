@@ -1031,6 +1031,7 @@ function AppContent() {
           <GuidedWorkbench
             locale={locale}
             client={client}
+            apiMode={mode}
             liveSnapshot={liveSnapshot}
             onFollowRun={(followRunId) => {
               lastLiveCanvasRef.current = null;

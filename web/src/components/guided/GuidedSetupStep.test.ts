@@ -4,11 +4,16 @@ import { describe, expect, test, vi } from 'vitest';
 import type { CliDriver, CliScanEntry, RecommendedLineup, WorkspaceInfo } from '../../api/client';
 import {
   GuidedDriverRow,
+  assignAllRoles,
+  assignRoleProvider,
+  availableLineupProviders,
   canInstall,
   confirmLineup,
   driverDisplayName,
+  filterDrivers,
   initGitAndRefresh,
   installWithConsent,
+  isLineupCustomized,
   lineupSummary,
   type GuidedDriverRowProps,
 } from './GuidedSetupStep';
@@ -162,5 +167,67 @@ describe('GuidedDriverRow', () => {
 
     const doneHtml = renderRow({ consent: false, busy: false, feedback: 'Installed and rescanned.' });
     expect(doneHtml).toContain('Installed and rescanned.');
+  });
+
+  test('renders version badge and binary path for ready drivers without leaking opencode for dsh', () => {
+    const readyEntry: CliScanEntry = {
+      ...entry('ready', 'dsh', 'DSH is ready.'),
+      version: '0.4.2',
+      binary_path: 'C:\\tools\\dsh.cmd',
+    };
+    const html = renderRow({ entry: readyEntry });
+    expect(html).toContain('0.4.2');
+    expect(html).toContain('C:\\tools\\dsh.cmd');
+    expect(html).not.toMatch(/opencode/i);
+  });
+});
+
+describe('CLI filtering and team lineup customization helpers', () => {
+  const claude: CliDriver = { ...dsh, id: 'claude', name: 'Claude Code', binary: 'claude', provider_ids: ['claude_sub'] };
+  const codex: CliDriver = { ...dsh, id: 'codex', name: 'Codex CLI', binary: 'codex', provider_ids: ['codex_sub'] };
+  const gemini: CliDriver = { ...dsh, id: 'gemini', name: 'Gemini CLI', binary: 'gemini', provider_ids: ['gemini_http'] };
+  const opencode: CliDriver = { ...dsh, id: 'opencode', name: 'OpenCode', binary: 'opencode', provider_ids: ['dsh_opencode'] };
+
+  test('filterDrivers filters all, ready, and needs_setup entries', () => {
+    const drivers = [dsh, claude, codex];
+    const entries: Record<string, CliScanEntry> = {
+      dsh: entry('ready', 'dsh'),
+      claude: entry('installed_unauthenticated', 'claude'),
+      codex: entry('missing', 'codex'),
+    };
+    expect(filterDrivers(drivers, entries, 'all').map((d) => d.id)).toEqual(['dsh', 'claude', 'codex']);
+    expect(filterDrivers(drivers, entries, 'ready').map((d) => d.id)).toEqual(['dsh']);
+    expect(filterDrivers(drivers, entries, 'needs_setup').map((d) => d.id)).toEqual(['claude', 'codex']);
+  });
+
+  test('availableLineupProviders gathers ready configured CLI providers and filters unsafe bindings', () => {
+    const base = lineup(true);
+    const entries: Record<string, CliScanEntry> = {
+      dsh: entry('ready', 'dsh'),
+      claude: entry('ready', 'claude'),
+      codex: entry('ready', 'codex'),
+      gemini: entry('ready', 'gemini'),
+      opencode: entry('ready', 'opencode'),
+    };
+    expect(
+      availableLineupProviders(base, [dsh, claude, codex, gemini, opencode], entries, ['dsh_opencode', 'claude_sub', 'codex_sub', 'gemini_http']),
+    ).toEqual(['dsh_opencode', 'claude_sub', 'codex_sub']);
+
+    expect(
+      availableLineupProviders(base, [dsh, claude, codex], entries, ['dsh_opencode', 'claude_sub']),
+    ).toEqual(['dsh_opencode', 'claude_sub']);
+  });
+
+  test('assignAllRoles, assignRoleProvider, and isLineupCustomized update roles immutably', () => {
+    const base = lineup(true);
+    const uniform = assignAllRoles(base, 'claude_sub');
+    expect(uniform.roles).toEqual({ planner: 'claude_sub', coder: 'claude_sub' });
+    expect(base.roles).toEqual({ planner: 'dsh_opencode', coder: 'claude_sub' });
+    expect(isLineupCustomized(base, uniform)).toBe(true);
+
+    const singleChange = assignRoleProvider(base, 'coder', 'codex_sub');
+    expect(singleChange.roles).toEqual({ planner: 'dsh_opencode', coder: 'codex_sub' });
+    expect(isLineupCustomized(base, singleChange)).toBe(true);
+    expect(isLineupCustomized(base, { ...base, roles: { ...base.roles } })).toBe(false);
   });
 });
