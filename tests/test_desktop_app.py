@@ -6,12 +6,14 @@ from contextlib import redirect_stdout
 import io
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.request import urlopen
 
 from vibebaton import cli, desktop_app
-from vibebaton.web_server import VibeBatonWebServer
+from vibebaton.web_server import VibeBatonWebServer, _CanvasHTTPServer, create_server
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -175,6 +177,39 @@ class TestLauncherAndGifCollateral(unittest.TestCase):
             for needle in (*gifs, "baton ui --app", "VibeBaton-Studio.bat", "launch-studio.ps1"):
                 with self.subTest(needle=needle):
                     self.assertIn(needle, doc)
+
+    def test_launch_script_stops_stale_ui_and_rebuilds_outdated_dist(self) -> None:
+        ps1_text = (REPO_ROOT / "scripts" / "launch-studio.ps1").read_text(encoding="utf-8")
+        self.assertIn("vibebaton\\s+ui", ps1_text)
+        self.assertIn("Stop-Process", ps1_text)
+        self.assertIn("LastWriteTimeUtc", ps1_text)
+
+
+class TestUpgradeRefreshSemantics(unittest.TestCase):
+    def test_windows_server_disables_reuse_address(self) -> None:
+        if sys.platform == "win32":
+            self.assertFalse(_CanvasHTTPServer.allow_reuse_address)
+
+    def test_index_html_sets_no_cache_header(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dist = root / "dist"
+            dist.mkdir()
+            (dist / "index.html").write_text("<html>v1.2.0</html>", encoding="utf-8")
+            server = create_server(REPO_ROOT, port=0, static_dir=dist)
+            import threading
+
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                port = server.server_address[1]
+                with urlopen(f"http://127.0.0.1:{port}/", timeout=5) as resp:
+                    self.assertEqual(resp.status, 200)
+                    self.assertEqual(resp.headers.get("Cache-Control"), "no-cache")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
 
 
 if __name__ == "__main__":

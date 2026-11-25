@@ -53,12 +53,52 @@ if ([string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
 }
 $env:PYTHONUTF8 = "1"
 
-$distIndex = Join-Path $InstallRoot "web\dist\index.html"
-if (-not (Test-Path -LiteralPath $distIndex)) {
+# Replace any lingering VibeBaton Studio UI process already holding $Port so upgrades apply cleanly.
+$listeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+foreach ($conn in $listeners) {
+    $ownerId = $conn.OwningProcess
+    if ($ownerId -le 0 -or $ownerId -eq $PID) { continue }
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $ownerId" -ErrorAction SilentlyContinue
+    if ($proc -and $proc.CommandLine -match 'vibebaton\s+ui\b') {
+        Write-Host "[VibeBaton] Stopping previous Studio instance (PID $ownerId) on port $Port..."
+        Stop-Process -Id $ownerId -Force -ErrorAction SilentlyContinue
+    }
+}
+$deadline = (Get-Date).AddSeconds(3)
+while ((Get-Date) -lt $deadline) {
+    $stillListening = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    $hasBatonUi = $false
+    foreach ($conn in $stillListening) {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($conn.OwningProcess)" -ErrorAction SilentlyContinue
+        if ($proc -and $proc.CommandLine -match 'vibebaton\s+ui\b') { $hasBatonUi = $true }
+    }
+    if (-not $hasBatonUi) { break }
+    Start-Sleep -Milliseconds 150
+}
+
+$webDir = Join-Path $InstallRoot "web"
+$distIndex = Join-Path $webDir "dist\index.html"
+$needsBuild = -not (Test-Path -LiteralPath $distIndex)
+if (-not $needsBuild) {
+    $distTime = (Get-Item -LiteralPath $distIndex).LastWriteTimeUtc
+    $sourceCandidates = @()
+    foreach ($fileName in @("index.html", "package.json")) {
+        $p = Join-Path $webDir $fileName
+        if (Test-Path -LiteralPath $p) { $sourceCandidates += Get-Item -LiteralPath $p }
+    }
+    $webSrc = Join-Path $webDir "src"
+    if (Test-Path -LiteralPath $webSrc) {
+        $sourceCandidates += Get-ChildItem -LiteralPath $webSrc -Recurse -File -ErrorAction SilentlyContinue
+    }
+    if ($sourceCandidates | Where-Object { $_.LastWriteTimeUtc -gt $distTime } | Select-Object -First 1) {
+        $needsBuild = $true
+    }
+}
+
+if ($needsBuild) {
     $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
     if ($npmCmd) {
-        $webDir = Join-Path $InstallRoot "web"
-        Write-Host "[setup] Building Studio frontend (web/dist missing)..."
+        Write-Host "[setup] Building Studio frontend (web/dist missing or out of date)..."
         if (-not (Test-Path -LiteralPath (Join-Path $webDir "node_modules"))) {
             & $npmCmd.Source --prefix $webDir ci
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -66,7 +106,7 @@ if (-not (Test-Path -LiteralPath $distIndex)) {
         & $npmCmd.Source --prefix $webDir run build
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     } else {
-        Write-Warning "web\dist\index.html is missing and npm is not installed; backend API will start without bundled Studio assets."
+        Write-Warning "web\dist\index.html is missing or out of date and npm is not installed; existing assets or fallback page will be served."
     }
 }
 

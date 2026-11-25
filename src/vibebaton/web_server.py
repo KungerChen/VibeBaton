@@ -8,8 +8,10 @@ import mimetypes
 import os
 import re
 import shutil
+import socket
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -510,6 +512,8 @@ def _save_ui_rfc(repo: Path, markdown: str) -> Path:
 
 
 class _CanvasHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = sys.platform != "win32"
+
     repo_path: Path
     loader: HotReloadConfig
     store: StateStore
@@ -519,6 +523,13 @@ class _CanvasHTTPServer(ThreadingHTTPServer):
     provider_probe: _ProviderProbe
     provider_probe_cache: _ProviderProbeCache
     pricing_fetcher: pricing.PricingFetcher | None
+
+    def server_bind(self) -> None:
+        # On Windows SO_REUSEADDR lets a second server bind the same port while the old process keeps traffic;
+        # SO_EXCLUSIVEADDRUSE ensures port collisions fail cleanly instead of serving stale bundles.
+        if sys.platform == "win32" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
     def __init__(self, address: tuple[str, int]) -> None:
         self.shutdown_event = threading.Event()
@@ -588,10 +599,21 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             return "Cross-origin requests are not allowed"
         return None
 
-    def _send_bytes(self, status: int, content_type: str, body: bytes, *, cors: bool = False) -> None:
+    def _send_bytes(
+        self,
+        status: int,
+        content_type: str,
+        body: bytes,
+        *,
+        cors: bool = False,
+        extra_headers: Mapping[str, str] | None = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if extra_headers:
+            for name, value in extra_headers.items():
+                self.send_header(name, value)
         if cors:
             self._send_cors_headers()
         self.end_headers()
@@ -1623,7 +1645,8 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
 
         if body is not None:
             mime = _STATIC_MIME_TYPES.get(relative.suffix.lower()) or mimetypes.guess_type(relative.name)[0]
-            self._send_bytes(200, mime or "application/octet-stream", body)
+            headers = {"Cache-Control": "no-cache"} if relative.name == "index.html" else None
+            self._send_bytes(200, mime or "application/octet-stream", body, extra_headers=headers)
         elif path == "/":
             self._send_bytes(200, "text/html; charset=utf-8", _BUILD_NOTICE)
         elif path == "/favicon.ico":
