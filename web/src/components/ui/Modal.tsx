@@ -5,6 +5,14 @@ import { useI18n } from '../../i18n';
 import type { ModalProps } from '../types';
 import { Button } from './button';
 
+export function canOpenModalDialog(
+  open: boolean,
+  dialog: (Pick<HTMLDialogElement, 'open'> & Partial<Pick<HTMLDialogElement, 'closest'>>) | null,
+): boolean {
+  if (!open || !dialog || dialog.open) return false;
+  return typeof dialog.closest === 'function' ? dialog.closest('[hidden]') === null : true;
+}
+
 export function Modal({ open, title, wide = false, onClose, children }: ModalProps) {
   const { messages } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -12,10 +20,12 @@ export function Modal({ open, title, wide = false, onClose, children }: ModalPro
 
   useEffect(() => {
     const dialog = dialogRef.current;
-    if (!open || !dialog) return;
+    if (!canOpenModalDialog(open, dialog)) return;
 
-    dialog.showModal();
-    return () => dialog.close();
+    dialog?.showModal();
+    return () => {
+      if (dialog?.open) dialog.close();
+    };
   }, [open]);
 
   return (

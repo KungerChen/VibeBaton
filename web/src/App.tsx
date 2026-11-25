@@ -1169,7 +1169,7 @@ function AppContent() {
         </RunControlsContext.Provider>
       </div>
       <QuickStartModal
-        open={guideOpen}
+        open={studioMode === 'pro' && guideOpen}
         onClose={() => setGuideOpen(false)}
         completedSteps={completedGuideSteps}
         dontShowAgain={dontShowGuide}
@@ -1180,14 +1180,14 @@ function AppContent() {
         onStartTour={onStartTour}
       />
       <ImportTransferModal
-        open={transferModal === 'import'}
+        open={studioMode === 'pro' && transferModal === 'import'}
         onClose={closeTransfer}
         onApplyRecipe={handleApplyRecipe}
         onLoadCase={handleLoadCase}
         canvasDirty={canvasDirty}
       />
       <ExportRecipeModal
-        open={transferModal === 'export-recipe'}
+        open={studioMode === 'pro' && transferModal === 'export-recipe'}
         onClose={closeTransfer}
         graph={graph}
         liveViewActive={liveViewActive}
@@ -1196,7 +1196,7 @@ function AppContent() {
         onToast={push}
       />
       <ExportCaseModal
-        open={transferModal === 'export-case'}
+        open={studioMode === 'pro' && transferModal === 'export-case'}
         onClose={closeTransfer}
         client={client}
         runId={caseExportRunId}
@@ -1204,7 +1204,7 @@ function AppContent() {
         onPreviewInPlayer={handleLoadCase}
         onToast={push}
       />
-      {mode === 'local' && startRunOpen && (
+      {studioMode === 'pro' && mode === 'local' && startRunOpen && (
         <LaunchGraphContext.Provider value={graph}>
           <StartRunModal
             client={client}
@@ -1222,7 +1222,7 @@ function AppContent() {
           />
         </LaunchGraphContext.Provider>
       )}
-      {tourState.open && (
+      {studioMode === 'pro' && tourState.open && (
         <GuidedTourOverlay
           steps={tourState.steps}
           stepIndex={tourState.stepIndex}
