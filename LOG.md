@@ -205,3 +205,101 @@
 - 第四项指定门禁 `python -m unittest discover -s tests` 运行 874 项（473.468 秒，870 项通过、跳过 4 项），日志位于 `%TEMP%/vibebaton-e33e97-m1-r1-discovery.log`。复核跳过条件：两项缺 Docker CLI，一项因 Windows 无目录符号链接权限，一项因本地数据库没有运行记录。全量测试期间有 Python 子进程 `ResourceWarning`；结束后 22 个警告 PID 中仅一个当前存在，属于系统进程，PID 本身不足以证明与原进程的关系。Git 也报告无法读取用户级 ignore 文件；未影响门禁退出码。
 - 交接检查：`git diff --check` 通过；最终工作区仅有 `tests/test_web_fullstack.py`、`LOG.md`、`LOG-INDEX.md` 的修改和新增的 `AGENTS.md`。
 - 状态：已自测待用户验收。未进行真实浏览器或实际业务运行验证；本轮没有修改界面或运行时逻辑。回退参考：基线 `3324a57` 与本轮工作区差异，新增的 `AGENTS.md` 为未跟踪文件；尚无新提交。
+
+## 20261126-122618-m2-brainstorm-lock
+
+- 时间：2026-11-26 12:26，America/Los_Angeles。授权：修复 M2 阻塞项并执行指定门禁；分支 `baton/e33e97/ms-m2-r1`，基线 `c7ecca7`，开始时工作区干净。
+- 问题与复现：模型派发和就绪扫描期间持有工作区会话锁；新增两项 HTTP 并发测试在修复前均因 GET 在两秒内未返回而失败。
+- 施工中：将模型调用和就绪扫描移出锁；重新读取并合并会话，保护并发修改、重置和已保存的在线草稿。首轮两项并发测试及原有扫描失败后保留草稿测试通过；继续补充冲突回归及执行完整门禁。
+- 状态：进行中。回退参考为基线 `c7ecca7` 与本轮工作区差异；无新提交。
+
+## 20261126-082838-m2-session-contract
+
+
+**20261126-082838-m2-session-contract**, 2026-11-26 America/Los_Angeles.
+Authorized scope: the five M2-T1 whitelisted paths. The session store,
+recommendation types, guide parsing, golden unittest module, and this contract
+were added or updated. Recovery reference: pre-task Git revision `45afa42edf56`;
+no new commit has been created.
+
+The initial golden test failed because `guided_session` did not yet exist.
+On Windows with Python 3.13.2, `python -m unittest tests.test_guided_session
+tests.test_guided_api -v` passed all 102 tests. The tests exercised a real child
+process exiting during a temporary-file write, injected write and replace
+failures, session recovery, guide parsing, and existing local HTTP API behavior.
+The new HTTP routes, recommendation policy, Studio integration, and live-model
+behavior remain for later milestones. Status: self-tested, awaiting user
+acceptance. Next: implement M2-T3/M2-T4 and M3 against this contract. The task
+whitelist excludes the project log and index, so this record is kept here.
+
+## 20261126-115602-m2-guided-integration
+
+**20261126-115602-m2-guided-integration**, 2026-11-26 America/Los_Angeles.
+The authorized M2-T4 whitelist covers the server, recommendation module,
+integration tests and this contract. Added workspace session routes, draft
+protection, L0 model discovery, recommendations, panel/lineup preflight and
+lineage session transitions.
+Explicit lineups are captured with the run; revisions revalidate them. Session
+recovery after a post-launch storage failure returns the existing run ID.
+
+The new integration tests first reproduced seven missing-route or unsafe-launch
+failures. The M2-R1 through M2-R3 baseline passed 13 tests. The M1 lineage and
+supersession suite passed 19 tests; the updated integration suite and the
+legacy launch-event compatibility test passed 13 tests. The first required
+suite run exposed a Vite build failure because the shared `node_modules` link is
+read-only; a subsequent run exposed an extra legacy launch event, which was
+removed. The frontend build with `--configLoader runner` passed in a temporary
+clone. The final required suite passed 178 tests against an isolated copy with
+the then-current source and prebuilt frontend. A full run of that version
+executed 943 tests and reported two old panel-test failures: an unregistered
+custom CLI was incorrectly considered unavailable, and a legacy test expected a
+panel launch without a ready Synthesizer. The former was corrected using the
+existing bounded provider probe; its real local CLI end-to-end regression and
+the registered-driver authentication guard passed. The latter needs an
+authenticated CLI fixture under the new mandatory preflight. The updated
+required suite passed all 180 tests in an isolated copy with the prebuilt
+frontend. The full suite ran 947 tests successfully, with 4 skipped, in a separate isolated
+copy using a test-only authenticated CLI fixture on `PATH`. The suite emitted
+subprocess `ResourceWarning` messages. Evidence logs are in the system temporary
+directory as `vibebaton-m2-t4-required-last.log` and
+`vibebaton-m2-t4-full-fixture.log`.
+
+With the real host `PATH`, the remaining legacy panel test was run directly and
+fails with `409` instead of its expected `201`; with the test-only authenticated
+CLI it passes. Its fixture is in `tests/test_panel_engine.py`, outside this
+task's whitelist. Updating that test to supply a ready Synthesizer scan is
+needed for the full suite to pass without the temporary CLI fixture. The new
+negative integration test separately proves that a missing Synthesizer
+credential creates neither a run nor a daemon.
+
+Status: self-tested, pending user acceptance; the unmodified host full-suite
+gate remains open because of the legacy test fixture. A live provider, actual
+daemon and Studio interaction have not been exercised. The recovery reference
+is pre-task commit `53299ce`; no new commit has been made. The whitelist excludes
+`LOG.md` and `LOG-INDEX.md`, so this record is kept here.
+
+## 20261126-123140-m2-gates
+
+- 时间：2026-11-26 12:31，America/Los_Angeles。续 `20261126-122618-m2-brainstorm-lock`。
+- 并发回归覆盖模型等待及扫描时的 GET/PUT、新模型选择和运行阶段的合并、并发在线草稿保护、空会话重置后的旧请求失效；冲突返回 `BRAINSTORM_SESSION_CHANGED`。原有扫描失败时保留已完成草稿的测试继续通过。
+- 补齐 `tests/test_panel_engine.py` 的已就绪扫描夹具；实际主机环境中该测试由修复前 409 变为 201，整个 panel 模块 8 项通过。配置角色模型包含 `@effort` 时的报告也已增加回归；无后缀时保持原值。
+- M2-T1、M2-T4 的历史施工记录原文从 `docs/guided2/session_contract.md` 迁入本日志并建立索引；原文中关于当时 whitelist 的说明保留为历史事实。契约补充并发与 readiness 说明。
+- 构建及门禁：`npm run build -- --configLoader runner` 成功；门禁 1：20 项通过；门禁 2：135 项通过；门禁 3：2 项通过。四项完整日志路径为 `%TEMP%/vibebaton-e33e97-m2-r1-gate{1,2,3,4}.log`；门禁 4 正在执行。
+- 状态：进行中；无新提交。回退参考为基线 `c7ecca7` 与工作区差异。
+
+## 20261126-123645-m2-scan-stale-response
+
+- 时间：2026-11-26 12:36，America/Los_Angeles。续 `20261126-122618-m2-brainstorm-lock`。
+- 复核发现：模型结果保存后仍可能正在扫描 readiness；扫描期间若会话重置或草稿更新，原响应会把旧结果返回页面。扫描结束后增加短暂的会话复核；若草稿或重置状态已改变则返回 409，保留新数据。独立测试覆盖两种情况，并确认扫描期间工作流保存仍可成功。
+- 最终代码的门禁 1 已通过 21 项，门禁 3 已通过 2 项；门禁 2 与全量门禁需以最终代码重新执行。日志名称使用 `%TEMP%/vibebaton-e33e97-m2-r1-gate{1,2,3,4}-final.log`。
+- 状态：进行中；无新提交。
+
+## 20261126-124814-m2-remediation-verification
+
+- 时间：2026-11-26 12:48，America/Los_Angeles。续 `20261126-122618-m2-brainstorm-lock` 和 `20261126-123645-m2-scan-stale-response`。
+- 最终改动：`src/vibebaton/web_server.py` 缩短会话锁范围，在模型返回和 readiness 扫描结束后检查并发草稿修改与重置；较新的工作流、模型选择和运行阶段保留。`tests/test_guided_session_api.py` 覆盖真实本地 HTTP 并发、在线草稿及重置冲突；`tests/test_panel_engine.py` 使用固定就绪扫描；`tests/test_brainstorm_hardening.py` 核验配置模型的可选 effort 后缀。契约补充冲突和 readiness 语义，M2-T1/T4 历史记录已迁入本日志。
+- 最终门禁（`PYTHONPATH` 指向本工作树 `src`）：会话 API 21 项通过；头脑风暴、推荐、会话及 Guided API 组合 135 项通过；标准库检查 2 项通过；`python -m unittest discover -s tests` 953 项，949 项通过、4 项跳过，耗时 474.716 秒。日志为 `%TEMP%/vibebaton-e33e97-m2-r1-gate{1,2,3,4}-final.log`。修改前的全量中间版本另通过 952 项、跳过 4 项，不能替代最终门禁。
+- 跳过项经单独运行核实：2 项缺 Docker CLI，1 项缺 Windows 目录符号链接权限，1 项本地数据库没有运行记录。全量测试输出子进程 `ResourceWarning`、异步慢任务提示，以及无法读取用户级 Git ignore 文件的警告，退出码为 0。前端 `npm run build -- --configLoader runner` 成功。
+- 验证边界：本轮使用本地 HTTP 服务、真实会话存储与测试模型派发，没有调用真实在线模型或执行完整浏览器验收。当前 Studio 蓝图恢复仍使用浏览器本地存储，尚未接入 `/api/guided/session`；服务端会话的 Studio 接入与端到端刷新验收留待后续阶段。推荐类型层次、provider dispatch 的 `assert` 和通用工作区 ignore 模板为本次未处理的非阻塞建议。
+- 状态：已自测待用户验收。分支 `baton/e33e97/ms-m2-r1`；无新提交。回退参考为基线 `c7ecca7` 与本轮工作区差异；README 按约定等待用户确认后同步。
+- 数量更正：上文中间版本全量门禁为运行 952 项，其中 948 项通过、4 项跳过。

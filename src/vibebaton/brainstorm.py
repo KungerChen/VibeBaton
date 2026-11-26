@@ -11,12 +11,14 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict, cast
 
-from .config import BatonConfig, ProviderConfig
+from .config import BatonConfig, FallbackTarget, ProviderConfig
+from .model_catalog import BUNDLED_MODELS, TIER_RECOMMENDATIONS, ModelCatalogEntry, recommend_role_assignment
 from .rfc_checker import RFCReadiness, check_rfc_readiness
+from .workflow_recommend import ProjectSize, ReadinessSnapshot
 
 RFC_RELATIVE_PATH = Path(".baton") / "00_RFC.md"
 OFFLINE_ENV_VARS = ("VIBEBATON_OFFLINE_BRAINSTORM", "VIBEBATON_BRAINSTORM_OFFLINE")
@@ -28,8 +30,9 @@ REQUIRED_HEADINGS = (
     "Verification & Acceptance Criteria",
 )
 
-# A live dispatcher takes the full prompt and returns ``(provider_id, raw_response_text)``.
-BrainstormDispatch = Callable[[str], tuple[str, str]]
+# Runners may return the legacy (provider, text) or (provider, model, text).
+# Only the latter can report a model separately from the provider.
+BrainstormDispatch = Callable[[str], tuple[str, str] | tuple[str, str, str]]
 
 
 class ChatMessage(TypedDict):
@@ -62,6 +65,7 @@ class BrainstormGuide(TypedDict):
     question: str  # the single question of this turn; "" when nothing is left to ask
     options: list[str]  # 0-4 short clickable answers (the page adds its own "not sure" button)
     checklist: list[ChecklistItem]  # always the five CHECKLIST_IDS, in order
+    size: NotRequired[ProjectSize | None]  # absent in older, offline, or RFC-derived guides
 
 
 class BrainstormTurnResult(TypedDict):
@@ -71,7 +75,17 @@ class BrainstormTurnResult(TypedDict):
     provider_used: str | None  # None when the deterministic offline fallback produced the turn
     offline: bool
     guide: BrainstormGuide
-    error: str | None  # short reason when a live turn failed and the offline composer answered
+    error: str | None  # short, sanitized reason for a failed live turn
+    # Absent for legacy offline results that did not request a model.
+    requested_model: NotRequired[str | None]  # provider:model@effort when configured
+    responding_model: NotRequired[str | None]  # model@effort, or None when unknown/no response
+    retryable: NotRequired[bool]  # true when a protected draft is returned after failure
+
+
+class RevisionContext(TypedDict):
+    prior_rfc: str
+    requested_changes: str
+    failure_context: NotRequired[str | None]
 
 
 class BlueprintConfirmResult(TypedDict):
@@ -185,7 +199,9 @@ After your reply, include a fenced block that opens with ```guide and closes wit
 only this JSON:
 {"question": "<the one question you asked, or \"\" when nothing is left to ask>",
  "options": ["<up to 4 short answers they can click>"],
- "checklist": [{"id": "what", "status": "clear", "value": "..."}, ... all five items in order]}
+ "checklist": [{"id": "what", "status": "clear", "value": "..."}, ... all five items in order],
+ "size": "small"}
+Estimate the size of the current build as "small", "medium", or "large"; use null when its size is not yet clear.
 Do not put an "I am not sure" option in the list; the page always offers one.
 
 Then include the complete, updated Master RFC inside a fenced block that opens with ````rfc and
@@ -721,6 +737,8 @@ def _build_prompt(
     *,
     locale: str | None = None,
     project: str | None = None,
+    latest_rfc_draft: str = "",
+    revision: RevisionContext | None = None,
 ) -> str:
     parts = [_SYSTEM_PROMPT, ""]
     if _prefers_zh(messages, locale):
@@ -729,6 +747,26 @@ def _build_prompt(
         parts += ["Project summary (read-only; you cannot open or change files):", project, ""]
     if scenario is not None:
         parts += [f"Starting scenario: {scenario['title_en']}", ""]
+    if revision is not None:
+        parts += [
+            "Revision mode: the five checklist items below start clear. Preserve the prior blueprint "
+            "and produce the revised blueprint in this turn. Do not repeat already-settled questions; "
+            "ask only if a change genuinely needs clarification.",
+            "Prior RFC (verbatim):", revision["prior_rfc"],
+            "Requested changes (verbatim):", revision["requested_changes"],
+        ]
+        if revision.get("failure_context"):
+            parts += ["Previous failure context (verbatim):", revision["failure_context"]]
+        parts += ["Starting revision checklist:"]
+        parts += [json.dumps(item, ensure_ascii=False) for item in _revision_checklist(revision)]
+        parts.append("")
+    if latest_rfc_draft:
+        parts += [
+            "Current latest RFC draft (verbatim; continue this blueprint and preserve its existing "
+            "details unless the user requests a change):",
+            latest_rfc_draft,
+            "",
+        ]
     parts.append("Conversation so far:")
     for message in messages:
         speaker = "User" if message["role"] == "user" else "You"
@@ -805,11 +843,16 @@ def _parse_guide(raw: str | None) -> BrainstormGuide | None:
         _clip(option, 80) for option in options
         if isinstance(option, str) and option.strip() and not _UNSURE.search(option)
     ]
-    return {
+    guide: BrainstormGuide = {
         "question": _clip(question, 300) if isinstance(question, str) else "",
         "options": clean_options[:4],
         "checklist": checklist,
     }
+    if "size" in data:
+        size = data["size"]
+        normalized = size.strip().lower() if isinstance(size, str) else None
+        guide["size"] = cast(ProjectSize, normalized) if normalized in ("small", "medium", "large") else None
+    return guide
 
 
 def _guide_from_rfc(rfc_markdown: str) -> BrainstormGuide:
@@ -840,6 +883,56 @@ def _guide_from_rfc(rfc_markdown: str) -> BrainstormGuide:
     return {"question": "", "options": [], "checklist": checklist}
 
 
+def _revision_checklist(revision: RevisionContext) -> list[ChecklistItem]:
+    """Seed settled items from the prior blueprint and the explicit revision request."""
+    prior_rfc = revision["prior_rfc"]
+    derived = {item["id"]: item["value"] for item in _guide_from_rfc(prior_rfc)["checklist"]}
+    goals = _section_lines(prior_rfc).get("goals", [])
+    audience = next((line.split(":", 1)[1].strip() for line in goals if line.lower().startswith("audience:")), "")
+    values = {
+        "what": revision["requested_changes"],
+        "who": audience or "Audience of the prior RFC",
+        "scope": derived["scope"] or "Scope of the prior RFC",
+        "limits": derived["limits"] or "Constraints of the prior RFC",
+        "done": derived["done"] or "Acceptance criteria of the prior RFC",
+    }
+    return [{"id": item_id, "status": "clear", "value": _clip(values[item_id])} for item_id in CHECKLIST_IDS]
+
+
+def _revision_guide(revision: RevisionContext, guide: BrainstormGuide | None = None) -> BrainstormGuide:
+    seeded = {item["id"]: item for item in _revision_checklist(revision)}
+    if guide is None:
+        return {"question": "", "options": [], "checklist": list(seeded.values())}
+    guide["checklist"] = [
+        item if item["status"] != "open" else seeded[item["id"]] for item in guide["checklist"]
+    ]
+    return guide
+
+
+def auto_select_l0_model(
+    readiness: ReadinessSnapshot, *, models: Sequence[ModelCatalogEntry] = BUNDLED_MODELS,
+) -> str | None:
+    """Return the strongest catalogued ready L0 choice as ``provider:model@effort``.
+
+    Readiness is provider-level; pass the current filtered catalog to exclude models a provider
+    no longer offers. Unknown providers or an empty catalog do not create an invented model.
+    """
+    ready = list(dict.fromkeys(
+        item.provider_id for item in readiness.providers if item.provider_ready and item.credential_ready
+    ))
+    for recommendation in TIER_RECOMMENDATIONS["L0"]:
+        for provider in recommendation["providers"]:
+            if provider in ready and any(
+                model["id"] == recommendation["model"] and provider in model["providers"] for model in models
+            ):
+                return f"{provider}:{recommendation['model']}@{recommendation['effort']}"
+    known_ready = [provider for provider in ready if any(provider in model["providers"] for model in models)]
+    choice = recommend_role_assignment("brainstorm_and_final_gate", known_ready, models)
+    if choice is None or not choice["model"]:
+        return None
+    return f"{choice['provider']}:{choice['model']}@{choice['effort']}"
+
+
 def _safe_error(exc: BaseException) -> str:
     """A short, single-line reason for a live failure, with secret values masked."""
     text = str(exc).strip() or type(exc).__name__
@@ -851,32 +944,65 @@ def _safe_error(exc: BaseException) -> str:
 
 
 def _provider_dispatch(cfg: BatonConfig, model_overrides: dict[str, str] | None = None) -> BrainstormDispatch | None:
-    """Return a dispatcher for the first ready configured provider, preferring planning roles.
-
-    When ``model_overrides`` names the L0 role (the Guided lineup's choice), that provider and model
-    go first; if it is unknown or not ready, the configured roles are tried as before.
-    """
+    """Choose a ready role and report the actual target after its configured fallbacks."""
     from .credentials import probe_role_or_provider
 
     l0_role = "brainstorm_and_final_gate"
+    groups: list[list[tuple[ProviderConfig, str]]] = []
+
+    def add_group(provider: ProviderConfig | None, model: str, fallbacks: list[FallbackTarget]) -> None:
+        targets: list[tuple[ProviderConfig, str]] = []
+        if provider is not None:
+            targets.append((provider, model))
+        for fallback in fallbacks:
+            candidate = cfg.providers.get(fallback.provider)
+            if candidate is not None and (candidate.name, fallback.model) not in [
+                (p.name, m) for p, m in targets
+            ]:
+                targets.append((candidate, fallback.model))
+        if targets:
+            groups.append(targets)
+
     if model_overrides and l0_role in model_overrides and l0_role in cfg.roles:
         try:
             chosen_role, chosen_provider = cfg.resolve_role(l0_role, model_overrides)
         except KeyError:
-            chosen_provider = None
-        if chosen_provider is not None and probe_role_or_provider(cfg, provider=chosen_provider.name)["ok"]:
-            return lambda prompt, p=chosen_provider, m=chosen_role.model: _invoke(cfg, p, m, prompt)
+            pass
+        else:
+            add_group(chosen_provider, chosen_role.model, chosen_role.fallback)
 
     preferred = ("brainstorm_and_final_gate", "tactical_planner", "milestone_reviewer", "critical_executor")
-    seen: set[str] = set()
     for role_name in dict.fromkeys((*preferred, *cfg.roles)):
         role = cfg.roles.get(role_name)
-        provider = cfg.providers.get(role.provider) if role is not None else None
-        if provider is None or provider.name in seen:
-            continue
-        seen.add(provider.name)
-        if probe_role_or_provider(cfg, provider=provider.name)["ok"]:
-            return lambda prompt, p=provider, m=role.model: _invoke(cfg, p, m, prompt)
+        if role is not None:
+            add_group(cfg.providers.get(role.provider), role.model, role.fallback)
+
+    readiness: dict[str, bool] = {}
+
+    def ready(provider: ProviderConfig) -> bool:
+        if provider.name not in readiness:
+            readiness[provider.name] = bool(probe_role_or_provider(cfg, provider=provider.name)["ok"])
+        return readiness[provider.name]
+
+    for targets in groups:
+        for index, (provider, _model) in enumerate(targets):
+            if not ready(provider):
+                continue
+
+            def run(prompt: str, remaining: list[tuple[ProviderConfig, str]] = targets[index:]) -> tuple[str, str, str]:
+                last_error: Exception | None = None
+                for target, model in remaining:
+                    if not ready(target):
+                        continue
+                    try:
+                        provider_used, text = _invoke(cfg, target, model, prompt)
+                        return provider_used, model, text
+                    except Exception as exc:  # noqa: BLE001 - try the role's explicitly configured fallbacks
+                        last_error = exc
+                assert last_error is not None  # the first target was already checked as ready
+                raise last_error
+
+            return run
     return None
 
 
@@ -921,55 +1047,116 @@ def brainstorm_turn(
     dispatch: BrainstormDispatch | None = None,
     locale: str | None = None,
     model_overrides: dict[str, str] | None = None,
+    latest_rfc_draft: str = "",
+    has_online_draft: bool = False,
+    revision: RevisionContext | None = None,
 ) -> BrainstormTurnResult:
     """Run one brainstorm turn and return the reply, a full RFC draft and its Blueprint Card.
 
     Contract:
     - ``messages`` is the full conversation so far (oldest first) and must end with a ``user``
       message; empty/invalid conversations or an unknown ``scenario`` id -> ``ValueError``.
-    - Live path: ``dispatch`` (``prompt -> (provider_id, text)``) when given, otherwise the L0
-      choice in ``model_overrides`` or the first ready provider of ``cfg`` via
-      ``cli_runner.invoke_provider``. The prompt carries a read-only ``project_context`` summary. The response must carry a
-      fenced ``rfc`` block with every required heading; ``provider_used`` is the provider id.
-      A fenced ``guide`` block (question, options, checklist) is parsed and removed from ``reply``;
-      when it is missing or invalid, ``guide`` is derived from the RFC with an empty question.
-    - Offline path: env ``VIBEBATON_OFFLINE_BRAINSTORM=1`` (or ``VIBEBATON_BRAINSTORM_OFFLINE=1``),
-      no dispatcher and no ready provider, or any live failure uses the deterministic offline
-      composer: same input -> same output, ``offline=True``, ``provider_used=None``. It asks about
-      the first open checklist item with fixed bilingual options.
-    - ``error`` is ``None`` except after a live failure, where it is a short reason (<= 200 chars,
-      secret values masked) and the offline result is returned alongside it.
-    - ``rfc_markdown`` always starts with ``"# "`` and has ``## Goals``, ``## Constraints``,
-      ``## Non-Goals``, ``## Architecture & Deliverables`` and ``## Verification & Acceptance
-      Criteria`` headings. ``blueprint.readiness_score`` equals its readiness score and
-      ``ready_to_launch`` equals its ``safe_for_overnight``.
+    - Live dispatch returns ``(provider, model, text)`` or the legacy ``(provider, text)``. The
+      result identifies the requested model and actual provider; ``responding_model`` is None
+      when a legacy runner did not identify it. Configured fallback targets report the target that
+      actually produced the response. The prompt includes any ``latest_rfc_draft`` verbatim.
+    - A ``revision`` supplies the prior RFC, requested changes and optional failure context;
+      its five checklist items start clear and the prompt requests a revised draft in one turn.
+    - If ``has_online_draft`` is true, ``latest_rfc_draft`` must be nonblank. An unavailable or
+      invalid live response returns it unchanged, with a sanitized ``error`` and ``retryable=True``;
+      no offline template replaces it. A failed revision preserves its latest draft or prior RFC.
+    - Without a protected draft, unavailable/failed live dispatch uses the existing deterministic
+      offline composer. Its legacy result shape is unchanged when no model was requested.
+    - A new live RFC has the required headings. A protected draft is returned verbatim, even if the
+      owner edited its format. The Blueprint Card is always computed from the returned text.
     - Never writes to the repository; ``confirm_blueprint`` persists the draft.
     """
     chosen = _validate(messages, scenario)
+    if not isinstance(latest_rfc_draft, str) or not isinstance(has_online_draft, bool):
+        raise ValueError("latest_rfc_draft must be a string and has_online_draft must be a boolean.")
+    if has_online_draft and not latest_rfc_draft.strip():
+        raise ValueError("has_online_draft requires a non-empty latest_rfc_draft.")
+    if revision is not None and (
+        not isinstance(revision, dict)
+        or not isinstance(revision.get("prior_rfc"), str)
+        or not revision["prior_rfc"].strip()
+        or not isinstance(revision.get("requested_changes"), str)
+        or not revision["requested_changes"].strip()
+        or (revision.get("failure_context") is not None and not isinstance(revision["failure_context"], str))
+    ):
+        raise ValueError("revision requires a prior_rfc, requested_changes and optional string failure_context.")
+
+    l0_role = "brainstorm_and_final_gate"
+    requested_model: str | None = None
+    if model_overrides and l0_role in model_overrides:
+        requested_model = model_overrides[l0_role].strip() or None
+    elif cfg is not None and l0_role in cfg.roles:
+        role = cfg.roles[l0_role]
+        requested_model = f"{role.provider}:{role.model}"
     error: str | None = None
     if not _offline_requested():
         try:
             if dispatch is None and cfg is not None:
                 dispatch = _provider_dispatch(cfg, model_overrides)
             if dispatch is not None:
-                prompt = _build_prompt(messages, chosen, locale=locale, project=project_context(repo_path))
-                provider_used, text = dispatch(prompt)
+                prompt = _build_prompt(
+                    messages, chosen, locale=locale, project=project_context(repo_path),
+                    latest_rfc_draft=latest_rfc_draft, revision=revision,
+                )
+                response = dispatch(prompt)
+                if len(response) == 2:
+                    provider_used, text = response
+                    responding_model = None
+                else:
+                    provider_used, responding_model, text = response
+                if not isinstance(provider_used, str) or not isinstance(text, str) or (
+                    responding_model is not None and not isinstance(responding_model, str)
+                ):
+                    raise ValueError("Live dispatcher returned an invalid provider, model or response.")
                 text, guide_block = _extract_guide_block(text)
                 reply, rfc_markdown = _split_live_response(text)
+                guide = _parse_guide(guide_block)
                 return {
                     "reply": reply,
                     "rfc_markdown": rfc_markdown,
                     "blueprint": _blueprint(rfc_markdown),
                     "provider_used": provider_used,
+                    "requested_model": requested_model,
+                    "responding_model": responding_model,
                     "offline": False,
-                    "guide": _parse_guide(guide_block) or _guide_from_rfc(rfc_markdown),
+                    "guide": _revision_guide(revision, guide) if revision is not None else (
+                        guide or _guide_from_rfc(rfc_markdown)
+                    ),
                     "error": None,
                 }
-        except Exception as exc:  # noqa: BLE001 - any live failure degrades to the offline composer, visibly
+        except Exception as exc:  # noqa: BLE001 - a live failure must remain visible and preserve drafts
             error = _safe_error(exc)
 
+    protected_draft = (
+        latest_rfc_draft if has_online_draft or (revision is not None and latest_rfc_draft.strip())
+        else revision["prior_rfc"] if revision is not None else ""
+    )
+    if protected_draft:
+        error = error or "No online model is available for this turn."
+        reply = (
+            "在线模型暂时不可用，已保留原蓝图，请重试。" if _prefers_zh(messages, locale)
+            else "The online model did not respond. The previous blueprint is unchanged; please retry."
+        )
+        return {
+            "reply": reply,
+            "rfc_markdown": protected_draft,
+            "blueprint": _blueprint(protected_draft),
+            "provider_used": None,
+            "requested_model": requested_model,
+            "responding_model": None,
+            "offline": False,
+            "guide": _revision_guide(revision) if revision is not None else _guide_from_rfc(protected_draft),
+            "error": error,
+            "retryable": True,
+        }
+
     reply, rfc_markdown, guide = _offline_turn(repo_path, messages, chosen, zh=_prefers_zh(messages, locale))
-    return {
+    result: BrainstormTurnResult = {
         "reply": reply,
         "rfc_markdown": rfc_markdown,
         "blueprint": _blueprint(rfc_markdown),
@@ -978,6 +1165,10 @@ def brainstorm_turn(
         "guide": guide,
         "error": error,
     }
+    if requested_model is not None or latest_rfc_draft:
+        result["requested_model"] = requested_model
+        result["responding_model"] = None
+    return result
 
 
 def confirm_blueprint(

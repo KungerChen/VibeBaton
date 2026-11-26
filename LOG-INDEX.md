@@ -14,3 +14,9 @@ L0008 | 2026-11-26 | 无 Git 身份时初始化仓库补仓库级身份与首个
 ID | 日期 | 摘要 | 日志路径与锚点 | 状态
 --- | --- | --- | --- | ---
 20261126-080223-m1-favicon-gate | 2026-11-26 | M1 全量门禁：修正过时的 ICO 断言并验证实际资源 | [LOG.md](LOG.md#20261126-080223-m1-favicon-gate) | 已自测待用户验收
+20261126-082838-m2-session-contract | 2026-11-26 | M2-T1 会话存储、推荐接口及契约 | [LOG.md](LOG.md#20261126-082838-m2-session-contract) | 历史自测待用户验收
+20261126-115602-m2-guided-integration | 2026-11-26 | M2-T4 会话 API、推荐与启动前检查 | [LOG.md](LOG.md#20261126-115602-m2-guided-integration) | 历史自测待用户验收
+20261126-122618-m2-brainstorm-lock | 2026-11-26 | M2 会话锁并发修复与回归 | [LOG.md](LOG.md#20261126-122618-m2-brainstorm-lock) | 已自测待用户验收
+20261126-123140-m2-gates | 2026-11-26 | M2 前三项门禁、panel 夹具和历史记录迁移 | [LOG.md](LOG.md#20261126-123140-m2-gates) | 已自测待用户验收
+20261126-123645-m2-scan-stale-response | 2026-11-26 | 扫描期间草稿更新和重置的过时响应保护 | [LOG.md](LOG.md#20261126-123645-m2-scan-stale-response) | 已自测待用户验收
+20261126-124814-m2-remediation-verification | 2026-11-26 | M2 最终四项门禁、跳过项与验收边界 | [LOG.md](LOG.md#20261126-124814-m2-remediation-verification) | 已自测待用户验收

@@ -21,6 +21,7 @@ from vibebaton.db import StateStore
 from vibebaton.engine import OrchestrationEngine
 from vibebaton.schemas import RunStatus
 
+from tests.test_workflow_recommend import example_scan
 from test_web_server import WebServerTestCase
 
 
@@ -188,8 +189,9 @@ class TestPanelCli(unittest.TestCase):
 
 class TestPanelRunApi(WebServerTestCase):
     def test_start_accepts_panel_mode(self) -> None:
-        status, _, result = self.send_json("/api/runs/start", {"rfc_markdown": "# RFC\n\nPanel.\n", "mode": "panel"})
-        self.assertEqual(status, 201)
+        with patch("vibebaton.cli_registry.scan_host_clis", return_value=example_scan(("claude", "codex"))):
+            status, _, result = self.send_json("/api/runs/start", {"rfc_markdown": "# RFC\n\nPanel.\n", "mode": "panel"})
+        self.assertEqual(status, 201, result)
         _, _, snapshot = self.get(f"/api/runs/{result['run_id']}")
         self.assertEqual(snapshot["run"]["mode"], "panel")
 

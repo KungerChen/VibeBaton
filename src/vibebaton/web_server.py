@@ -21,6 +21,7 @@ import tomllib
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import asdict
 from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -29,8 +30,8 @@ from time import monotonic
 from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol, TypedDict
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, case_export, cli_registry, credentials, model_catalog, presets, pricing
-from .brainstorm import RFC_RELATIVE_PATH, brainstorm_turn, confirm_blueprint
+from . import __version__, case_export, cli_registry, credentials, guided_session, model_catalog, presets, pricing
+from .brainstorm import RFC_RELATIVE_PATH, auto_select_l0_model, brainstorm_turn, confirm_blueprint
 from .config import (
     ALLOWED_BUDGET_PROFILES,
     BatonConfig,
@@ -61,6 +62,10 @@ from .mcp_server import _spawn_detached_daemon
 from .report import compute_run_telemetry, generate_battle_report
 from .rfc_checker import check_rfc_readiness, generate_structured_rfc
 from .schemas import RunStatus
+from .workflow_recommend import (
+    LaunchSelectionError, ReadinessSnapshot, build_readiness_snapshot, recommend_workflow,
+    validate_launch_selection,
+)
 
 # Capture groups are passed to the handler as positional arguments. The full
 # request target, including the query string, remains available in self.path.
@@ -98,6 +103,10 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(r"/api/workspace/browse"), "_post_workspace_browse"),
     ("POST", re.compile(r"/api/workspace/open"), "_post_workspace_open"),
     ("POST", re.compile(r"/api/workspace/init-git"), "_post_workspace_init_git"),
+    ("GET", re.compile(r"/api/guided/session"), "_get_guided_session"),
+    ("PUT", re.compile(r"/api/guided/session"), "_put_guided_session"),
+    ("POST", re.compile(r"/api/guided/session/reset"), "_post_guided_session_reset"),
+    ("GET", re.compile(r"/api/guided/l0-models"), "_get_guided_l0_models"),
     ("POST", re.compile(r"/api/brainstorm/chat"), "_post_brainstorm_chat"),
     ("POST", re.compile(r"/api/brainstorm/confirm"), "_post_brainstorm_confirm"),
     ("GET", re.compile(r"/api/runs"), "_get_runs"),
@@ -123,6 +132,9 @@ _TOML_STRING_KEY_LINE = re.compile(
 )
 _PROBE_TTL_SEC = 60.0
 _DISMISSED_ALERTS_LOCK = threading.Lock()
+_SESSION_LOCKS_LOCK = threading.Lock()
+_SESSION_LOCKS: dict[Path, threading.RLock] = {}
+_SESSION_RESET_EPOCHS: dict[Path, int] = {}
 _MAX_DISMISSED_ALERTS = 50
 
 
@@ -343,6 +355,63 @@ then reload this page.</p>
 
 class _BadRequest(ValueError):
     """A request error serialized by the dispatcher as a JSON 400."""
+
+
+class _SessionIOError(Exception):
+    """The run or request could not persist its Guided session."""
+
+    def __init__(self, message: str, *, code: str = "SESSION_IO_ERROR", **details: Any) -> None:
+        super().__init__(message)
+        self.code = code
+        self.details = details
+
+
+def _session_lock(repo: Path) -> threading.RLock:
+    # Multiple in-process servers can point at the same workspace.
+    with _SESSION_LOCKS_LOCK:
+        return _SESSION_LOCKS.setdefault(repo.resolve(), threading.RLock())
+
+
+def _load_guided_session(repo: Path) -> dict[str, Any]:
+    try:
+        return guided_session.load_session(repo)
+    except OSError as exc:
+        raise _SessionIOError(f"Guided session could not be read: {exc}") from exc
+
+
+def _save_guided_session(repo: Path, session: dict[str, Any]) -> None:
+    try:
+        guided_session.save_session(repo, session)  # type: ignore[arg-type]
+    except ValueError as exc:
+        raise _BadRequest(str(exc)) from exc
+    except OSError as exc:
+        raise _SessionIOError(f"Guided session could not be saved: {exc}") from exc
+
+
+def _brainstorm_content_changed(current: dict[str, Any], previous: dict[str, Any]) -> bool:
+    return any(current[field] != previous[field] for field in (
+        "messages", "checklist", "latest_rfc_draft", "has_online_draft",
+    ))
+
+
+def _merge_session_update(current: dict[str, Any], update: dict[str, Any],
+                          *, path: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Merge object fields; arrays replace and lineup map entries can be removed."""
+    result = deepcopy(current)
+    for key, value in update.items():
+        if path == ("workflow", "lineup") and key in ("roles", "model_overrides") and isinstance(value, dict):
+            mapping = deepcopy(result[key]) if value else {}
+            for name, choice in value.items():
+                if choice is None:
+                    mapping.pop(name, None)
+                else:
+                    mapping[name] = choice
+            result[key] = mapping
+        elif isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _merge_session_update(result[key], value, path=(*path, key))
+        else:
+            result[key] = deepcopy(value)
+    return result
 
 
 class _UnsupportedMediaType(_BadRequest):
@@ -1141,11 +1210,19 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             match = pattern.fullmatch(path)
             if match is not None:
                 try:
-                    getattr(self, handler_name)(*match.groups())
+                    if handler_name in ("_post_run_finalize", "_post_run_request_changes",
+                                        "_post_run_rollback", "_post_run_stop_and_replan"):
+                        # Keep the selected workspace stable throughout a lineage mutation.
+                        with self.server._launch_lock:
+                            getattr(self, handler_name)(*match.groups())
+                    else:
+                        getattr(self, handler_name)(*match.groups())
                 except _UnsupportedMediaType as exc:
                     self._send_json(415, {"error": str(exc)})
                 except _BadRequest as exc:
                     self._send_json(400, {"error": str(exc)})
+                except _SessionIOError as exc:
+                    self._send_json(500, {"error": str(exc), "code": exc.code, **exc.details})
                 except _LineageError as exc:
                     self._send_json(409, {"error": str(exc), "code": exc.code, **exc.details})
                 except RunTerminalError as exc:
@@ -1617,6 +1694,72 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
     def _get_workspace_info(self) -> None:
         self._send_json(200, _workspace_info(self.server.repo_path))
 
+    def _get_guided_session(self) -> None:
+        repo = self.server.repo_path
+        with _session_lock(repo):
+            session = _load_guided_session(repo)
+        self._send_json(200, {"session": session})
+
+    def _put_guided_session(self) -> None:
+        update = self._read_json_body().get("session")
+        if not isinstance(update, dict):
+            raise _BadRequest("session must be an object")
+        repo = self.server.repo_path
+        with _session_lock(repo):
+            previous = _load_guided_session(repo)
+            session = _merge_session_update(previous, update)
+            if previous["brainstorm"]["has_online_draft"] and (
+                not isinstance(session.get("brainstorm"), dict)
+                or session["brainstorm"].get("has_online_draft") is not True
+                or not isinstance(session["brainstorm"].get("latest_rfc_draft"), str)
+                or not session["brainstorm"]["latest_rfc_draft"].strip()
+            ):
+                raise _BadRequest("Reset the session to discard a protected online draft")
+            _save_guided_session(repo, session)
+            session = _load_guided_session(repo)
+        self._send_json(200, {"session": session})
+
+    def _post_guided_session_reset(self) -> None:
+        self._read_json_body(optional=True)
+        repo = self.server.repo_path
+        with _session_lock(repo):
+            session = guided_session.default_session()
+            _save_guided_session(repo, session)
+            key = repo.resolve()
+            _SESSION_RESET_EPOCHS[key] = _SESSION_RESET_EPOCHS.get(key, 0) + 1
+        self._send_json(200, {"session": session})
+
+    def _readiness(self, repo: Path | None = None, config: BatonConfig | None = None) -> ReadinessSnapshot:
+        if config is None:
+            with self.server.config_lock:
+                config = self.server.loader.current
+                repo = repo or self.server.repo_path
+        try:
+            return build_readiness_snapshot(repo or self.server.repo_path, config, self.server.credentials_path)
+        except (OSError, ValueError) as exc:
+            raise _SessionIOError(f"Provider readiness could not be checked: {exc}",
+                                  code="READINESS_UNAVAILABLE") from exc
+
+    def _get_guided_l0_models(self) -> None:
+        with self.server.config_lock:
+            repo, config = self.server.repo_path, self.server.loader.current
+        snapshot = self._readiness(repo, config)
+        cache = _model_catalog_cache_path(self.server.credentials_path)
+        catalog = model_catalog.get_model_catalog(cache_path=cache)["models"]
+        selected = auto_select_l0_model(snapshot, models=catalog)
+        ready = {p.provider_id for p in snapshot.providers if p.provider_ready and p.credential_ready}
+        models = []
+        for model in catalog:
+            for provider in model["providers"]:
+                if provider not in ready:
+                    continue
+                effort = model["default_effort"]
+                if selected and selected.startswith(f"{provider}:{model['id']}@"):
+                    effort = selected.rsplit("@", 1)[1]
+                models.append({"provider": provider, "model": model["id"], "effort": effort,
+                               "spec": f"{provider}:{model['id']}@{effort}", "label": model["label"]})
+        self._send_json(200, {"models": models, "auto_selected": selected})
+
     def _switch_workspace(self, raw: str) -> dict[str, Any]:
         if any(char in raw for char in "\0\r\n"):
             raise _BadRequest("path must not contain NUL or newline characters")
@@ -1630,7 +1773,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             raise _BadRequest(f"path could not be resolved: {exc}") from exc
         if not is_dir:
             raise _BadRequest("path must be an existing directory")
-        with self.server.config_lock:
+        with self.server._launch_lock, self.server.config_lock:
             explicit = getattr(self.server, "explicit_config_path", None)
             try:
                 loader = HotReloadConfig(find_config_path(repo, explicit))
@@ -1711,7 +1854,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json(200, {**_workspace_info(repo), "created": created})
 
-    def _lineup_overrides(self, payload: dict[str, Any]) -> dict[str, str]:
+    def _lineup_overrides(self, payload: dict[str, Any], config: BatonConfig | None = None) -> dict[str, str]:
         """``model_overrides`` plus the Guided lineup's ``role_providers`` turned into overrides."""
         overrides = payload.get("model_overrides", {})
         if not isinstance(overrides, dict) or any(
@@ -1724,8 +1867,9 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         ):
             raise _BadRequest("role_providers must map roles to provider ids")
         if role_providers:
-            with self.server.config_lock:
-                config = self.server.loader.current
+            if config is None:
+                with self.server.config_lock:
+                    config = self.server.loader.current
             try:
                 # Explicit model_overrides win over the lineup for the same role.
                 overrides = {**cli_registry.lineup_model_overrides(role_providers, config), **overrides}
@@ -1744,19 +1888,99 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         locale = payload.get("locale")
         if locale is not None and not isinstance(locale, str):
             raise _BadRequest("locale must be a string or null")
-        # The Guided page sends its lineup so the brainstorm runs on the L0 model chosen there.
-        overrides = self._lineup_overrides(payload) or None
-        config = None
-        if not offline:  # without a config brainstorm_turn uses the offline composer
-            with self.server.config_lock:
-                config = self.server.loader.current
+        previous = payload.get("previous_lineup")
+        if previous is not None and not isinstance(previous, dict):
+            raise _BadRequest("previous_lineup must be an object or null")
+        revision = payload.get("revision_context", payload.get("revision"))
+        if revision is not None and not isinstance(revision, dict):
+            raise _BadRequest("revision_context must be an object or null")
+        if "failure_context" in payload:
+            failure = payload["failure_context"]
+            if not isinstance(failure, str) or revision is None:
+                raise _BadRequest("failure_context requires a revision_context and must be a string")
+            revision = {**revision, "failure_context": failure}
+        requested = payload.get("requested_l0_model")
+        if requested is not None and (not isinstance(requested, str) or not requested.strip()):
+            raise _BadRequest("requested_l0_model must be a non-empty provider:model string or null")
+        with self.server.config_lock:
+            repo, config = self.server.repo_path, self.server.loader.current
+        overrides = self._lineup_overrides(payload, config)
+        with _session_lock(repo):
+            original_session = _load_guided_session(repo)
+            draft = original_session["brainstorm"]
+            reset_epoch = _SESSION_RESET_EPOCHS.get(repo.resolve(), 0)
+            if "latest_rfc_draft" in payload:
+                latest = payload["latest_rfc_draft"]
+                if not isinstance(latest, str) or (draft["has_online_draft"] and not latest.strip()):
+                    raise _BadRequest("latest_rfc_draft must preserve the existing online draft")
+            else:
+                latest = draft["latest_rfc_draft"]
+            l0_role = "brainstorm_and_final_gate"
+            selected = (requested if "requested_l0_model" in payload else
+                        None if l0_role in overrides else draft["selected_l0_model"])
+        if selected:
+            provider, separator, model = selected.partition(":")
+            if not separator or provider not in config.providers or not model.strip():
+                raise _BadRequest("requested_l0_model must name a configured provider and model")
+            overrides[l0_role] = selected
         try:
             result = brainstorm_turn(
-                self.server.repo_path, payload.get("messages"), scenario, config, locale=locale,
-                model_overrides=overrides,
+                repo, payload.get("messages"), scenario, None if offline else config, locale=locale,
+                model_overrides=overrides or None,
+                latest_rfc_draft=latest if not offline or draft["has_online_draft"] or revision else "",
+                has_online_draft=draft["has_online_draft"], revision=revision,
             )
         except ValueError as exc:
             raise _BadRequest(str(exc)) from exc
+        with _session_lock(repo):
+            session = _load_guided_session(repo)
+            current_draft = session["brainstorm"]
+            if (_SESSION_RESET_EPOCHS.get(repo.resolve(), 0) != reset_epoch or
+                    _brainstorm_content_changed(current_draft, draft)):
+                raise _LineageError(
+                    "BRAINSTORM_SESSION_CHANGED",
+                    "The brainstorm session changed during this turn; reload it before retrying",
+                )
+            if current_draft["has_online_draft"] and (
+                not isinstance(result.get("rfc_markdown"), str)
+                or not result["rfc_markdown"].strip() or result.get("offline")
+            ):
+                raise _LineageError("BRAINSTORM_SESSION_CHANGED", "The online draft could not be preserved")
+            if isinstance(result.get("rfc_markdown"), str):
+                current_draft["latest_rfc_draft"] = result["rfc_markdown"]
+                current_draft["has_online_draft"] = bool(current_draft["has_online_draft"] or (
+                    not result.get("offline") and result.get("provider_used") and not result.get("error")
+                ))
+                if current_draft["selected_l0_model"] == draft["selected_l0_model"]:
+                    if "requested_l0_model" in payload:
+                        current_draft["selected_l0_model"] = requested
+                    elif l0_role in overrides and l0_role in config.roles:
+                        role, _ = config.resolve_role(l0_role, overrides)
+                        current_draft["selected_l0_model"] = f"{role.provider}:{role.model}"
+                current_draft["messages"] = [*payload["messages"], {"role": "assistant", "content": result["reply"]}]
+                current_draft["checklist"] = result["guide"]["checklist"]
+                if session["workspace_path"] == original_session["workspace_path"]:
+                    session["workspace_path"] = str(repo)
+                if (session["active_stage"] == original_session["active_stage"] and
+                        session["active_run_id"] == original_session["active_run_id"]):
+                    session["active_stage"] = "blueprint"
+                _save_guided_session(repo, session)
+            completed_draft = deepcopy(current_draft)
+        if result.get("blueprint", {}).get("ready_to_launch"):
+            readiness = self._readiness(repo, config)
+            with _session_lock(repo):
+                session = _load_guided_session(repo)
+                if (_SESSION_RESET_EPOCHS.get(repo.resolve(), 0) != reset_epoch or
+                        _brainstorm_content_changed(session["brainstorm"], completed_draft)):
+                    raise _LineageError(
+                        "BRAINSTORM_SESSION_CHANGED",
+                        "The brainstorm session changed during this turn; reload it before retrying",
+                    )
+                if previous is None and session["workflow"]["lineup"]["roles"]:
+                    previous = session["workflow"]["lineup"]
+            result["recommendation"] = asdict(recommend_workflow(
+                result.get("guide", {}).get("size"), readiness, previous_lineup=previous,
+            ))
         self._send_json(200, result)
 
     def _post_brainstorm_confirm(self) -> None:
@@ -1947,6 +2171,101 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         with self.server._launch_lock:
             self._start_run(payload)
 
+    def _effective_lineup(self, overrides: dict[str, str]) -> dict[str, Any]:
+        with self.server.config_lock:
+            config = self.server.loader.current
+        roles, models = {}, {}
+        for name in config.roles:
+            role, _ = config.resolve_role(name, overrides)
+            roles[name] = role.provider
+            models[name] = f"{role.provider}:{role.model}"
+        return {"roles": roles, "model_overrides": models}
+
+    def _structured_lineup(self, value: object) -> dict[str, Any]:
+        if not isinstance(value, dict) or not isinstance(value.get("roles"), dict) or not isinstance(
+            value.get("model_overrides"), dict
+        ):
+            raise _BadRequest("lineup must contain roles and model_overrides objects")
+        roles, models = value["roles"], value["model_overrides"]
+        if any(not isinstance(k, str) or not isinstance(v, str) for k, v in roles.items()) or any(
+            not isinstance(k, str) or not isinstance(v, str) for k, v in models.items()
+        ):
+            raise _BadRequest("lineup roles and model_overrides must map strings to strings")
+        if any(role not in roles or not spec.startswith(f"{roles[role]}:")
+               or not spec.partition(":")[2].strip() for role, spec in models.items()):
+            raise _BadRequest("lineup model overrides must match their role providers")
+        overrides = self._lineup_overrides({"role_providers": roles, "model_overrides": models})
+        effective = self._effective_lineup(overrides)
+        # The caller supplies a complete lineup. Do not fill missing roles silently.
+        if set(roles) != set(effective["roles"]):
+            raise _BadRequest("lineup must include every configured role")
+        if any(effective["roles"].get(role) != provider for role, provider in roles.items()):
+            raise _BadRequest("lineup model overrides must match their role providers")
+        return {**deepcopy(value), **effective}
+
+    def _preflight(self, mode: str, lineup: dict[str, Any] | None = None) -> None:
+        # Legacy non-panel launches have no provider selection to check. A selected
+        # lineup and every panel launch require a fresh host/credential snapshot.
+        snapshot = self._readiness() if mode == "panel" or lineup is not None else ReadinessSnapshot(())
+        try:
+            validate_launch_selection(mode, snapshot, lineup=lineup)  # type: ignore[arg-type]
+        except LaunchSelectionError as exc:
+            fallback = recommend_workflow("large" if mode == "panel" else "medium", snapshot)
+            if mode == "panel" and fallback.mode == "panel":
+                fallback = recommend_workflow("medium", snapshot)
+            raise _LineageError("LAUNCH_PREFLIGHT", str(exc), codes=list(exc.codes), fallback=asdict(fallback)) from exc
+
+    def _run_selection(self, run: dict[str, Any]) -> tuple[dict[str, Any], bool, str | None]:
+        for event in reversed(self.server.store.get_events(run["id"], limit=-1)):
+            if event["kind"] == "guided_launch_selection":
+                payload = _json_object(event["payload_json"])
+                if isinstance(payload.get("lineup"), dict):
+                    return payload["lineup"], True, payload.get("preset")
+        try:
+            overrides = json.loads(run["model_overrides_json"] or "{}")
+            if not isinstance(overrides, dict) or any(
+                not isinstance(key, str) or not isinstance(value, str) for key, value in overrides.items()
+            ):
+                raise ValueError("Run model overrides are not a string mapping")
+        except (TypeError, ValueError) as exc:
+            raise _LineageError("RUN_STALE", f"Run model overrides are invalid: {exc}") from exc
+        return self._effective_lineup(overrides), bool(overrides), None
+
+    def _record_session_run(self, run: dict[str, Any], lineup: dict[str, Any], preset: str | None,
+                            *, only_if_current: bool = False, stage: str = "build") -> None:
+        repo = self.server.repo_path
+        with _session_lock(repo):
+            session = _load_guided_session(repo)
+            if only_if_current and session["active_run_id"] is not None:
+                return
+            if only_if_current:
+                if run["status"] in ("READY_FOR_FINAL_GATE", "COMPLETED", "PAUSED"):
+                    stage = "signoff"
+                elif run["status"] == "SUPERSEDED":
+                    stage = "blueprint"
+            session["workspace_path"] = str(repo)
+            session["active_stage"] = stage
+            session["active_run_id"] = run["id"]
+            session["workflow"].update(mode=run["mode"], lineup=deepcopy(lineup),
+                                       panel_enabled=run["mode"] == "panel",
+                                       launch_request_id=run["launch_request_id"])
+            if preset is not None:
+                session["workflow"]["preset"] = preset
+            session["open_human_gate"] = None
+            session["open_drawer"] = None
+            _save_guided_session(repo, session)
+
+    def _set_session_stage(self, run_id: str, stage: str) -> None:
+        repo = self.server.repo_path
+        with _session_lock(repo):
+            session = _load_guided_session(repo)
+            if session["active_run_id"] != run_id:
+                return
+            session["active_stage"] = stage
+            session["open_human_gate"] = None
+            session["open_drawer"] = None
+            _save_guided_session(repo, session)
+
     def _existing_launch(self, request_id: str, deterministic_id: str) -> dict[str, Any] | None:
         store = self.server.store
         run = store.get_run_by_launch_request_id(request_id) or store.get_run(deterministic_id)
@@ -1965,6 +2284,8 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         return run
 
     def _send_existing_launch(self, run: dict[str, Any]) -> None:
+        lineup, _, preset = self._run_selection(run)
+        self._record_session_run(run, lineup, preset, only_if_current=True)
         self._send_json(200, {"run_id": run["id"], "daemon_pid": None,
                               "status": run["status"], "reused": True})
 
@@ -1988,7 +2309,14 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         mode = payload.get("mode", "overnight")
         if mode not in ("overnight", "interactive", "panel"):
             raise _BadRequest("mode must be overnight, interactive or panel")
-        overrides = self._lineup_overrides(payload)
+        selected_lineup = self._structured_lineup(payload["lineup"]) if "lineup" in payload else None
+        if selected_lineup is not None and ("role_providers" in payload or "model_overrides" in payload):
+            raise _BadRequest("lineup cannot be combined with role_providers or model_overrides")
+        preset = payload.get("preset")
+        if preset is not None and not isinstance(preset, str):
+            raise _BadRequest("preset must be a string or null")
+        overrides = selected_lineup["model_overrides"] if selected_lineup is not None else self._lineup_overrides(payload)
+        self._preflight(mode, selected_lineup)
         markdown = payload.get("rfc_markdown", "")
         if not isinstance(markdown, str):
             raise _BadRequest("rfc_markdown must be a string")
@@ -2043,9 +2371,17 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             raise _LineageError("LAUNCH_FAILED", f"Could not create run: {exc}") from exc
         if request_id is not None:
             self._existing_launch(request_id, deterministic_id)
+        run = store.get_run(run_id)
+        effective_lineup = selected_lineup or self._effective_lineup(overrides)
+        if selected_lineup is not None:
+            store.log_event(run_id, "guided_launch_selection", payload={"lineup": effective_lineup, "preset": preset})
         pid = self._spawn_run_daemon(run_id, RunStatus.FAILED)
         if pid is not None:
             store.log_event(run_id, "daemon_spawned", message=f"Detached daemon started (pid={pid})")
+            try:
+                self._record_session_run(run, effective_lineup, preset)
+            except _SessionIOError as exc:
+                raise _SessionIOError(str(exc), run_id=run_id) from exc
             self._send_json(201, {"run_id": run_id, "daemon_pid": pid, "status": "STARTED"})
 
     def _post_run_control(self, run_id: str) -> None:
@@ -2220,10 +2556,12 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         self._lineage_chain(run)
         if not run["result_sha"]:
             raise _LineageError("RUN_STALE", "A revision requires a recorded result commit")
+        lineup, managed, preset = self._run_selection(run)
+        self._preflight(run["mode"], lineup if managed else None)
         source = Path(run["rfc_snapshot_path"] or run["rfc_path"])
         try:
             original = source.read_text(encoding="utf-8")
-            overrides = json.loads(run["model_overrides_json"] or "{}")
+            overrides = lineup["model_overrides"] if managed else json.loads(run["model_overrides_json"] or "{}")
             if not isinstance(overrides, dict):
                 raise ValueError("Run model overrides are not an object")
             directory = repo / ".baton" / "ui_rfcs"
@@ -2255,6 +2593,8 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                 temporary.unlink(missing_ok=True)
             store.log_event(run_id, "revision_requested", actor="human", message=note,
                             payload={"revision_run_id": child})
+            if managed:
+                store.log_event(child, "guided_launch_selection", payload={"lineup": lineup, "preset": preset})
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise _LineageError("REVISION_FAILED", f"Could not create revision: {exc}") from exc
         except ValueError as exc:
@@ -2265,6 +2605,10 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         if pid is None:
             return
         store.log_event(child, "daemon_spawned", message=f"Detached daemon started (pid={pid})")
+        try:
+            self._record_session_run(store.get_run(child), lineup, preset)
+        except _SessionIOError as exc:
+            raise _SessionIOError(str(exc), run_id=child) from exc
         self._send_json(200, {
             "ok": True, "run_id": run_id, "action": "revise", "status": "SUPERSEDED",
             "backup_tag": None, "base_branch": run["base_ref"],
@@ -2342,6 +2686,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                 conn.execute("INSERT INTO events (run_id, kind, actor, message, payload_json, created_at) "
                              "VALUES (?, ?, ?, ?, ?, ?)",
                              (run_id, "final_gate_approved", "human", note, json.dumps(approval), now))
+            self._set_session_stage(run_id, "signoff")
             self._send_json(200, {"ok": True, "run_id": run_id, "action": "approve", "status": "COMPLETED",
                                   "backup_tag": backup_tag, "base_branch": base, "base_head": target,
                                   "merged_commit": target, "changed_files": changed,
@@ -2477,6 +2822,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             self._send_json(409, {"error": str(exc)})
             return
         head = _git(repo, "rev-parse", base_branch)
+        self._set_session_stage(run_id, "signoff" if action != "revise" else "blueprint")
         self._send_json(
             200,
             {
@@ -2593,6 +2939,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                                     "base_head": resolve_ref_sha(repo, f"refs/heads/{base}")}
         if legacy_response:
             response.update(action="rollback", backup_tag=backup_tag)
+        self._set_session_stage(run_id, "signoff")
         self._send_json(200, response)
 
     def _post_run_stop_and_replan(self, run_id: str) -> None:
@@ -2614,6 +2961,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             if isinstance(exc, (RunTerminalError, ActiveRunError)):
                 raise
             raise _LineageError("RUN_STALE", str(exc)) from exc
+        self._set_session_stage(run_id, "blueprint")
         self._send_json(200, {"ok": True, "status": "SUPERSEDED", **context})
 
     def _serve_static(self, raw_path: str, path: str) -> None:
