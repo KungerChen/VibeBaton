@@ -1,6 +1,6 @@
 """Guided-mode architecture brainstorm: multi-turn chat -> RFC draft -> Blueprint Card contracts.
 
-Copy rule: every string here addresses the user as the Lead Architect of the project.
+Copy rule: every string here talks to the user as the owner of the project, in plain words.
 No condescending labels (see the anti-condescension guard in the Stage 6 RFC).
 """
 
@@ -47,12 +47,31 @@ class BlueprintCard(TypedDict):
     ready_to_launch: bool
 
 
+ChecklistId = Literal["what", "who", "scope", "limits", "done"]
+ChecklistStatus = Literal["clear", "assumed", "open"]
+CHECKLIST_IDS: tuple[ChecklistId, ...] = ("what", "who", "scope", "limits", "done")
+
+
+class ChecklistItem(TypedDict):
+    id: ChecklistId
+    status: ChecklistStatus
+    value: str  # one plain sentence; "" while the item is still open
+
+
+class BrainstormGuide(TypedDict):
+    question: str  # the single question of this turn; "" when nothing is left to ask
+    options: list[str]  # 0-4 short clickable answers (the page adds its own "not sure" button)
+    checklist: list[ChecklistItem]  # always the five CHECKLIST_IDS, in order
+
+
 class BrainstormTurnResult(TypedDict):
     reply: str
     rfc_markdown: str
     blueprint: BlueprintCard
     provider_used: str | None  # None when the deterministic offline fallback produced the turn
     offline: bool
+    guide: BrainstormGuide
+    error: str | None  # short reason when a live turn failed and the offline composer answered
 
 
 class BlueprintConfirmResult(TypedDict):
@@ -69,101 +88,109 @@ class BrainstormScenario(TypedDict):
     prompt_zh: str
 
 
-# Every starter ends with the same four prompts, one per line, so the first message already
-# carries the outcome, the audience, the limits, and the finish line.
-_SCENARIO_FIELDS_EN = ("Result I want:", "Who uses it or is affected:", "What must not change:", "How we know it is done:")
-_SCENARIO_FIELDS_ZH = ("想达到的结果：", "给谁用 / 会影响谁：", "不能动的东西：", "怎么算完成：")
+def _scenario(scenario_id: str, title_en: str, title_zh: str, prompt_en: str, prompt_zh: str) -> BrainstormScenario:
+    return {"id": scenario_id, "title_en": title_en, "title_zh": title_zh, "prompt_en": prompt_en, "prompt_zh": prompt_zh}
 
 
-def _scenario(scenario_id: str, title_en: str, title_zh: str, intro_en: str, intro_zh: str) -> BrainstormScenario:
-    return {
-        "id": scenario_id,
-        "title_en": title_en,
-        "title_zh": title_zh,
-        "prompt_en": "\n".join((intro_en, *_SCENARIO_FIELDS_EN)),
-        "prompt_zh": "\n".join((intro_zh, *_SCENARIO_FIELDS_ZH)),
-    }
-
-
+# Each prompt is one natural example opener the user can edit.
 # Mirrored for the Studio in web/src/components/guided/brainstormScenarios.json (a test keeps them equal).
 SCENARIOS: tuple[BrainstormScenario, ...] = (
     _scenario(
         "new_feature", "Ship a new feature", "交付一个新功能",
-        "I want to add a new feature.", "我想增加一个新功能。",
+        "I want to add a button that exports the order list to a spreadsheet file.",
+        "我想加一个按钮，把订单列表导出成表格文件。",
     ),
     _scenario(
         "bug_fix", "Fix a bug for good", "彻底修复一个缺陷",
-        "Something is broken. What happens now, and how to make it happen:",
-        "有个地方出了问题。现在的表现和复现步骤：",
+        "The login page goes blank after I enter my password, and I want it fixed for good.",
+        "登录页输入密码后就变成空白，我想彻底修好它。",
     ),
     _scenario(
         "refactor", "Refactor safely", "安全地重构",
-        "I want to restructure this part of the code without changing what it does:",
-        "我想在不改变行为的前提下重新整理这部分代码：",
+        "I want to tidy up the messy payment code without changing what it does.",
+        "我想把乱糟糟的支付相关代码整理一下，但不改变它的行为。",
     ),
     _scenario(
         "add_tests", "Strengthen test coverage", "加强测试覆盖",
-        "I want automated tests that protect these key behaviors:",
-        "我想用自动化测试守住这些关键行为：",
+        "I want automated tests that make sure checkout keeps working.",
+        "我想加一些自动测试，保证下单流程一直能正常工作。",
     ),
     _scenario(
         "web_app", "Start a small web app", "从零搭建一个小型网页应用",
-        "I want to build a small web app. Its main pages and what each one does:",
-        "我想做一个小型网页应用，主要页面和各自的作用：",
+        "I want a small web page where my team can write down what they did each day.",
+        "我想做一个小网页，让团队每天记下自己做了什么。",
     ),
     _scenario(
         "performance", "Make it faster", "优化性能",
-        "Something is too slow. Where it is slow, and roughly how slow it is now:",
-        "有个地方太慢了。慢在哪里、现在大概有多慢：",
+        "The search page takes about five seconds to show results, and I want it much faster.",
+        "搜索页要等五秒左右才出结果，我想让它快很多。",
     ),
     _scenario(
         "ui_redesign", "Redesign the interface", "界面改版",
-        "I want to change how this part of the interface looks or works:",
-        "我想调整这部分界面的样子或操作方式：",
+        "I want the settings page to look cleaner and be easier to use.",
+        "我想让设置页看起来更清爽、用起来更顺手。",
     ),
     _scenario(
         "dependency_upgrade", "Upgrade or migrate a dependency", "升级或迁移依赖",
-        "I want to upgrade or replace this dependency (current version, target version):",
-        "我想升级或替换这个依赖（现在的版本、目标版本）：",
+        "I want to upgrade the main framework this project uses to its latest version.",
+        "我想把项目用的主要框架升级到最新版本。",
     ),
     _scenario(
         "write_docs", "Write documentation", "编写文档",
-        "I want documentation that explains:",
-        "我想补一份文档，讲清楚这些内容：",
+        "I want a short guide that explains how to install and run this project.",
+        "我想写一份简短的说明，讲清楚这个项目怎么安装和运行。",
     ),
     _scenario(
         "script_or_data", "Write a script or process data", "写脚本或处理数据",
-        "I want a script for this job (what goes in, what should come out):",
-        "我想写个脚本来做这件事（输入是什么、输出成什么样）：",
+        "I want a script that merges several spreadsheets into one summary.",
+        "我想写个脚本，把几份表格合并成一份汇总。",
     ),
     _scenario(
         "not_sure", "Not sure yet, help me think it through", "还没想清楚，帮我梳理",
-        "I have not fully worked it out yet. The rough idea (fill in what you can, blanks are fine):",
-        "我还没完全想清楚，先说说大概的想法（下面能写多少写多少，空着也没关系）：",
+        "I have a rough idea but have not worked it out yet, so let us talk it through.",
+        "我有个大概的想法，但还没想清楚，想先跟你聊聊。",
     ),
 )
 
-_SYSTEM_PROMPT = """You are the architecture partner of the Lead Architect of this repository.
-Reply in the same language the Lead Architect writes in (Chinese if they write in Chinese,
-English if they write in English). Format your conversational reply before the RFC block in clean
-Markdown: use short paragraphs, **bold** for key terms, bullet or numbered lists for options or
-questions, and `backticks` for commands and file paths. Talk with them in plain, warm language:
-summarise what you understood, then ask at most two focused questions about whatever is still open
-(goals, limits, out-of-scope items, or the exact command that proves the work is done). Keep the
-formal RFC section headings below in English so the readiness checker can parse them accurately.
+_SYSTEM_PROMPT = """You are a friendly planning partner helping the owner of this repository decide what to
+build. They may not be a software engineer: use plain words and explain any technical term you need
+in a few words, without talking down to them. Reply in the same language they write in (Chinese if
+they write in Chinese, English if they write in English). Format your conversational reply in clean
+Markdown: short paragraphs, **bold** for key terms, and `backticks` for commands and file paths.
 
-The Lead Architect may not be a software engineer. Use plain words and explain any technical
-term you need in a few words.
-If they cannot name a verification command, do not keep asking: propose one yourself that fits
-the project (prefer the detected commands in the project summary), say in one sentence what it
-checks, and put it in the RFC so they can confirm or change it.
-Never invent file paths. Only cite paths that appear in the project summary or that the Lead
-Architect mentioned; otherwise describe the area in words.
-If the request is clearly too big for one build, suggest splitting it into a few steps, write the
-RFC for only the first step, and list the later steps under Non-Goals.
+How each turn works:
+- Start with one or two sentences that restate what you understood.
+- Then ask only one question. It is about the first item of the checklist below that is still
+  "open". Do not ask about items that are already clear or assumed.
+- If they say they are not sure or ask you to decide, pick a sensible choice yourself, say it in one
+  sentence, and mark that item "assumed" so they can change it later.
+- If they cannot name a verification command, do not keep asking: propose one yourself that fits
+  the project (prefer the detected commands in the project summary), say in one sentence what it
+  checks, and put it in the RFC so they can confirm or change it.
+- Never invent file paths. Only cite paths that appear in the project summary or that they
+  mentioned; otherwise describe the area in words.
+- If the request is clearly too big for one build, suggest splitting it into a few steps, write the
+  RFC for only the first step, and list the later steps under Non-Goals.
 
-After your reply, include the complete, updated Master RFC inside a fenced block that opens
-with ````rfc and closes with ```` (four backticks), so inner ``` code blocks stay intact.
+The checklist has exactly five items, always in this order:
+"what"   - what to build and the result they want
+"who"    - who uses it or is affected by it
+"scope"  - how far this build goes and what it leaves out
+"limits" - what must not change (files, behaviour, libraries)
+"done"   - how we know it is finished (ideally a command that proves it)
+Each item has a status: "clear" (they said it), "assumed" (you chose it for them), or "open"
+(not discussed yet), plus a "value": one plain sentence, or "" while it is open.
+
+After your reply, include a fenced block that opens with ```guide and closes with ```, holding
+only this JSON:
+{"question": "<the one question you asked, or \"\" when nothing is left to ask>",
+ "options": ["<up to 4 short answers they can click>"],
+ "checklist": [{"id": "what", "status": "clear", "value": "..."}, ... all five items in order]}
+Do not put an "I am not sure" option in the list; the page always offers one.
+
+Then include the complete, updated Master RFC inside a fenced block that opens with ````rfc and
+closes with ```` (four backticks), so inner ``` code blocks stay intact. Keep its section headings
+in English exactly as below so the planning tools can read them.
 The RFC must start with a "# <title>" line and use exactly these second-level headings, in order:
 ## Goals              (one summary paragraph, then one "- " bullet per deliverable)
 ## Constraints        ("- " bullets)
@@ -192,6 +219,7 @@ _FILE_TOKEN = re.compile(
 _INLINE_CODE = re.compile(r"(?<!`)`([^`\s]+)`(?!`)")
 _FENCE_LINE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})(.*)$")
 _RFC_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})[ \t]*rfc[ \t]*$", re.IGNORECASE)
+_GUIDE_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})[ \t]*guide[ \t]*$", re.IGNORECASE)
 _BULLET = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(?P<text>\S.*)$")
 
 
@@ -209,12 +237,46 @@ _README_HEAD_LINES = 20
 # README layout markup and badge rows say little about the project; the head keeps prose lines.
 _README_MARKUP_LINE = re.compile(r"^\s*(?:<|\[!\[|!\[)")
 _TOP_LEVEL_LIMIT = 40
-_BLANK_FIELD = re.compile(r"^[^:：]{1,40}[:：]$")
+# "Not sure / you decide" replies: the item becomes an assumption, and the reply is not a requirement.
+_UNSURE = re.compile(
+    r"\b(?:not sure|don'?t know|you decide|up to you|no idea)\b|不确定|不知道|你定|你来定|你帮我定|随便|都行",
+    re.IGNORECASE,
+)
+_GUIDE_VALUE_MAX = 200
+_ERROR_MAX = 200
+_SECRET_ENV_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL", re.IGNORECASE)
+_SECRET_TOKEN = re.compile(r"\b(?:sk|pk|rk|ghp|gho|xox[bp])[-_][A-Za-z0-9_-]{8,}")
 
-
-def _is_blank_field(sentence: str) -> bool:
-    """A starter prompt line such as "Result I want:" that the user left empty."""
-    return bool(_BLANK_FIELD.match(sentence.strip()))
+# Offline questions, one per checklist item ("what" always comes from the first message).
+_OFFLINE_QUESTIONS: dict[str, dict[str, tuple[str, tuple[str, ...], str]]] = {
+    # id: {lang: (question, options, assumption when the user leaves it to us)}
+    "who": {
+        "zh": ("这个东西主要给谁用？", ("只有我自己", "我的团队或同事", "外部用户或客户"), "先按只有你自己用来考虑"),
+        "en": ("Who will mainly use this?", ("Just me", "My team or coworkers", "Outside users or customers"),
+               "Plan it for you alone for now"),
+    },
+    "scope": {
+        "zh": ("这一次先做到什么程度？", ("先做一个最小能用的版本", "一次做完整", "只做核心部分，其余以后再说"),
+               "先做一个最小能用的版本"),
+        "en": ("How far should this first round go?",
+               ("A smallest useful version first", "The complete thing in one go", "Just the core part, the rest later"),
+               "Start with a smallest useful version"),
+    },
+    "limits": {
+        "zh": ("有没有不能动的东西？比如不能改的文件、不能加的新依赖。",
+               ("不要引入新的依赖", "保持现有功能和用法不变", "没有特别的限制"), "保持现有功能和用法不变"),
+        "en": ("Is there anything that must not change, such as files to leave alone or new libraries to avoid?",
+               ("Do not add new libraries", "Keep existing behaviour unchanged", "No special limits"),
+               "Keep existing behaviour unchanged"),
+    },
+    "done": {
+        "zh": ("做完以后，怎么确认它真的好了？", ("跑一遍项目现有的自动测试", "加上新的自动测试来证明", "我自己打开看一眼就行"),
+               "跑一遍项目现有的自动检查"),
+        "en": ("Once it is built, how do we check that it really works?",
+               ("Run the existing automated tests", "Add new automated tests that prove it", "I will just open it and look"),
+               "Run the existing automated checks"),
+    },
+}
 
 
 def _read_head(path: Path, max_lines: int) -> list[str]:
@@ -325,11 +387,23 @@ def _extract_command(sentence: str) -> str | None:
     return sentence[match.start():].strip().rstrip(".;,。；，").strip() or None
 
 
-def _compose_offline_rfc(messages: list[ChatMessage]) -> tuple[str, bool]:
-    """Synthesise the RFC from user turns only and report whether user constraints were given."""
+class _OfflineParts(TypedDict):
+    first: str
+    constraints: list[str]
+    non_goals: list[str]
+    commands: list[str]
+
+
+def _compose_offline_rfc(
+    messages: list[ChatMessage], extra_commands: list[str] | None = None,
+) -> tuple[str, _OfflineParts]:
+    """Synthesise the RFC from user turns only; also return how the sentences were classified.
+
+    "Not sure / you decide" replies after the first turn are left out: they are not requirements.
+    """
     user_turns = [m["content"].strip() for m in messages if m["role"] == "user" and m["content"].strip()]
-    all_sentences = [s for text in user_turns for s in _sentences(text)]
-    sentences = [s for s in all_sentences if not _is_blank_field(s)] or all_sentences
+    user_turns = user_turns[:1] + [text for text in user_turns[1:] if not _UNSURE.search(text)]
+    sentences = [s for text in user_turns for s in _sentences(text)]
     if not sentences:
         sentences = user_turns or ["Untitled Draft"]
     first, rest = sentences[0], sentences[1:]
@@ -357,6 +431,10 @@ def _compose_offline_rfc(messages: list[ChatMessage]) -> tuple[str, bool]:
             constraints.append(sentence)
         else:
             goals.append(sentence)
+
+    for command in extra_commands or []:
+        if command not in commands:
+            commands.append(command)
 
     areas: list[str] = []
     for text in sentences:
@@ -400,7 +478,8 @@ def _compose_offline_rfc(messages: list[ChatMessage]) -> tuple[str, bool]:
         *verification,
         "",
     ]
-    return "\n".join(lines), bool(constraints)
+    parts: _OfflineParts = {"first": first, "constraints": constraints, "non_goals": non_goals, "commands": commands}
+    return "\n".join(lines), parts
 
 
 def _offline_rfc(messages: list[ChatMessage]) -> str:
@@ -417,37 +496,92 @@ def _prefers_zh(messages: list[ChatMessage], locale: str | None) -> bool:
     return any("\u4e00" <= ch <= "\u9fff" for ch in latest_user)
 
 
-def _offline_reply(
-    rfc_markdown: str,
-    readiness: RFCReadiness,
+def _clip(text: str, limit: int = _GUIDE_VALUE_MAX) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _answers(messages: list[ChatMessage]) -> dict[str, str]:
+    """Map checklist ids to the user reply that followed the offline question for that item."""
+    answers: dict[str, str] = {}
+    for index, message in enumerate(messages[:-1]):
+        reply = messages[index + 1]
+        if message["role"] != "assistant" or reply["role"] != "user" or not reply["content"].strip():
+            continue
+        for item_id, langs in _OFFLINE_QUESTIONS.items():
+            if any(langs[lang][0] in message["content"] for lang in ("zh", "en")):
+                answers[item_id] = reply["content"].strip()
+    return answers
+
+
+def _offline_checklist(parts: _OfflineParts, answers: dict[str, str], zh: bool) -> list[ChecklistItem]:
+    lang = "zh" if zh else "en"
+    found = {
+        "what": parts["first"],
+        "scope": parts["non_goals"][0] if parts["non_goals"] else "",
+        "limits": parts["constraints"][0] if parts["constraints"] else "",
+        "done": parts["commands"][0] if parts["commands"] else "",
+    }
+    checklist: list[ChecklistItem] = []
+    for item_id in CHECKLIST_IDS:
+        answer = answers.get(item_id)
+        if answer is not None and _UNSURE.search(answer):
+            checklist.append({"id": item_id, "status": "assumed", "value": _OFFLINE_QUESTIONS[item_id][lang][2]})
+        elif answer is not None:
+            checklist.append({"id": item_id, "status": "clear", "value": _clip(answer)})
+        elif found.get(item_id):
+            checklist.append({"id": item_id, "status": "clear", "value": _clip(found[item_id])})
+        else:
+            checklist.append({"id": item_id, "status": "open", "value": ""})
+    return checklist
+
+
+def _project_commands(repo_path: Path) -> list[str]:
+    """Bare detected test/build commands of the repository, e.g. ``npm run test``."""
+    repo = Path(repo_path)
+    try:
+        folders = [e for e in repo.iterdir() if e.is_dir() and e.name not in _CONTEXT_SKIP_DIRS]
+    except OSError:
+        folders = []
+    return [command.split("  (")[0] for command in _detected_commands(repo, sorted(folders))]
+
+
+def _offline_turn(
+    repo_path: Path,
+    messages: list[ChatMessage],
     scenario: BrainstormScenario | None,
     *,
-    zh: bool = False,
-    has_custom_constraints: bool | None = None,
-) -> str:
+    zh: bool,
+) -> tuple[str, str, BrainstormGuide]:
+    """Deterministic offline turn: ``(reply, rfc_markdown, guide)`` asking about the first open item."""
+    answers = _answers(messages)
+    rfc_markdown, parts = _compose_offline_rfc(messages)
+    if "done" in answers and not parts["commands"]:
+        # They answered how to check the work; use the project's own test command when it has one.
+        commands = _project_commands(repo_path)
+        extra = [next((c for c in commands if "test" in c), commands[0])] if commands else []
+        if extra:
+            rfc_markdown, parts = _compose_offline_rfc(messages, extra)
+    checklist = _offline_checklist(parts, answers, zh)
+    lang = "zh" if zh else "en"
+    next_open = next((item["id"] for item in checklist if item["status"] == "open"), None)
+    question, options = ("", []) if next_open is None else (
+        _OFFLINE_QUESTIONS[next_open][lang][0], list(_OFFLINE_QUESTIONS[next_open][lang][1])
+    )
+
     title = rfc_markdown.splitlines()[0][2:].strip()
-    if has_custom_constraints is None:
-        has_custom_constraints = "- Keep current behaviour and public interfaces stable" not in rfc_markdown
+    follow_up = any(message["role"] == "assistant" for message in messages)
     if zh:
         lead = f"从「{scenario['title_zh']}」出发，" if scenario else ""
-        parts = [f"{lead}这是「{title}」的最新蓝图草案。"]
-        if not readiness["detected_commands"]:
-            parts.append("要如何证明它已经生效？请写一条用来验证的命令（例如 npm test 或 pytest）。")
-        if not has_custom_constraints:
-            parts.append("是否有需要遵守的边界条件（例如限制使用的依赖库或不要修改的文件）？")
-        if len(parts) == 1:
-            parts.append("目标、边界和验证命令均已齐备；核对无误后点击「确认蓝图并开始施工」即可出发。")
-        return " ".join(parts)
-
-    lead = f'Starting from "{scenario["title_en"]}", ' if scenario else ""
-    parts = [f'{lead}here is the current blueprint for "{title}".']
-    if not readiness["detected_commands"]:
-        parts.append("How should we prove it works? Name the command you run to test it (for example npm test or pytest).")
-    if not has_custom_constraints:
-        parts.append("Are there limits to respect, such as libraries to avoid or files to leave untouched?")
-    if len(parts) == 1:
-        parts.append('It has goals, limits, and a verification command; review it and click "Confirm Blueprint & Start Building" when it reads right.')
-    return " ".join(parts)
+        reply = "好的，记下了，蓝图已更新。" if follow_up else f"{lead}我把你的想法记进了蓝图：「{title}」。"
+        reply += f"\n\n{question}" if question else "\n\n该问的都问完了。看看右边的蓝图，没问题就可以开工了。"
+    else:
+        lead = f'Starting from "{scenario["title_en"]}", ' if scenario else ""
+        reply = "Got it, the blueprint is updated." if follow_up else f'{lead}I added your idea to the blueprint: "{title}".'
+        reply += f"\n\n{question}" if question else (
+            "\n\nThat covers everything I wanted to ask. Check the blueprint on the right, and start building when it reads right."
+        )
+    return reply, rfc_markdown, {"question": question, "options": options, "checklist": checklist}
 
 
 def _section_lines(rfc_markdown: str) -> dict[str, list[str]]:
@@ -530,7 +664,7 @@ def _build_prompt(
         parts += [f"Starting scenario: {scenario['title_en']}", ""]
     parts.append("Conversation so far:")
     for message in messages:
-        speaker = "Lead Architect" if message["role"] == "user" else "You"
+        speaker = "User" if message["role"] == "user" else "You"
         parts += ["", f"[{speaker}]", message["content"].strip()]
     return "\n".join(parts) + "\n"
 
@@ -560,6 +694,93 @@ def _split_live_response(text: str) -> tuple[str, str]:
         raise ValueError("Live RFC is missing the required headings.")
     reply = "\n".join([*lines[:start], *lines[end + 1:]]).strip()
     return reply or "The blueprint below reflects our conversation so far.", rfc_markdown
+
+
+def _extract_guide_block(text: str) -> tuple[str, str | None]:
+    """Return ``(text without the guide block, guide block body or None)``."""
+    lines = text.replace("\r\n", "\n").split("\n")
+    start = next((i for i, line in enumerate(lines) if _GUIDE_OPEN.match(line)), None)
+    if start is None:
+        return text, None
+    opener = _GUIDE_OPEN.match(lines[start]).group(1)
+    for end in range(start + 1, len(lines)):
+        match = _FENCE_LINE.match(lines[end])
+        if match and match.group(1)[0] == opener[0] and len(match.group(1)) >= len(opener) and not match.group(2).strip():
+            return "\n".join([*lines[:start], *lines[end + 1:]]), "\n".join(lines[start + 1:end])
+    return "\n".join([*lines[:start], *lines[start + 1:]]), None  # unclosed: drop only the fence line
+
+
+def _parse_guide(raw: str | None) -> BrainstormGuide | None:
+    """Validate a live guide block; ``None`` when it is missing or not a JSON object."""
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    question = data.get("question")
+    options = data.get("options") if isinstance(data.get("options"), list) else []
+    entries: dict[str, dict] = {}
+    for entry in data.get("checklist") if isinstance(data.get("checklist"), list) else []:
+        if isinstance(entry, dict) and entry.get("id") in CHECKLIST_IDS and entry["id"] not in entries:
+            entries[entry["id"]] = entry
+    checklist: list[ChecklistItem] = []
+    for item_id in CHECKLIST_IDS:
+        entry = entries.get(item_id, {})
+        status = entry.get("status") if entry.get("status") in ("clear", "assumed") else "open"
+        value = _clip(entry["value"]) if isinstance(entry.get("value"), str) else ""
+        if status == "open" or not value:
+            status, value = "open", ""
+        checklist.append({"id": item_id, "status": status, "value": value})
+    clean_options = [
+        _clip(option, 80) for option in options
+        if isinstance(option, str) and option.strip() and not _UNSURE.search(option)
+    ]
+    return {
+        "question": _clip(question, 300) if isinstance(question, str) else "",
+        "options": clean_options[:4],
+        "checklist": checklist,
+    }
+
+
+def _guide_from_rfc(rfc_markdown: str) -> BrainstormGuide:
+    """Fallback guide when a live reply has no usable guide block: items with real RFC content are clear."""
+    sections = _section_lines(rfc_markdown)
+
+    def first_bullet(name: str) -> str:
+        for line in sections.get(name.lower(), []):
+            bullet = _BULLET.match(line)
+            if bullet:
+                return bullet.group("text").strip()
+        return ""
+
+    commands = check_rfc_readiness(rfc_markdown)["detected_commands"]
+    title = next((line[2:].strip() for line in rfc_markdown.splitlines() if line.startswith("# ")), "")
+    found = {
+        "what": title or first_bullet("Goals"),
+        "who": "",
+        "scope": first_bullet("Non-Goals"),
+        "limits": first_bullet("Constraints"),
+        "done": commands[0] if commands else "",
+    }
+    checklist: list[ChecklistItem] = [
+        {"id": item_id, "status": "clear", "value": _clip(found[item_id])} if found[item_id]
+        else {"id": item_id, "status": "open", "value": ""}
+        for item_id in CHECKLIST_IDS
+    ]
+    return {"question": "", "options": [], "checklist": checklist}
+
+
+def _safe_error(exc: BaseException) -> str:
+    """A short, single-line reason for a live failure, with secret values masked."""
+    text = str(exc).strip() or type(exc).__name__
+    for name, value in os.environ.items():
+        if _SECRET_ENV_NAME.search(name) and len(value) >= 6:
+            text = text.replace(value, "***")
+    text = _SECRET_TOKEN.sub("***", text)
+    return _clip(text, _ERROR_MAX)
 
 
 def _provider_dispatch(cfg: BatonConfig, model_overrides: dict[str, str] | None = None) -> BrainstormDispatch | None:
@@ -643,9 +864,14 @@ def brainstorm_turn(
       choice in ``model_overrides`` or the first ready provider of ``cfg`` via
       ``cli_runner.invoke_provider``. The prompt carries a read-only ``project_context`` summary. The response must carry a
       fenced ``rfc`` block with every required heading; ``provider_used`` is the provider id.
+      A fenced ``guide`` block (question, options, checklist) is parsed and removed from ``reply``;
+      when it is missing or invalid, ``guide`` is derived from the RFC with an empty question.
     - Offline path: env ``VIBEBATON_OFFLINE_BRAINSTORM=1`` (or ``VIBEBATON_BRAINSTORM_OFFLINE=1``),
       no dispatcher and no ready provider, or any live failure uses the deterministic offline
-      composer: same input -> same output, ``offline=True``, ``provider_used=None``.
+      composer: same input -> same output, ``offline=True``, ``provider_used=None``. It asks about
+      the first open checklist item with fixed bilingual options.
+    - ``error`` is ``None`` except after a live failure, where it is a short reason (<= 200 chars,
+      secret values masked) and the offline result is returned alongside it.
     - ``rfc_markdown`` always starts with ``"# "`` and has ``## Goals``, ``## Constraints``,
       ``## Non-Goals``, ``## Architecture & Deliverables`` and ``## Verification & Acceptance
       Criteria`` headings. ``blueprint.readiness_score`` equals its readiness score and
@@ -653,6 +879,7 @@ def brainstorm_turn(
     - Never writes to the repository; ``confirm_blueprint`` persists the draft.
     """
     chosen = _validate(messages, scenario)
+    error: str | None = None
     if not _offline_requested():
         try:
             if dispatch is None and cfg is not None:
@@ -660,6 +887,7 @@ def brainstorm_turn(
             if dispatch is not None:
                 prompt = _build_prompt(messages, chosen, locale=locale, project=project_context(repo_path))
                 provider_used, text = dispatch(prompt)
+                text, guide_block = _extract_guide_block(text)
                 reply, rfc_markdown = _split_live_response(text)
                 return {
                     "reply": reply,
@@ -667,23 +895,21 @@ def brainstorm_turn(
                     "blueprint": _blueprint(rfc_markdown),
                     "provider_used": provider_used,
                     "offline": False,
+                    "guide": _parse_guide(guide_block) or _guide_from_rfc(rfc_markdown),
+                    "error": None,
                 }
-        except Exception:  # noqa: BLE001 - any live failure degrades to the offline composer
-            pass
+        except Exception as exc:  # noqa: BLE001 - any live failure degrades to the offline composer, visibly
+            error = _safe_error(exc)
 
-    rfc_markdown, has_custom_constraints = _compose_offline_rfc(messages)
+    reply, rfc_markdown, guide = _offline_turn(repo_path, messages, chosen, zh=_prefers_zh(messages, locale))
     return {
-        "reply": _offline_reply(
-            rfc_markdown,
-            check_rfc_readiness(rfc_markdown),
-            chosen,
-            zh=_prefers_zh(messages, locale),
-            has_custom_constraints=has_custom_constraints,
-        ),
+        "reply": reply,
         "rfc_markdown": rfc_markdown,
         "blueprint": _blueprint(rfc_markdown),
         "provider_used": None,
         "offline": True,
+        "guide": guide,
+        "error": error,
     }
 
 

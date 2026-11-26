@@ -18,7 +18,10 @@ Shared response contract (M1 workers: implement exactly these shapes; errors are
                                              400 missing/relative/nonexistent path or not a directory
     POST /api/workspace/init-git    {}    -> 200 {...WorkspaceInfo, created: bool}  (branch "main"; idempotent)
     POST /api/brainstorm/chat       {messages: [{role, content}], scenario?: id|null, offline?: bool}
-                                          -> 200 BrainstormTurnResult {reply, rfc_markdown, blueprint, provider_used, offline}
+                                          -> 200 BrainstormTurnResult {reply, rfc_markdown, blueprint, provider_used, offline,
+                                             guide: {question, options: [str] (<=4), checklist: [{id, status, value}]
+                                             (ids what/who/scope/limits/done in order; status clear|assumed|open)},
+                                             error: str|null (why a live turn fell back offline)}
                                              (never writes .baton/00_RFC.md); 400 bad messages / unknown scenario
     POST /api/brainstorm/confirm    {rfc_markdown}
                                           -> 200 {rfc_path, readiness: RFCReadiness, ready_to_launch}; 400 blank
@@ -89,6 +92,8 @@ WORKSPACE_FIELDS = {"path", "is_git_repo", "branch", "has_commits", "has_rfc"}
 BLUEPRINT_FIELDS = {
     "title", "summary", "deliverables", "touched_areas", "verification_plan", "readiness_score", "ready_to_launch",
 }
+TURN_FIELDS = {"reply", "rfc_markdown", "blueprint", "provider_used", "offline", "guide", "error"}
+CHECKLIST_IDS = ("what", "who", "scope", "limits", "done")
 TASK_DETAIL_FIELDS = {
     "run_id", "task_id", "milestone_id", "title", "tier", "status", "summary", "provider", "model",
     "elapsed_sec", "cost_usd", "changed_files", "test_status", "review_verdict", "attempts",
@@ -468,7 +473,9 @@ class TestBrainstormApi(GuidedApiTestCase):
         payload = {"messages": self.MESSAGES, "scenario": "new_feature", "offline": True}
         status, body = self._post("/api/brainstorm/chat", payload)
         self.assertEqual(status, 200, body)
-        self.assertEqual(set(body), {"reply", "rfc_markdown", "blueprint", "provider_used", "offline"})
+        self.assertEqual(set(body), TURN_FIELDS)
+        self.assertIsNone(body["error"])
+        self.assertEqual([item["id"] for item in body["guide"]["checklist"]], list(CHECKLIST_IDS))
         self.assertIs(body["offline"], True)
         self.assertIsNone(body["provider_used"])
         self.assertTrue(body["reply"].strip())
@@ -1021,15 +1028,30 @@ class BrainstormUnitTests(unittest.TestCase):
             raise RuntimeError("provider down")
 
         self._online()
-        expected = brainstorm_turn(self.repo, messages)  # no cfg and no dispatch -> offline
+        expected = brainstorm_turn(self.repo, messages)  # no cfg and no dispatch -> offline, no error
         self.assertIs(expected["offline"], True)
-        for dispatch in (boom, lambda prompt: ("claude_sub", "No rfc block here.")):
-            with self.subTest(dispatch=dispatch):
-                self.assertEqual(brainstorm_turn(self.repo, messages, dispatch=dispatch), expected)
+        self.assertIsNone(expected["error"])
+        for dispatch, reason in ((boom, "provider down"), (lambda prompt: ("claude_sub", "No rfc block here."), "rfc")):
+            with self.subTest(reason=reason):
+                result = brainstorm_turn(self.repo, messages, dispatch=dispatch)
+                self.assertIn(reason, result["error"])
+                self.assertEqual({**result, "error": None}, expected)  # still a usable offline turn
         os.environ["VIBEBATON_OFFLINE_BRAINSTORM"] = "1"
         live = unittest.mock.Mock(return_value=("claude_sub", ""))
         self.assertEqual(brainstorm_turn(self.repo, messages, dispatch=live), expected)
         live.assert_not_called()
+
+    def test_live_failure_error_is_short_and_hides_secrets(self) -> None:
+        self._online()
+        os.environ["ANTHROPIC_API_KEY"] = "sk-ant-SECRETVALUE123"
+
+        def leaky(prompt: str) -> tuple[str, str]:
+            raise RuntimeError("auth failed for sk-ant-SECRETVALUE123 " + "x" * 500)
+
+        error = brainstorm_turn(self.repo, [{"role": "user", "content": self.FIRST}], dispatch=leaky)["error"]
+        self.assertIn("auth failed", error)
+        self.assertNotIn("SECRETVALUE", error)
+        self.assertLessEqual(len(error), 200)
 
     def test_confirm_writes_atomically_and_returns_readiness(self) -> None:
         rfc_path = self.repo / ".baton" / "00_RFC.md"
@@ -1055,10 +1077,6 @@ class BrainstormUnitTests(unittest.TestCase):
 
 
 
-SCENARIO_FIELDS_EN = ("Result I want:", "Who uses it or is affected:", "What must not change:", "How we know it is done:")
-SCENARIO_FIELDS_ZH = ("想达到的结果：", "给谁用 / 会影响谁：", "不能动的东西：", "怎么算完成：")
-
-
 class BrainstormGuidanceTests(unittest.TestCase):
     """Scenario templates, the system prompt, and the read-only project summary."""
 
@@ -1069,23 +1087,18 @@ class BrainstormGuidanceTests(unittest.TestCase):
             self.assertIn(expected, ids)
         for scenario in SCENARIOS:
             with self.subTest(scenario=scenario["id"]):
-                for field in SCENARIO_FIELDS_EN:
-                    self.assertIn("\n" + field, scenario["prompt_en"])
-                for field in SCENARIO_FIELDS_ZH:
-                    self.assertIn("\n" + field, scenario["prompt_zh"])
+                for key in ("prompt_en", "prompt_zh"):
+                    # One natural opening line, not a form of empty "label:" fields.
+                    self.assertNotIn("\n", scenario[key])
+                    self.assertFalse(scenario[key].rstrip().endswith((":", "：")))
                 self.assertTrue((scenario["title_en"] + scenario["prompt_en"]).isascii())
 
-    def test_offline_draft_skips_starter_lines_left_empty(self) -> None:
-        starter = next(item for item in SCENARIOS if item["id"] == "new_feature")["prompt_zh"]
-        filled = starter.replace("想达到的结果：", "想达到的结果：订单列表可以按日期筛选")
+    def test_offline_draft_from_a_scenario_opener(self) -> None:
+        opener = next(item for item in SCENARIOS if item["id"] == "new_feature")["prompt_zh"]
         with tempfile.TemporaryDirectory() as tmp, unittest.mock.patch.dict(os.environ, {"VIBEBATON_OFFLINE_BRAINSTORM": "1"}):
-            rfc = brainstorm_turn(Path(tmp), [{"role": "user", "content": filled}], "new_feature")["rfc_markdown"]
-            untouched = brainstorm_turn(Path(tmp), [{"role": "user", "content": starter}])["rfc_markdown"]
-        self.assertTrue(rfc.startswith("# 我想增加一个新功能\n"))
-        self.assertIn("订单列表可以按日期筛选", rfc)
-        for label in ("- 给谁用 / 会影响谁：", "- 不能动的东西：", "- 怎么算完成："):
-            self.assertNotIn(label, rfc)
-        self.assertEqual(untouched.splitlines()[0], "# 我想增加一个新功能")
+            result = brainstorm_turn(Path(tmp), [{"role": "user", "content": opener}], "new_feature")
+        self.assertTrue(result["rfc_markdown"].startswith("# "))
+        self.assertEqual(result["guide"]["checklist"][0]["status"], "clear")
 
     def test_frontend_scenario_list_mirrors_the_backend(self) -> None:
         mirror = Path(__file__).resolve().parents[1] / "web" / "src" / "components" / "guided" / "brainstormScenarios.json"
@@ -1094,7 +1107,8 @@ class BrainstormGuidanceTests(unittest.TestCase):
     def test_system_prompt_guides_non_engineers_without_breaking_the_rfc_contract(self) -> None:
         prompt = brainstorm._build_prompt([{"role": "user", "content": "hi"}], None)
         for phrase in ("plain words", "propose one yourself", "Never invent file paths", "only the first step",
-                       "````rfc", "## Verification & Acceptance Criteria"):
+                       "````rfc", "## Verification & Acceptance Criteria", "```guide", "only one question",
+                       '"what"', '"who"', '"scope"', '"limits"', '"done"', "assumed"):
             self.assertIn(phrase, prompt)
         self.assertIsNone(CONDESCENDING.search(prompt))
 
@@ -1160,6 +1174,156 @@ class BrainstormGuidanceTests(unittest.TestCase):
                 brainstorm_turn(repo, [{"role": "user", "content": "Add CSV export"}], dispatch=dispatch)
         self.assertIn("Tracks invoices.", prompts[0])
         self.assertIn("read-only", prompts[0])
+
+
+class BrainstormGuideTests(unittest.TestCase):
+    """The ``guide`` contract: one question, clickable options, and a five-item checklist."""
+
+    RFC = BrainstormUnitTests.LIVE_RFC
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.repo = Path(tmp.name)
+        env = unittest.mock.patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        for name in brainstorm.OFFLINE_ENV_VARS:
+            os.environ.pop(name, None)
+
+    def _live(self, text: str) -> dict[str, Any]:
+        return brainstorm_turn(
+            self.repo, [{"role": "user", "content": "Add a health endpoint"}],
+            dispatch=lambda prompt: ("claude_sub", text),
+        )
+
+    def _assert_shape(self, guide: dict[str, Any]) -> None:
+        self.assertEqual(set(guide), {"question", "options", "checklist"})
+        self.assertIsInstance(guide["question"], str)
+        self.assertLessEqual(len(guide["options"]), 4)
+        self.assertTrue(all(isinstance(option, str) and option for option in guide["options"]))
+        self.assertEqual([item["id"] for item in guide["checklist"]], list(CHECKLIST_IDS))
+        for item in guide["checklist"]:
+            self.assertEqual(set(item), {"id", "status", "value"})
+            self.assertIn(item["status"], ("clear", "assumed", "open"))
+            if item["status"] == "open":
+                self.assertEqual(item["value"], "")
+            else:
+                self.assertTrue(item["value"].strip())
+
+    def test_valid_guide_block_is_parsed_and_removed_from_reply(self) -> None:
+        guide = {
+            "question": "Who will call this endpoint?",
+            "options": ["Monitoring only", "Users", "Both", "Other teams", "A fifth one"],
+            "checklist": [
+                {"id": "what", "status": "clear", "value": "A /health endpoint"},
+                {"id": "who", "status": "open", "value": "ignored"},
+                {"id": "scope", "status": "assumed", "value": "Version only"},
+                {"id": "limits", "status": "clear", "value": "Stdlib only"},
+                {"id": "done", "status": "clear", "value": "Unit tests pass"},
+            ],
+        }
+        text = f"You want a health check.\n\n```guide\n{json.dumps(guide)}\n```\n\n````rfc\n{self.RFC}````\n"
+        result = self._live(text)
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["reply"], "You want a health check.")
+        self.assertNotIn("guide", result["reply"])
+        self.assertEqual(result["rfc_markdown"], self.RFC)
+        self._assert_shape(result["guide"])
+        self.assertEqual(result["guide"]["question"], "Who will call this endpoint?")
+        self.assertEqual(result["guide"]["options"], ["Monitoring only", "Users", "Both", "Other teams"])
+        statuses = [(item["status"], item["value"]) for item in result["guide"]["checklist"]]
+        self.assertEqual(statuses, [
+            ("clear", "A /health endpoint"), ("open", ""), ("assumed", "Version only"),
+            ("clear", "Stdlib only"), ("clear", "Unit tests pass"),
+        ])
+
+    def test_guide_block_after_the_rfc_is_also_found(self) -> None:
+        guide = {"question": "Q?", "options": [], "checklist": []}
+        result = self._live(f"Reply.\n\n````rfc\n{self.RFC}````\n\n```guide\n{json.dumps(guide)}\n```\n")
+        self.assertEqual(result["reply"], "Reply.")
+        self.assertEqual(result["rfc_markdown"], self.RFC)
+        self.assertEqual(result["guide"]["question"], "Q?")
+
+    def test_unknown_ids_dropped_missing_ids_open_and_bad_status_open(self) -> None:
+        guide = {
+            "question": "Next?",
+            "options": ["Yes", "", 3, "I'm not sure, you decide", "No"],
+            "checklist": [
+                {"id": "budget", "status": "clear", "value": "cheap"},
+                {"id": "done", "status": "clear", "value": "Tests pass"},
+                {"id": "what", "status": "great", "value": "Something"},
+                "not an object",
+            ],
+        }
+        result = self._live(f"Reply.\n```guide\n{json.dumps(guide)}\n```\n````rfc\n{self.RFC}````\n")
+        self._assert_shape(result["guide"])
+        self.assertEqual(result["guide"]["options"], ["Yes", "No"])
+        by_id = {item["id"]: item for item in result["guide"]["checklist"]}
+        self.assertEqual(by_id["what"]["status"], "open")
+        self.assertEqual(by_id["who"]["status"], "open")
+        self.assertEqual((by_id["done"]["status"], by_id["done"]["value"]), ("clear", "Tests pass"))
+
+    def test_missing_or_invalid_guide_falls_back_to_the_rfc_without_error(self) -> None:
+        for text in (
+            f"Reply.\n\n````rfc\n{self.RFC}````\n",
+            f"Reply.\n```guide\n{{not json\n```\n````rfc\n{self.RFC}````\n",
+            f"Reply.\n```guide\n[1, 2]\n```\n````rfc\n{self.RFC}````\n",
+        ):
+            with self.subTest(text=text[:40]):
+                result = self._live(text)
+                self.assertIsNone(result["error"])
+                self.assertIs(result["offline"], False)
+                self.assertEqual(result["reply"], "Reply.")
+                self._assert_shape(result["guide"])
+                self.assertEqual(result["guide"]["question"], "")
+                by_id = {item["id"]: item["status"] for item in result["guide"]["checklist"]}
+                self.assertEqual(by_id["what"], "clear")
+                self.assertEqual(by_id["limits"], "clear")
+                self.assertEqual(by_id["scope"], "clear")
+                self.assertEqual(by_id["done"], "clear")
+
+    def test_offline_asks_one_checklist_item_at_a_time_in_order(self) -> None:
+        os.environ["VIBEBATON_OFFLINE_BRAINSTORM"] = "1"
+        messages: list[dict[str, str]] = [{"role": "user", "content": "Add CSV export to the orders page"}]
+        asked: list[str] = []
+        for answer in ("My team", "I'm not sure, you decide", "Keep existing behaviour unchanged", "Run the existing tests"):
+            result = brainstorm_turn(self.repo, messages, locale="en")
+            self._assert_shape(result["guide"])
+            self.assertIsNone(result["error"])
+            self.assertEqual(brainstorm_turn(self.repo, messages, locale="en"), result)  # deterministic
+            self.assertTrue(result["guide"]["question"])
+            self.assertIn(result["guide"]["question"], result["reply"])
+            self.assertTrue(2 <= len(result["guide"]["options"]) <= 4)
+            open_ids = [item["id"] for item in result["guide"]["checklist"] if item["status"] == "open"]
+            asked.append(open_ids[0])
+            messages += [{"role": "assistant", "content": result["reply"]}, {"role": "user", "content": answer}]
+        self.assertEqual(asked, ["who", "scope", "limits", "done"])
+        final = brainstorm_turn(self.repo, messages, locale="en")
+        statuses = {item["id"]: (item["status"], item["value"]) for item in final["guide"]["checklist"]}
+        self.assertEqual(statuses["what"][0], "clear")
+        self.assertEqual(statuses["who"], ("clear", "My team"))
+        self.assertEqual(statuses["scope"][0], "assumed")
+        self.assertEqual(statuses["limits"][0], "clear")
+        self.assertEqual(statuses["done"][0], "clear")
+        self.assertEqual(final["guide"]["question"], "")
+        self.assertEqual(final["guide"]["options"], [])
+        self.assertNotIn("not sure", final["rfc_markdown"])  # "you decide" replies are not requirements
+
+    def test_offline_questions_are_bilingual(self) -> None:
+        os.environ["VIBEBATON_OFFLINE_BRAINSTORM"] = "1"
+        zh = brainstorm_turn(self.repo, [{"role": "user", "content": "给订单页加一个导出按钮"}], locale="zh")["guide"]
+        en = brainstorm_turn(self.repo, [{"role": "user", "content": "Add an export button"}], locale="en")["guide"]
+        self.assertTrue(any("\u4e00" <= ch <= "\u9fff" for ch in zh["question"]))
+        self.assertTrue((en["question"] + "".join(en["options"])).isascii())
+        self.assertEqual(len(zh["options"]), len(en["options"]))
+
+    def test_offline_detects_items_the_user_already_gave(self) -> None:
+        os.environ["VIBEBATON_OFFLINE_BRAINSTORM"] = "1"
+        text = "Add a /health endpoint. Use only the stdlib. Auth is out of scope. Verify with python -m unittest."
+        guide = brainstorm_turn(self.repo, [{"role": "user", "content": text}], locale="en")["guide"]
+        statuses = {item["id"]: item["status"] for item in guide["checklist"]}
+        self.assertEqual(statuses, {"what": "clear", "who": "open", "scope": "clear", "limits": "clear", "done": "clear"})
 
 
 class BrainstormModelChoiceTests(unittest.TestCase):
