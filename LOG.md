@@ -170,3 +170,25 @@
 - 已知遗留（未改）：「怎么算完成」的非命令回答（如「我自己打开看一眼就行」）和「改一下」消息本身仍会作为 Goals 的一条 bullet 出现在 RFC 里。
 
 **commit**：856d611
+
+## L0008 2026-11-26 本机没有 Git 身份时，引导页初始化的仓库也能有第一份提交
+
+**目的**：用户机器没有配置全局 `user.name` / `user.email` 时，引导页「开启版本记录」后仓库停在无提交状态（初始提交因 Author identity unknown 失败却被静默忽略），开工后引擎在 `git rev-parse --abbrev-ref HEAD` 处秒挂。
+
+**改动文件**：
+- `src/vibebaton/web_server.py`：新增 `_make_first_commit`：`git config user.name` / `user.email` 解析不到时写入仓库级默认身份（`VibeBaton` / `vibebaton@localhost`），已有身份（全局或本地）绝不覆盖，不碰全局配置；随后 `git commit --allow-empty` 做初始提交，不 `git add` 用户文件；失败时返回带 git 简短原因的错误。`_post_workspace_init_git`：新建仓库时不论目录是否为空都做初始提交；「已是仓库但无提交」时不重新 init，直接补身份并提交（`created=False`）；初始提交失败返回 500 而不是 200。`_post_run_start`：仓库是 git 但没有提交时，在保存 RFC、创建运行、启动 daemon 之前返回 400。
+- `web/src/components/guided/GuidedSetupStep.tsx`：新增纯函数 `workspaceHistoryState` / `historyAllowsBuild`；沿用原「开启版本记录」的提示行与按钮样式：无提交时显示「这个项目还没有第一份存档，无法开始施工」和「创建第一份存档」按钮（调用同一个 init-git 接口），成功后提示「第一份存档已创建」；版本记录未就绪（非 git 或无提交）时「使用这支团队」按钮禁用，并在旁边说明原因。
+- `web/src/i18n/messages.ts`：`guided.setup` 新增 5 个键（中英文一致，EN 仅 ASCII）。
+- `tests/test_guided_api.py`：新增 `TestWorkspaceFirstCommit`（用 `GIT_CONFIG_GLOBAL` 指向空文件、`GIT_CONFIG_NOSYSTEM=1` 并去掉测试自带的 `GIT_AUTHOR_*` 环境变量来隔离身份）；`GuidedSetupStep.test.ts` 新增门禁纯逻辑测试。
+
+**决策原因**：
+- 身份只写仓库级：不改用户的全局 git 配置；默认身份只在完全解析不到时写入。
+- 初始提交用 `--allow-empty` 且不暂存文件：不替用户决定哪些文件进版本库。
+- 开工按钮的门禁同时挡住「非 git」和「无提交」，因为两者都会让引擎失败（`has_commits` 对非 git 目录也是 false）。这比原来更严格：以前非 git 目录也能点「使用这支团队」，但开工必失败。
+- 后端 400 只针对「是 git 但无提交」：非 git 目录的 start run 行为没改，现有测试用的就是非 git 临时目录，改动面会变大。
+
+**验证**：
+- 已验证：新增的 5 个后端测试修复前全部失败、修复后通过；后端指定 7 个模块 261 个测试、前端 vitest 716、`tsc --noEmit`、`npm run build` 全部通过。浏览器实测：以 `GIT_CONFIG_GLOBAL` 指向不存在的文件、`GIT_CONFIG_NOSYSTEM=1` 启动服务，打开一个 `git init` 过但无提交、含一个文件的临时目录：工作区步骤显示「还没有第一份存档」和「创建第一份存档」按钮，「使用这支团队」禁用并说明原因；点修复后提示「第一份存档已创建」，按钮变为可用；仓库里出现作者为 `VibeBaton <vibebaton@localhost>` 的空提交，`git ls-files` 为空，仓库级 `user.name` 为 VibeBaton。
+- 未验证：用户实际出问题的 `D:\AI\demo`（按要求未改动）；引擎里任务提交和合并提交（`git_ops.py`）在「仓库已有提交但本机没有身份」时仍会失败，本轮只在 init-git 时补身份，没处理这种情况。
+
+**commit**：61b6880
