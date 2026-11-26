@@ -9,6 +9,7 @@ import time
 from collections import defaultdict, deque
 from typing import Any, TypedDict
 
+from . import pricing
 from .db import StateStore
 
 _INVOKING_RE = re.compile(r"Invoking\s+([^\s(]+)\s*\(([^/]+)/([^)]+)\)")
@@ -257,6 +258,15 @@ def _record_billing(entry: dict[str, Any], billing: _BillingTelemetry, payload: 
     cost_usd = _parse_cost_usd(payload.get("cost_usd"))
     if prompt_tokens == 0 and completion_tokens == 0 and cached_tokens == 0 and cost_usd is None:
         return
+    if cost_usd is None and prompt_tokens + completion_tokens > 0:
+        model_name = payload.get("model") if isinstance(payload.get("model"), str) else entry.get("model")
+        if isinstance(model_name, str) and model_name.strip():
+            try:
+                cost_usd = pricing.compute_token_cost_usd(
+                    model_name, prompt_tokens, completion_tokens, cached_tokens,
+                )
+            except ValueError:
+                cost_usd = None
 
     billing["has_exact_billing"] = True
     billing["total_prompt_tokens"] += prompt_tokens

@@ -414,6 +414,11 @@ export interface Messages {
     saved: string;
     saveFailed: string;
     close: string;
+    searchLabel: string;
+    searchPlaceholder: string;
+    clearSearch: string;
+    searchCount(shown: number, total: number): string;
+    noMatches: string;
   };
   nodeReadiness: {
     statuses: Record<'ready' | 'cooldown' | 'missing', string>;
@@ -612,6 +617,24 @@ export interface Messages {
       done: string;
       revisedDone: string;
       rolledBackDone: string;
+      kpiTests: string;
+      kpiFiles: string;
+      kpiCost: string;
+      kpiCostUnavailable: string;
+      workspaceLocation: string;
+      openFolder: string;
+      openFile: string;
+      revealFile: string;
+      openFailed: string;
+      deliverablesTitle: string;
+      deliverablesEmpty: string;
+      battleReportInline: string;
+      battleReportToggleShow: string;
+      battleReportToggleHide: string;
+      battleReportLoading: string;
+      battleReportFailed: string;
+      copyReport: string;
+      copiedReport: string;
     };
     errors: {
       dirtyWorkingTree: string;
@@ -1208,6 +1231,11 @@ export const MESSAGES: Record<Locale, Messages> = {
       saved: 'Prices saved',
       saveFailed: 'Could not save custom prices',
       close: 'Close',
+      searchLabel: 'Search models',
+      searchPlaceholder: 'Search model name, e.g. claude, gemini, gpt...',
+      clearSearch: 'Clear',
+      searchCount: (shown, total) => (shown === total ? `${total} models` : `Showing ${shown} of ${total}`),
+      noMatches: 'No models match your search.',
     },
     nodeReadiness: {
       statuses: { ready: 'Ready', cooldown: 'Cooldown', missing: 'Missing' },
@@ -1450,6 +1478,24 @@ export const MESSAGES: Record<Locale, Messages> = {
         done: 'Merged into your main branch. You can roll back while no newer commits land on it; the backup tag from run start stays as a recovery point.',
         revisedDone: 'Sent back with your notes. The run is paused until you resume it.',
         rolledBackDone: 'Rolled back. Your main branch is back where it was before approval.',
+        kpiTests: 'Checks Passed',
+        kpiFiles: 'Changed Files',
+        kpiCost: 'Total Spend',
+        kpiCostUnavailable: 'Not billed',
+        workspaceLocation: 'Output Folder',
+        openFolder: 'Open Folder',
+        openFile: 'Open',
+        revealFile: 'Locate',
+        openFailed: 'Could not open this path locally.',
+        deliverablesTitle: 'What Was Built',
+        deliverablesEmpty: 'No task deliverables reported yet.',
+        battleReportInline: 'Battle Report',
+        battleReportToggleShow: 'Expand Report',
+        battleReportToggleHide: 'Collapse Report',
+        battleReportLoading: 'Loading battle report...',
+        battleReportFailed: 'Could not load inline battle report.',
+        copyReport: 'Copy Report',
+        copiedReport: 'Copied',
       },
       errors: {
         dirtyWorkingTree: 'Some files have unsaved changes (dirty working tree). Commit or stash them, then try again.',
@@ -2044,6 +2090,11 @@ export const MESSAGES: Record<Locale, Messages> = {
       saved: '单价已保存',
       saveFailed: '保存自定义单价失败',
       close: '关闭',
+      searchLabel: '搜索模型',
+      searchPlaceholder: '输入模型关键词筛选，例如 claude、gemini、gpt...',
+      clearSearch: '清空',
+      searchCount: (shown, total) => (shown === total ? `共 ${total} 个模型` : `匹配 ${shown} / ${total} 个`),
+      noMatches: '没有匹配该关键词的模型。',
     },
     nodeReadiness: {
       statuses: { ready: '就绪', cooldown: '冷却中', missing: '缺失' },
@@ -2286,6 +2337,24 @@ export const MESSAGES: Record<Locale, Messages> = {
         done: '已合入你的主分支。在主分支出现新提交之前仍可回滚；本次运行开始时创建的备份标签会保留作为恢复点。',
         revisedDone: '已附意见退回，运行将暂停，直到你重新启动。',
         rolledBackDone: '已回滚，主分支已恢复到批准前的状态。',
+        kpiTests: '通过检查',
+        kpiFiles: '产物文件',
+        kpiCost: '本次总花费',
+        kpiCostUnavailable: '未计费',
+        workspaceLocation: '产物目录',
+        openFolder: '打开项目文件夹',
+        openFile: '打开',
+        revealFile: '定位目录',
+        openFailed: '本地无法打开该路径，请确认文件是否仍存在。',
+        deliverablesTitle: '最终交付成果',
+        deliverablesEmpty: '暂未上报细分任务成果。',
+        battleReportInline: '战报摘要',
+        battleReportToggleShow: '展开战报',
+        battleReportToggleHide: '收起战报',
+        battleReportLoading: '正在加载战报……',
+        battleReportFailed: '在线战报加载失败，可点击右上角「打开战报」查看。',
+        copyReport: '复制战报',
+        copiedReport: '已复制',
       },
       errors: {
         dirtyWorkingTree: '有文件改动尚未提交（dirty working tree）。请先提交或暂存，再重试。',

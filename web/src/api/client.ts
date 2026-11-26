@@ -695,6 +695,13 @@ export class BatonApiClient {
     return this.requestJson('/api/workspace/browse', { method: 'POST', body: {} });
   }
 
+  openWorkspacePath(options: { path?: string; reveal?: boolean } = {}): Promise<{ ok: boolean; path: string; reveal: boolean }> {
+    if (this.mode === 'demo') {
+      return Promise.resolve({ ok: true, path: options.path ?? '.', reveal: Boolean(options.reveal) });
+    }
+    return this.requestJson('/api/workspace/open', { method: 'POST', body: options });
+  }
+
   initGitWorkspace(): Promise<InitGitResult> {
     return this.requestJson('/api/workspace/init-git', { method: 'POST', body: {} });
   }

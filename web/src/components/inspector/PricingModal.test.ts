@@ -351,4 +351,31 @@ describe('PricingModal', () => {
     expect(markup).toContain(copy.saveFailed);
     expect(markup).toContain('role="alert"');
   });
+
+  test('filters models by search query, shows count badge, clears search, and displays empty state', async () => {
+    const client = mockClient();
+    const { dialog } = await mount(client);
+    expect(renderToStaticMarkup(dialog().children)).toContain(copy.searchCount(3, 3));
+
+    const searchProps = input(dialog().children, copy.searchLabel);
+    await act(async () => searchProps.onChange?.({ currentTarget: { value: 'OFFI' } } as ChangeEvent<HTMLInputElement>));
+
+    const filteredMarkup = renderToStaticMarkup(dialog().children);
+    expect(filteredMarkup).toContain(official.model);
+    expect(filteredMarkup).not.toContain(custom.model);
+    expect(filteredMarkup).not.toContain(builtin.model);
+    expect(filteredMarkup).toContain(copy.searchCount(1, 3));
+
+    const missingProps = input(dialog().children, copy.searchLabel);
+    await act(async () => missingProps.onChange?.({ currentTarget: { value: 'nonexistent-model-xyz' } } as ChangeEvent<HTMLInputElement>));
+    const emptyMarkup = renderToStaticMarkup(dialog().children);
+    expect(emptyMarkup).toContain(copy.noMatches);
+    expect(emptyMarkup).toContain(copy.searchCount(0, 3));
+
+    await click(button(dialog().children, copy.clearSearch));
+    const resetMarkup = renderToStaticMarkup(dialog().children);
+    expect(resetMarkup).toContain(custom.model);
+    expect(resetMarkup).toContain(official.model);
+    expect(resetMarkup).toContain(builtin.model);
+  });
 });

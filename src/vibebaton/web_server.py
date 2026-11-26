@@ -82,6 +82,7 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("GET", re.compile(r"/api/workspace/info"), "_get_workspace_info"),
     ("POST", re.compile(r"/api/workspace/select"), "_post_workspace_select"),
     ("POST", re.compile(r"/api/workspace/browse"), "_post_workspace_browse"),
+    ("POST", re.compile(r"/api/workspace/open"), "_post_workspace_open"),
     ("POST", re.compile(r"/api/workspace/init-git"), "_post_workspace_init_git"),
     ("POST", re.compile(r"/api/brainstorm/chat"), "_post_brainstorm_chat"),
     ("POST", re.compile(r"/api/brainstorm/confirm"), "_post_brainstorm_confirm"),
@@ -332,6 +333,21 @@ def _workspace_info(repo: Path) -> dict[str, Any]:
         "has_commits": has_commits,
         "has_rfc": (repo / RFC_RELATIVE_PATH).is_file(),
     }
+
+
+def _open_local_path(target: Path, *, reveal: bool = False) -> None:
+    """Open a local file or reveal it inside the OS file manager without invoking a shell."""
+    if sys.platform == "win32":
+        if reveal and target.is_file():
+            subprocess.Popen(["explorer", f"/select,{target}"], shell=False)
+        else:
+            os.startfile(str(target))
+    elif sys.platform == "darwin":
+        argv = ["open", "-R", str(target)] if reveal and target.is_file() else ["open", str(target)]
+        subprocess.Popen(argv, shell=False)
+    else:
+        open_target = target.parent if reveal and target.is_file() else target
+        subprocess.Popen(["xdg-open", str(open_target)], shell=False)
 
 
 def _pick_workspace_directory(initial_dir: Path) -> str | None:
@@ -1256,6 +1272,28 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             return
         workspace = self._switch_workspace(picked.strip())
         self._send_json(200, {"cancelled": False, "path": workspace["path"], "workspace": workspace})
+
+    def _post_workspace_open(self) -> None:
+        payload = self._read_json_body(optional=True)
+        raw_path = payload.get("path")
+        reveal = bool(payload.get("reveal", False))
+        repo_root = self.server.repo_path.resolve()
+        if raw_path is None or (isinstance(raw_path, str) and not raw_path.strip()):
+            target = repo_root
+        elif isinstance(raw_path, str):
+            target = (repo_root / raw_path.strip()).resolve()
+            if not target.is_relative_to(repo_root):
+                self._send_json(400, {"error": "Path must stay inside the active workspace."})
+                return
+        else:
+            raise _BadRequest("path must be a string")
+        if not target.exists():
+            label = raw_path.strip() if isinstance(raw_path, str) and raw_path.strip() else str(repo_root)
+            self._send_json(404, {"error": f"Path not found: {label}"})
+            return
+        opener = getattr(self.server, "path_opener", None) or _open_local_path
+        opener(target, reveal=reveal)
+        self._send_json(200, {"ok": True, "path": str(target), "reveal": reveal})
 
     def _post_workspace_init_git(self) -> None:
         self._read_json_body(optional=True)

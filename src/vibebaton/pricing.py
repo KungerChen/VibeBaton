@@ -22,7 +22,7 @@ PricingSource = Literal["custom", "official_cache", "builtin"]
 _RATE_KEYS = ("input_per_1m", "output_per_1m", "cached_input_per_1m")
 _LITELLM_KEYS = ("input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost")
 _TOKENS_PER_MILLION = 1_000_000
-_EFFORTS = {"low", "high", "max", "xhigh", "ultra"}
+_EFFORTS = {"low", "medium", "high", "max", "xhigh", "ultra"}
 _PROVIDER_PREFIXES = {"anthropic", "openai", "deepseek", "opencode-go"}
 _DEFAULT_CACHE_PATH = "~/.vibebaton/pricing_cache.json"
 _DEFAULT_CUSTOM_PATH = "~/.vibebaton/custom_pricing.json"
@@ -59,6 +59,12 @@ DEFAULT_MODEL_PRICING: dict[str, dict[str, float]] = {
     "claude-sonnet-4-6": _rate_row(3.0, 15.0, 0.30),
     "claude-haiku-4-5": _rate_row(1.0, 5.0, 0.10),
     "claude-fable-5-2": _rate_row(8.0, 40.0, 0.20),
+    "claude-opus-5-5": _rate_row(4.0, 20.0, 0.20),
+    "claude-sonnet-5-5": _rate_row(2.0, 10.0, 0.10),
+    "claude-haiku-5-5": _rate_row(0.10, 0.50, 0.01),
+    # Google Gemini API standard rates
+    "gemini-2.5-pro": _rate_row(1.25, 10.0, 0.125),
+    "gemini-2.5-flash": _rate_row(0.30, 2.50, 0.03),
     # Standard rates at https://developers.openai.com/api/docs/models
     "gpt-4o": _rate_row(2.50, 10.00, 1.25),
     "gpt-4o-mini": _rate_row(0.15, 0.60, 0.075),
@@ -70,6 +76,8 @@ DEFAULT_MODEL_PRICING: dict[str, dict[str, float]] = {
     "o4-mini": _rate_row(1.10, 4.40, 0.275),
     "gpt-6.2-sol": _rate_row(2.00, 10.00, 0.10),
     "gpt-6.2-astra": _rate_row(8.00, 40.00, 0.40),
+    "gpt-6.1-terra": _rate_row(1.00, 5.00, 0.05),
+    "gpt-6-luna": _rate_row(0.10, 0.50, 0.01),
     # Peak rates at https://api-docs.deepseek.com/quick_start/pricing/
     "deepseek-flash": _rate_row(0.30, 1.20, 0.006),
     "deepseek-v4-pro": _rate_row(1.32, 3.96, 0.044),

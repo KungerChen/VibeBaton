@@ -195,6 +195,28 @@ class TestReportBilling(unittest.TestCase):
         self.assertNotRegex(section, _HAN_RE)
         self.assertIn(r"| `\u6a21\u578b\|lite` | 10 | 0 | — |", section)
 
+    def test_missing_cost_for_claude_medium_model_falls_back_to_pricing_table(self) -> None:
+        self.store.log_event(
+            self.run_id,
+            "role_completed",
+            actor="tactical_planner:claude-opus-5-5@medium",
+            message="Completed tactical_planner (claude_sub/claude-opus-5-5@medium) in 9.0s (ok)",
+            payload={
+                "role": "tactical_planner",
+                "provider": "claude_sub",
+                "model": "claude-opus-5-5@medium",
+                "duration_sec": 9.0,
+                "prompt_tokens": 1_000_000,
+                "completion_tokens": 100_000,
+                "cached_tokens": 200_000,
+            },
+        )
+        telemetry = compute_run_telemetry(self.store, self.run_id)
+        self.assertIsNotNone(telemetry["billing"]["total_cost_usd"])
+        self.assertAlmostEqual(telemetry["billing"]["total_cost_usd"], 5.24, places=4)
+        planner = telemetry["models"][0]
+        self.assertAlmostEqual(planner["cost_usd"], 5.24, places=4)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -437,6 +437,29 @@ class TestWorkspaceApi(GuidedApiTestCase):
         self.assertEqual(body2["workspace"]["path"], str(target))
         self.assertEqual(self._get("/api/workspace/info")[1]["path"], str(target))
 
+    def test_open_workspace_root_and_file_and_reject_traversal(self) -> None:
+        opened: list[tuple[Path, bool]] = []
+        self.server.path_opener = lambda path, *, reveal=False: opened.append((path, reveal))
+
+        sample = self.repo / "src" / "app.py"
+        sample.parent.mkdir(parents=True, exist_ok=True)
+        sample.write_text("print('ok')\n", encoding="utf-8")
+
+        status, body = self._post("/api/workspace/open", {})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body, {"ok": True, "path": str(self.repo.resolve()), "reveal": False})
+
+        status2, body2 = self._post("/api/workspace/open", {"path": "src/app.py", "reveal": True})
+        self.assertEqual(status2, 200, body2)
+        self.assertEqual(body2, {"ok": True, "path": str(sample.resolve()), "reveal": True})
+        self.assertEqual(opened, [(self.repo.resolve(), False), (sample.resolve(), True)])
+
+        outside_status, outside_body = self._post("/api/workspace/open", {"path": "../outside.txt"})
+        self.assertEqual(outside_status, 400, outside_body)
+
+        missing_status, missing_body = self._post("/api/workspace/open", {"path": "does-not-exist.txt"})
+        self.assertEqual(missing_status, 404, missing_body)
+
 
 class TestBrainstormApi(GuidedApiTestCase):
     MESSAGES = [{"role": "user", "content": "Add a /health endpoint that reports the app version."}]

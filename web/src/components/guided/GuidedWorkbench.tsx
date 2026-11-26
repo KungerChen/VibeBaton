@@ -12,7 +12,7 @@ import type { BatonFlowNode } from '../nodes/BatonNode';
 import { GuidedBrainstormStep } from './GuidedBrainstormStep';
 import { GuidedDecisionModal, optionsFromEvent, type GuidedDecisionOption } from './GuidedDecisionModal';
 import { GuidedSetupStep, lineupSummary } from './GuidedSetupStep';
-import { GuidedSignOffPanel, type SignOffSummary } from './GuidedSignOffPanel';
+import { GuidedSignOffPanel, type SignOffDeliverable, type SignOffSummary } from './GuidedSignOffPanel';
 import { localizeGuidedError } from './guidedErrors';
 import { NodeDetailDrawer } from './NodeDetailDrawer';
 
@@ -120,6 +120,29 @@ export function signOffSummaryFromSnapshot(snapshot: LiveRunSnapshot): SignOffSu
   };
 }
 
+/** Extract concise task deliverable rows from a live run snapshot for beginner-friendly sign-off review. */
+export function signOffDeliverablesFromSnapshot(snapshot: LiveRunSnapshot): SignOffDeliverable[] {
+  const taskSummaries = new Map<string, string>();
+  for (const event of snapshot.events) {
+    const taskId = typeof event.task_id === 'string' ? event.task_id : '';
+    const payload = eventPayload(event);
+    const note = [payload?.summary, payload?.result, event.message]
+      .find((item) => typeof item === 'string' && item.trim());
+    if (taskId && typeof note === 'string') {
+      taskSummaries.set(taskId, note.trim().slice(0, 220));
+    }
+  }
+  return snapshot.tasks.map((task, idx) => {
+    const id = typeof task.id === 'string' && task.id ? task.id : `task-${idx + 1}`;
+    const title = typeof task.title === 'string' && task.title.trim() ? task.title.trim() : id;
+    const status = typeof task.status === 'string' && task.status ? task.status : 'PENDING';
+    const rawSummary = typeof task.summary === 'string' && task.summary.trim()
+      ? task.summary.trim()
+      : taskSummaries.get(id);
+    return rawSummary ? { id, title, status, summary: rawSummary } : { id, title, status };
+  });
+}
+
 function runIdOf(snapshot: LiveRunSnapshot | null): string | null {
   const id = snapshot?.run?.id;
   return typeof id === 'string' ? id : null;
@@ -190,10 +213,22 @@ export function GuidedWorkbench({ locale, client, apiMode, liveSnapshot, onFollo
   const [lastSignOff, setLastSignOff] = useState<{ runId: string; action: FinalizeAction } | null>(null);
   const [resumeBusy, setResumeBusy] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
+  const [workspacePath, setWorkspacePath] = useState<string | null>(null);
 
   const snapshot = runId && runIdOf(liveSnapshot) === runId ? liveSnapshot : null;
   // Once a run exists its status decides between Build and Sign-Off (a revision re-enters Build).
   const shownStep: GuidedStep = runId ? stepFromRun(snapshot?.run?.status) ?? 'live' : step;
+
+  useEffect(() => {
+    if (shownStep !== 'signoff' || typeof client.getWorkspaceInfo !== 'function') return;
+    let active = true;
+    client.getWorkspaceInfo()
+      .then((info) => {
+        if (active && info?.path) setWorkspacePath(info.path);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [client, shownStep]);
   const decision = waitingDecision(snapshot);
   const shownIndex = GUIDED_STEPS.indexOf(shownStep);
   const pausedBannerText = snapshot?.run?.status === 'PAUSED'
@@ -348,9 +383,16 @@ export function GuidedWorkbench({ locale, client, apiMode, liveSnapshot, onFollo
             <GuidedSignOffPanel
               runId={runId}
               runStatus={typeof snapshot.run?.status === 'string' ? snapshot.run.status : undefined}
-              summary={signOffSummaryFromSnapshot(snapshot)}
+              summary={{
+                ...signOffSummaryFromSnapshot(snapshot),
+                totalCostUsd: snapshot.telemetry?.billing?.total_cost_usd ?? null,
+                workspacePath,
+                deliverables: signOffDeliverablesFromSnapshot(snapshot),
+              }}
               locale={locale}
               finalizer={(id, payload) => client.finalizeRun(id, payload)}
+              reportFetcher={typeof client.getRunReport === 'function' ? (id, lang) => client.getRunReport(id, lang) : undefined}
+              onOpenPath={typeof client.openWorkspacePath === 'function' ? (opts) => client.openWorkspacePath(opts) : undefined}
               onFinalized={(result) => {
                 setLastSignOff({ runId, action: result.action });
                 onFollowRun(runId);

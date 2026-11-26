@@ -258,4 +258,36 @@ describe('GuidedSignOffPanel', () => {
       }
     }
   });
+
+  test('renders KPI summary, workspace folder opener, deliverables, file open/reveal actions, and inline battle report', () => {
+    const richSummary: SignOffSummary = {
+      ...summary,
+      totalCostUsd: 0.425,
+      workspacePath: 'D:/Projects/Demo',
+      deliverables: [
+        { id: 'M1-T1', title: 'Add health check endpoint', status: 'PASSED', summary: 'Implemented /api/health and unit tests.' },
+      ],
+    };
+    const html = renderPanel({
+      summary: richSummary,
+      locale: 'zh',
+      onOpenPath: async () => ({ ok: true }),
+      initialReportMarkdown: '## 本次总结\n\n已完成全部接口。',
+    });
+    const text = decodeHtml(html);
+
+    expect(text).toContain(ZH.kpiTests);
+    expect(text).toContain(ZH.kpiCost);
+    expect(text).toContain('$0.425');
+    expect(text).toContain('D:/Projects/Demo');
+    expect(text).toContain(ZH.openFolder);
+    expect(text).toContain(ZH.deliverablesTitle);
+    expect(text).toContain('Add health check endpoint');
+    expect(text).toContain('Implemented /api/health and unit tests.');
+    expect(text).toContain(ZH.openFile);
+    expect(text).toContain(ZH.revealFile);
+    expect(text).toContain(ZH.battleReportInline);
+    expect(text).toContain('本次总结');
+    expect(text).toContain('已完成全部接口。');
+  });
 });

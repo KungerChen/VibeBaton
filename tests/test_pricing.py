@@ -343,3 +343,26 @@ class TestPricing(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         fetcher.assert_called_once_with(self.settings.source_url, self.settings.timeout_sec)
         self.assertTrue(self.cache_path.is_file())
+
+    def test_medium_effort_and_claude_5_5_builtin_rates_resolve_cleanly(self) -> None:
+        self.assertEqual(pricing.normalize_model_name("claude-opus-5-5@medium"), "claude-opus-5-5")
+        self.assertEqual(pricing.normalize_model_name("anthropic/claude-sonnet-5-5@medium"), "claude-sonnet-5-5")
+        self.assertEqual(pricing.normalize_model_name("gemini-4-carbon@medium"), "gemini-4-carbon")
+        for model_id, expected_in, expected_out, expected_cached in (
+            ("claude-opus-5-5@medium", 4.0, 20.0, 0.20),
+            ("claude-sonnet-5-5@medium", 2.0, 10.0, 0.10),
+            ("claude-haiku-5-5@medium", 0.10, 0.50, 0.01),
+        ):
+            resolved = pricing.resolve_model_pricing(
+                model_id, cache_path=self.cache_path, custom_path=self.custom_path,
+            )
+            self.assertIsNotNone(resolved)
+            assert resolved is not None
+            self.assertEqual(resolved.input_per_1m, expected_in)
+            self.assertEqual(resolved.output_per_1m, expected_out)
+            self.assertEqual(resolved.cached_input_per_1m, expected_cached)
+            cost = pricing.compute_token_cost_usd(
+                model_id, 1_000_000, 100_000, 200_000,
+                cache_path=self.cache_path, custom_path=self.custom_path,
+            )
+            self.assertIsNotNone(cost)

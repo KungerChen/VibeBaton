@@ -1,5 +1,6 @@
 import './GuidedSignOffPanel.css';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { ExternalLink, FolderOpen } from 'lucide-react';
 import {
   BatonApiClient,
   type FinalizeAction,
@@ -7,9 +8,19 @@ import {
   type FinalizeResult,
 } from '../../api/client';
 import { MESSAGES, type Locale } from '../../i18n/messages';
+import { formatUsd } from '../inspector/billingFormat';
 import { Button } from '../ui/button';
 import { Textarea } from '../ui/input';
+import { MarkdownView } from '../ui/MarkdownView';
 import { localizeGuidedError } from './guidedErrors';
+
+/** One finished deliverable/task summary shown clearly to users at sign-off. */
+export interface SignOffDeliverable {
+  id: string;
+  title: string;
+  status: string;
+  summary?: string;
+}
 
 /** Everything the final verification card needs to render one run. */
 export interface SignOffSummary {
@@ -17,6 +28,9 @@ export interface SignOffSummary {
   testsTotal: number;
   changedFiles: string[];
   reportUrl: string;
+  totalCostUsd?: number | null;
+  workspacePath?: string | null;
+  deliverables?: SignOffDeliverable[];
 }
 
 /** Localized, render-ready view of a sign-off summary. */
@@ -71,6 +85,12 @@ export interface GuidedSignOffPanelProps {
   locale: Locale;
   /** Overrides the default same-origin `finalizeRun` call, primarily for embedding and tests. */
   finalizer?: SignOffFinalizer;
+  /** Fetches markdown Battle Report inline so users can read it directly inside Guided Mode. */
+  reportFetcher?: (runId: string, locale: Locale) => Promise<string>;
+  /** Opens the project folder or a changed file / reveals it in Explorer/Finder. */
+  onOpenPath?: (options: { path?: string; reveal?: boolean }) => Promise<unknown>;
+  /** Optional pre-loaded battle report markdown (primarily for tests or offline views). */
+  initialReportMarkdown?: string | null;
 }
 
 /**
@@ -84,6 +104,9 @@ export function GuidedSignOffPanel({
   onFinalized,
   locale,
   finalizer = finalizeRun,
+  reportFetcher,
+  onOpenPath,
+  initialReportMarkdown = null,
 }: GuidedSignOffPanelProps) {
   const copy = MESSAGES[locale].guided.signOff;
   const digest = summarizeSignOff(summary, locale);
@@ -93,6 +116,13 @@ export function GuidedSignOffPanel({
   const [busy, setBusy] = useState(false);
   const [completed, setCompleted] = useState<FinalizeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
+  const [openingKey, setOpeningKey] = useState<string | null>(null);
+  const [reportMarkdown, setReportMarkdown] = useState<string | null>(initialReportMarkdown);
+  const [reportLoading, setReportLoading] = useState(Boolean(reportFetcher && initialReportMarkdown === null));
+  const [reportError, setReportError] = useState(false);
+  const [reportExpanded, setReportExpanded] = useState(true);
+  const [copiedReport, setCopiedReport] = useState(false);
   const inFlight = useRef(false);
   const effectiveStatus = completed?.status ?? runStatus;
   const isApproved = effectiveStatus === 'COMPLETED' || completed?.action === 'approve';
@@ -102,6 +132,54 @@ export function GuidedSignOffPanel({
   const canRollback = !busy && !isTerminal
     && (effectiveStatus === 'COMPLETED' || (runStatus === undefined && completed === null));
   const reportHref = digest.reportUrl.trim() || `/api/runs/${encodeURIComponent(runId)}/report`;
+  const costDisplay = typeof summary.totalCostUsd === 'number' && Number.isFinite(summary.totalCostUsd)
+    ? formatUsd(summary.totalCostUsd, locale)
+    : copy.kpiCostUnavailable;
+  const deliverables = summary.deliverables ?? [];
+
+  useEffect(() => {
+    if (!reportFetcher) return;
+    let active = true;
+    setReportLoading(true);
+    setReportError(false);
+    reportFetcher(runId, locale)
+      .then((markdown) => {
+        if (!active) return;
+        setReportMarkdown(markdown);
+      })
+      .catch(() => {
+        if (!active) return;
+        setReportError(true);
+      })
+      .finally(() => {
+        if (active) setReportLoading(false);
+      });
+    return () => { active = false; };
+  }, [runId, locale, reportFetcher]);
+
+  async function triggerOpen(key: string, options: { path?: string; reveal?: boolean }) {
+    if (!onOpenPath || openingKey !== null) return;
+    setOpeningKey(key);
+    setOpenError(null);
+    try {
+      await onOpenPath(options);
+    } catch {
+      setOpenError(copy.openFailed);
+    } finally {
+      setOpeningKey(null);
+    }
+  }
+
+  async function copyBattleReport() {
+    if (!reportMarkdown || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(reportMarkdown);
+      setCopiedReport(true);
+      setTimeout(() => setCopiedReport(false), 2000);
+    } catch {
+      // Ignore clipboard permission denials in non-secure contexts.
+    }
+  }
 
   async function finalize(action: FinalizeAction) {
     const allowed = action === 'rollback' ? canRollback : canApproveOrRevise;
@@ -133,34 +211,151 @@ export function GuidedSignOffPanel({
           <h2 className="guided-sign-off__title">{copy.title}</h2>
           <code className="guided-sign-off__run" title={runId}>{runId}</code>
         </div>
-        <a
-          className="guided-sign-off__report"
-          href={reportHref}
-          target="_blank"
-          rel="noreferrer"
-        >
-          {copy.battleReport}
-        </a>
+        <div className="guided-sign-off__header-actions">
+          {onOpenPath && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={openingKey !== null}
+              onClick={() => void triggerOpen('workspace', {})}
+            >
+              <FolderOpen size={14} aria-hidden="true" />
+              {copy.openFolder}
+            </Button>
+          )}
+          <a
+            className="guided-sign-off__report"
+            href={reportHref}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {copy.battleReport}
+          </a>
+        </div>
       </header>
 
       <div className="guided-sign-off__summary">
+        <div className="guided-sign-off__kpis">
+          <div className="guided-sign-off__kpi" data-passed={digest.allPassed ? 'true' : 'false'}>
+            <span className="guided-sign-off__kpi-label">{copy.kpiTests}</span>
+            <strong className="guided-sign-off__kpi-value">{summary.testsPassed}/{summary.testsTotal}</strong>
+          </div>
+          <div className="guided-sign-off__kpi">
+            <span className="guided-sign-off__kpi-label">{copy.kpiFiles}</span>
+            <strong className="guided-sign-off__kpi-value">{summary.changedFiles.length}</strong>
+          </div>
+          <div className="guided-sign-off__kpi">
+            <span className="guided-sign-off__kpi-label">{copy.kpiCost}</span>
+            <strong className="guided-sign-off__kpi-value">{costDisplay}</strong>
+          </div>
+        </div>
+
         <div className="guided-sign-off__tests" data-passed={digest.allPassed ? 'true' : 'false'}>
           <span className="guided-sign-off__dot" aria-hidden="true" />
           <span>{digest.tests}</span>
         </div>
 
+        {summary.workspacePath && (
+          <div className="guided-sign-off__workspace-bar">
+            <span className="guided-sign-off__workspace-label">{copy.workspaceLocation}</span>
+            <code className="guided-sign-off__workspace-path">{summary.workspacePath}</code>
+            {onOpenPath && (
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={openingKey !== null}
+                onClick={() => void triggerOpen('workspace-inline', {})}
+              >
+                <FolderOpen size={13} aria-hidden="true" />
+                {copy.openFolder}
+              </Button>
+            )}
+          </div>
+        )}
+
+        {deliverables.length > 0 && (
+          <div className="guided-sign-off__deliverables">
+            <h3 className="guided-sign-off__files-title">{copy.deliverablesTitle}</h3>
+            <ul className="guided-sign-off__deliverable-list">
+              {deliverables.map((item) => (
+                <li key={item.id} className="guided-sign-off__deliverable">
+                  <div className="guided-sign-off__deliverable-head">
+                    <strong className="guided-sign-off__deliverable-title">{item.title}</strong>
+                    <span className="guided-sign-off__deliverable-status" data-status={item.status}>
+                      {item.status}
+                    </span>
+                  </div>
+                  {item.summary && (
+                    <p className="guided-sign-off__deliverable-summary">{item.summary}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="guided-sign-off__files">
           <h3 className="guided-sign-off__files-title">{digest.changedFiles}</h3>
+          {openError && <p className="guided-sign-off__error" role="alert">{openError}</p>}
           {summary.changedFiles.length > 0 ? (
             <ul className="guided-sign-off__file-list">
               {summary.changedFiles.map((file) => (
                 <li key={file} className="guided-sign-off__file">
                   <code>{file}</code>
+                  {onOpenPath && (
+                    <div className="guided-sign-off__file-actions">
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        disabled={openingKey !== null}
+                        onClick={() => void triggerOpen(`open:${file}`, { path: file, reveal: false })}
+                      >
+                        <ExternalLink size={12} aria-hidden="true" />
+                        {copy.openFile}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        disabled={openingKey !== null}
+                        onClick={() => void triggerOpen(`reveal:${file}`, { path: file, reveal: true })}
+                      >
+                        <FolderOpen size={12} aria-hidden="true" />
+                        {copy.revealFile}
+                      </Button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
           ) : null}
         </div>
+
+        {(reportFetcher || reportMarkdown !== null || reportError) && (
+          <div className="guided-sign-off__inline-report">
+            <div className="guided-sign-off__inline-report-head">
+              <h3 className="guided-sign-off__files-title">{copy.battleReportInline}</h3>
+              <div className="guided-sign-off__inline-report-actions">
+                {reportMarkdown && typeof navigator !== 'undefined' && navigator.clipboard && (
+                  <Button variant="ghost" size="xs" onClick={() => void copyBattleReport()}>
+                    {copiedReport ? copy.copiedReport : copy.copyReport}
+                  </Button>
+                )}
+                {reportMarkdown && (
+                  <Button variant="ghost" size="xs" onClick={() => setReportExpanded((prev) => !prev)}>
+                    {reportExpanded ? copy.battleReportToggleHide : copy.battleReportToggleShow}
+                  </Button>
+                )}
+              </div>
+            </div>
+            {reportLoading && <p className="guided-sign-off__report-state">{copy.battleReportLoading}</p>}
+            {reportError && <p className="guided-sign-off__error" role="alert">{copy.battleReportFailed}</p>}
+            {reportExpanded && reportMarkdown && (
+              <div className="guided-sign-off__report-body">
+                <MarkdownView markdown={reportMarkdown} />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {completed?.action === 'approve' || (completed === null && runStatus === 'COMPLETED') ? (

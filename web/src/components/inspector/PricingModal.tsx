@@ -1,6 +1,6 @@
 import './PricingModal.css';
-import { RefreshCw } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { RefreshCw, Search } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import type { BatonApiClient } from '../../api/client';
 import { useI18n } from '../../i18n';
 import type { CustomPricingUpdate, PricingModelEntry, PricingStatusResponse } from '../../types/graph';
@@ -52,6 +52,7 @@ function PricingDialog({ client, onClose, pendingChange }: PricingDialogProps) {
   const [operation, setOperation] = useState<'sync' | 'write' | null>(null);
   const [feedback, setFeedback] = useState<'syncFailed' | 'saved' | 'saveFailed' | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
+  const [query, setQuery] = useState('');
   const validationId = useId();
   const syncing = operation === 'sync';
   const busy = loading || operation !== null;
@@ -60,6 +61,7 @@ function PricingDialog({ client, onClose, pendingChange }: PricingDialogProps) {
     let active = true;
     setLoading(true);
     setDraft(null);
+    setQuery('');
 
     async function load() {
       // A reopened dialog reads the catalog after any previous write has settled.
@@ -153,6 +155,12 @@ function PricingDialog({ client, onClose, pendingChange }: PricingDialogProps) {
     official_cache: { variant: 'info', children: copy.sourceOfficialCache },
     builtin: { variant: 'outline', children: copy.sourceBuiltin },
   } as const satisfies Record<PricingModelEntry['source'], BadgeProps>;
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredModels = useMemo(() => {
+    if (!catalog) return [];
+    if (!normalizedQuery) return catalog.models;
+    return catalog.models.filter((entry) => entry.model.toLowerCase().includes(normalizedQuery));
+  }, [catalog, normalizedQuery]);
   const invalid = draft?.submitted && rateColumns.some(([field]) => parseRate(draft.rates[field]) === null);
 
   return (
@@ -185,21 +193,50 @@ function PricingDialog({ client, onClose, pendingChange }: PricingDialogProps) {
         {feedback === 'saved' && <Badge variant="success" role="status" className="pricing-modal__saved">{copy.saved}</Badge>}
 
         {!loading && catalog && (
-          <div className="pricing-modal__table-wrap" tabIndex={0} role="region" aria-label={copy.unit}>
-            <table className="pricing-modal__table">
-              <caption>{copy.unit}</caption>
-              <thead>
-                <tr>
-                  <th scope="col">{copy.columns.model}</th>
-                  <th scope="col">{copy.columns.source}</th>
-                  {rateColumns.map(([field, column]) => (
-                    <th key={field} scope="col" className="pricing-modal__num">{copy.columns[column]}</th>
-                  ))}
-                  <th scope="col" className="pricing-modal__actions">{copy.columns.actions}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {catalog.models.map((entry) => {
+          <>
+            <div className="pricing-modal__search">
+              <div className="pricing-modal__search-field">
+                <Search size={14} className="pricing-modal__search-icon" aria-hidden="true" />
+                <Input
+                  type="search"
+                  className="pricing-modal__search-input"
+                  aria-label={copy.searchLabel}
+                  placeholder={copy.searchPlaceholder}
+                  value={query}
+                  onChange={(event) => setQuery(event.currentTarget.value)}
+                />
+              </div>
+              {query.trim() && (
+                <Button size="xs" variant="ghost" onClick={() => setQuery('')}>
+                  {copy.clearSearch}
+                </Button>
+              )}
+              <Badge variant="outline" className="pricing-modal__search-count">
+                {copy.searchCount(filteredModels.length, catalog.models.length)}
+              </Badge>
+            </div>
+
+            <div className="pricing-modal__table-wrap" tabIndex={0} role="region" aria-label={copy.unit}>
+              <table className="pricing-modal__table">
+                <caption>{copy.unit}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">{copy.columns.model}</th>
+                    <th scope="col">{copy.columns.source}</th>
+                    {rateColumns.map(([field, column]) => (
+                      <th key={field} scope="col" className="pricing-modal__num">{copy.columns[column]}</th>
+                    ))}
+                    <th scope="col" className="pricing-modal__actions">{copy.columns.actions}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredModels.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="pricing-modal__empty">
+                        {copy.noMatches}
+                      </td>
+                    </tr>
+                  ) : filteredModels.map((entry) => {
                   const editing = draft?.model === entry.model ? draft : null;
                   return (
                     <tr key={entry.model}>
@@ -254,9 +291,10 @@ function PricingDialog({ client, onClose, pendingChange }: PricingDialogProps) {
                     </tr>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
         <div className="pricing-modal__footer">

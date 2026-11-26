@@ -44,6 +44,42 @@
   align-self: flex-start;
 }
 
+.pricing-modal__search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pricing-modal__search-field {
+  position: relative;
+  display: flex;
+  flex: 1 1 16rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.pricing-modal__search-icon {
+  position: absolute;
+  left: 0.65rem;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+
+.pricing-modal__search-input {
+  padding-left: 2rem;
+}
+
+.pricing-modal__search-count {
+  margin-left: auto;
+}
+
+.pricing-modal__empty {
+  padding: 1.25rem;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
 .pricing-modal__table-wrap {
   min-height: 0;
   min-width: 0;
