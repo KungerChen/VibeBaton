@@ -61,11 +61,40 @@
 
 .guided-setup__filters,
 .guided-setup__presets,
-.guided-setup__team-actions {
+.guided-setup__team-actions,
+.guided-setup__saved-profiles,
+.guided-setup__save-profile {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
+}
+
+.guided-setup__saved-label {
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+}
+
+.guided-setup__profile-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.guided-setup__profile-delete {
+  padding: 0.1rem 0.38rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.guided-setup__profile-delete:hover:not(:disabled) {
+  color: var(--rose);
+  border-color: var(--rose);
 }
 
 .guided-setup__chip {

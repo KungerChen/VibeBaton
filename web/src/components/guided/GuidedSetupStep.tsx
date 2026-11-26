@@ -6,9 +6,11 @@ import {
   type CliDriver,
   type CliLoginResult,
   type CliScanEntry,
+  type LastUsedLineup,
   type ModelCatalogEntry,
   type ModelCatalogResponse,
   type RecommendedLineup,
+  type SavedLineupProfile,
   type TierRecommendation,
   type WorkspaceInfo,
 } from '../../api/client';
@@ -21,7 +23,11 @@ import { localizeGuidedError } from './guidedErrors';
 export type GuidedSetupApi = Pick<
   BatonApiClient,
   'getWorkspaceInfo' | 'selectWorkspace' | 'initGitWorkspace' | 'getCliRegistry' | 'scanCliRegistry' | 'installCli' | 'loginCli'
-> & Partial<Pick<BatonApiClient, 'browseWorkspace' | 'getRoles' | 'listCredentials' | 'saveCredentials' | 'getModelCatalog' | 'syncModelCatalog'>>;
+> & Partial<Pick<
+  BatonApiClient,
+  'browseWorkspace' | 'getRoles' | 'listCredentials' | 'saveCredentials' | 'getModelCatalog' | 'syncModelCatalog'
+  | 'getLineupProfiles' | 'saveLineupProfile' | 'deleteLineupProfile' | 'saveLastUsedLineup'
+>>;
 
 let defaultApi: GuidedSetupApi | null = null;
 function getDefaultApi(): GuidedSetupApi {
@@ -383,6 +389,53 @@ export function isLineupCustomized(
   ));
 }
 
+/** Apply a saved or last-used lineup onto `baseline`, gracefully falling back if a provider is no longer available. */
+export function applySavedLineup(
+  baseline: RecommendedLineup,
+  saved: { roles: Record<string, string>; model_overrides?: Record<string, string> },
+  selectableProviders: readonly string[],
+  catalog: Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers'> = BUILTIN_MODEL_CATALOG,
+): RecommendedLineup {
+  const allowed = new Set(selectableProviders);
+  const roles: Record<string, string> = {};
+  const model_overrides: Record<string, string> = {};
+  for (const [role, defaultProvider] of Object.entries(baseline.roles)) {
+    const savedProvider = saved.roles?.[role];
+    const provider = savedProvider && allowed.has(savedProvider) ? savedProvider : defaultProvider;
+    roles[role] = provider;
+    const savedSpec = saved.model_overrides?.[role];
+    const parsed = savedSpec ? parseRoleSpec(savedSpec, provider) : null;
+    if (parsed && parsed.provider === provider && parsed.model) {
+      const providerModels = modelsForProvider(catalog.models, provider);
+      if (providerModels.length === 0 || providerModels.some((entry) => entry.id === parsed.model)) {
+        model_overrides[role] = formatRoleSpec(provider, parsed.model, parsed.effort);
+        continue;
+      }
+    }
+    const rec = recommendRoleSpec(role, selectableProviders, catalog, provider);
+    if (rec.model) {
+      model_overrides[role] = formatRoleSpec(provider, rec.model, rec.effort);
+    } else if (baseline.model_overrides?.[role] && provider === defaultProvider) {
+      model_overrides[role] = baseline.model_overrides[role];
+    }
+  }
+  return { ...baseline, roles, model_overrides };
+}
+
+/** Find a saved profile whose roles and model specs match `lineup`, or null when modified/unmatched. */
+export function matchSavedProfile(
+  profiles: readonly SavedLineupProfile[],
+  lineup: RecommendedLineup | null,
+): SavedLineupProfile | null {
+  if (!lineup || profiles.length === 0) return null;
+  const roleKeys = Object.keys(lineup.roles);
+  if (roleKeys.length === 0) return null;
+  return profiles.find((profile) => roleKeys.every((role) => (
+    profile.roles?.[role] === lineup.roles[role]
+    && (profile.model_overrides?.[role] ?? '') === (lineup.model_overrides?.[role] ?? '')
+  ))) ?? null;
+}
+
 /** One line listing who plays each role (with model & effort when specified); falls back to notes. */
 export function lineupSummary(
   lineup: RecommendedLineup,
@@ -585,6 +638,11 @@ export function GuidedSetupStep({
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const [customRoles, setCustomRoles] = useState<Record<string, string> | null>(() => initialRoles);
   const [customModelOverrides, setCustomModelOverrides] = useState<Record<string, string> | null>(() => initialModelOverrides);
+  const [savedProfiles, setSavedProfiles] = useState<SavedLineupProfile[]>([]);
+  const [lastUsedLineup, setLastUsedLineup] = useState<LastUsedLineup | null>(null);
+  const [lastUsedApplied, setLastUsedApplied] = useState(false);
+  const [profileNameInput, setProfileNameInput] = useState('');
+  const [profileFeedback, setProfileFeedback] = useState<string | null>(null);
   const [roleEditorOpen, setRoleEditorOpen] = useState(false);
   const [driverFilter, setDriverFilter] = useState<DriverFilter>('all');
   const [consent, setConsent] = useState<Record<string, boolean>>({});
@@ -623,12 +681,13 @@ export function GuidedSetupStep({
   useEffect(() => {
     if (apiMode === null) return;
     void run('load', async () => {
-      const [info, registry, rolesCfg, creds, remoteCatalog] = await Promise.all([
+      const [info, registry, rolesCfg, creds, remoteCatalog, lineupStore] = await Promise.all([
         api.getWorkspaceInfo(),
         api.getCliRegistry(),
         api.getRoles ? api.getRoles().catch(() => null) : Promise.resolve(null),
         api.listCredentials ? api.listCredentials().catch(() => []) : Promise.resolve([]),
         api.getModelCatalog ? api.getModelCatalog().catch(() => null) : Promise.resolve(null),
+        api.getLineupProfiles ? api.getLineupProfiles().catch(() => null) : Promise.resolve(null),
       ]);
       setWorkspace(info);
       setPathInput(info.path);
@@ -638,6 +697,20 @@ export function GuidedSetupStep({
         ? Object.fromEntries(Object.entries(rolesCfg.providers).map(([id, provider]) => [id, provider.command ?? []]))
         : {});
       setCredentials(creds);
+      if (lineupStore) {
+        setSavedProfiles(lineupStore.profiles);
+        setLastUsedLineup(lineupStore.last_used);
+        if (
+          initialRoles === null
+          && initialModelOverrides === null
+          && lineupStore.last_used
+          && Object.keys(lineupStore.last_used.roles).length > 0
+        ) {
+          setCustomRoles(lineupStore.last_used.roles);
+          setCustomModelOverrides(lineupStore.last_used.model_overrides);
+          setLastUsedApplied(true);
+        }
+      }
       if (remoteCatalog) {
         applyRemoteCatalog(remoteCatalog);
         cancelCatalogRefetch.current?.();
@@ -647,7 +720,7 @@ export function GuidedSetupStep({
       }
       await scanRegistry(info.path);
     });
-  }, [api, apiMode, run, scanRegistry, applyRemoteCatalog]);
+  }, [api, apiMode, initialModelOverrides, initialRoles, run, scanRegistry, applyRemoteCatalog]);
 
   useEffect(() => () => cancelCatalogRefetch.current?.(), []);
 
@@ -802,11 +875,66 @@ export function GuidedSetupStep({
   const resetCustomization = () => {
     setCustomRoles(null);
     setCustomModelOverrides(null);
+    setLastUsedApplied(false);
+    setProfileFeedback(null);
   };
 
   const applyCustomLineup = (updated: RecommendedLineup) => {
     setCustomRoles(updated.roles);
     setCustomModelOverrides(updated.model_overrides ?? null);
+    setLastUsedApplied(false);
+    setProfileFeedback(null);
+  };
+
+  const matchedProfile = useMemo(
+    () => matchSavedProfile(savedProfiles, effectiveLineup),
+    [effectiveLineup, savedProfiles],
+  );
+
+  const applyProfile = (profile: SavedLineupProfile) => {
+    if (!baselineLineup) return;
+    applyCustomLineup(applySavedLineup(baselineLineup, profile, selectableProviders, modelCatalog));
+    setProfileFeedback(copy.profileApplied(profile.name));
+  };
+
+  const saveCurrentProfile = () => {
+    if (!api.saveLineupProfile || !effectiveLineup || !effectiveLineup.ready) return;
+    const cleanName = profileNameInput.trim();
+    if (!cleanName) return;
+    void run('save_profile', async () => {
+      setProfileFeedback(null);
+      const res = await api.saveLineupProfile!({
+        name: cleanName,
+        roles: effectiveLineup.roles,
+        model_overrides: effectiveLineup.model_overrides ?? {},
+      });
+      setSavedProfiles(res.profiles);
+      setLastUsedLineup(res.last_used);
+      setProfileNameInput('');
+      setProfileFeedback(copy.profileSaved(res.profile.name));
+    });
+  };
+
+  const removeSavedProfile = (profileId: string) => {
+    if (!api.deleteLineupProfile) return;
+    void run(`delete_profile:${profileId}`, async () => {
+      const res = await api.deleteLineupProfile!(profileId);
+      setSavedProfiles(res.profiles);
+      setLastUsedLineup(res.last_used);
+    });
+  };
+
+  const handleConfirmLineup = () => {
+    if (!effectiveLineup || !effectiveLineup.ready) return;
+    if (api.saveLastUsedLineup) {
+      void api.saveLastUsedLineup({
+        roles: effectiveLineup.roles,
+        model_overrides: effectiveLineup.model_overrides ?? {},
+        profile_id: matchedProfile?.id ?? null,
+        profile_name: matchedProfile?.name ?? null,
+      }).catch(() => {});
+    }
+    confirmLineup(effectiveLineup, onReady);
   };
 
   const isCustomized = isLineupCustomized(baselineLineup, effectiveLineup);
@@ -1039,7 +1167,17 @@ export function GuidedSetupStep({
           <div className="guided-setup__row guided-setup__row--spread guided-setup__row--wrap">
             <div className="guided-setup__title-group">
               <h3 className="guided-setup__title">{effectiveLineup.ready ? copy.lineupReady : copy.lineupMissing}</h3>
-              {isCustomized ? <span className="guided-setup__pill" data-status="ready">{copy.customBadge}</span> : null}
+              {lastUsedApplied && (matchedProfile?.name ?? lastUsedLineup?.profile_name) ? (
+                <span className="guided-setup__pill" data-status="ready">
+                  {copy.lastUsedNamedBadge((matchedProfile?.name ?? lastUsedLineup?.profile_name)!)}
+                </span>
+              ) : lastUsedApplied ? (
+                <span className="guided-setup__pill" data-status="ready">{copy.lastUsedBadge}</span>
+              ) : matchedProfile ? (
+                <span className="guided-setup__pill" data-status="ready">{matchedProfile.name}</span>
+              ) : isCustomized ? (
+                <span className="guided-setup__pill" data-status="ready">{copy.customBadge}</span>
+              ) : null}
             </div>
             <div className="guided-setup__team-actions">
               {api.syncModelCatalog ? (
@@ -1184,13 +1322,68 @@ export function GuidedSetupStep({
               })}
             </div>
           ) : null}
+          {effectiveLineup.ready && baselineLineup && savedProfiles.length > 0 ? (
+            <div className="guided-setup__saved-profiles" role="group" aria-label={copy.savedProfilesTitle}>
+              <span className="guided-setup__saved-label">{copy.savedProfilesTitle}</span>
+              {savedProfiles.map((profile) => (
+                <span key={profile.id} className="guided-setup__profile-chip">
+                  <button
+                    type="button"
+                    className="guided-setup__chip"
+                    aria-pressed={matchedProfile?.id === profile.id}
+                    disabled={busy !== null}
+                    onClick={() => applyProfile(profile)}
+                  >
+                    {profile.name}
+                  </button>
+                  {api.deleteLineupProfile ? (
+                    <button
+                      type="button"
+                      className="guided-setup__profile-delete"
+                      aria-label={copy.deleteProfileAria(profile.name)}
+                      disabled={busy !== null}
+                      onClick={() => removeSavedProfile(profile.id)}
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {effectiveLineup.ready && api.saveLineupProfile ? (
+            <form
+              className="guided-setup__save-profile"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (busy === null && profileNameInput.trim()) saveCurrentProfile();
+              }}
+            >
+              <input
+                className="guided-setup__input"
+                aria-label={copy.saveProfileButton}
+                placeholder={copy.saveProfilePlaceholder}
+                value={profileNameInput}
+                disabled={busy !== null}
+                onChange={(event) => setProfileNameInput(event.currentTarget.value)}
+              />
+              <button
+                type="submit"
+                className="guided-setup__button"
+                disabled={busy !== null || !profileNameInput.trim()}
+              >
+                {busy === 'save_profile' ? copy.savingProfile : copy.saveProfileButton}
+              </button>
+            </form>
+          ) : null}
+          {profileFeedback ? <p className="guided-setup__done-note" role="status">{profileFeedback}</p> : null}
           {effectiveLineup.ready ? (
             <div className="guided-setup__team-actions">
               <button
                 type="button"
                 className="guided-setup__button guided-setup__button--primary"
                 disabled={busy !== null}
-                onClick={() => confirmLineup(effectiveLineup, onReady)}
+                onClick={handleConfirmLineup}
               >
                 {isCustomized ? copy.useCustomLineup : copy.useLineup}
               </button>

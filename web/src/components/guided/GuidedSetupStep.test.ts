@@ -5,6 +5,7 @@ import type { CliDriver, CliScanEntry, ModelCatalogEntry, RecommendedLineup, Wor
 import {
   BUILTIN_MODEL_CATALOG,
   GuidedDriverRow,
+  applySavedLineup,
   assignAllRoles,
   assignRoleModelSpec,
   assignRoleProvider,
@@ -19,6 +20,7 @@ import {
   installWithConsent,
   isLineupCustomized,
   lineupSummary,
+  matchSavedProfile,
   coerceEffort,
   effortOptionsFor,
   modelsForProvider,
@@ -408,5 +410,60 @@ describe('effort options', () => {
     expect(coerceEffort('max', options, 'low')).toBe('max');
     expect(coerceEffort('ultra', options, 'low')).toBe('low');
     expect(coerceEffort('ultra', options, 'medium')).toBe('max');
+  });
+});
+
+describe('saved lineup profiles & last-used restoration', () => {
+  const baseline: RecommendedLineup = {
+    ready: true,
+    roles: {
+      brainstorm_and_final_gate: 'agy_sub',
+      tactical_planner: 'claude_sub',
+      critical_executor: 'codex_sub',
+    },
+    model_overrides: {
+      brainstorm_and_final_gate: 'agy_sub:gemini-4-carbon@medium',
+      tactical_planner: 'claude_sub:claude-opus-5-5@medium',
+      critical_executor: 'codex_sub:gpt-6.2-sol@max',
+    },
+    source: 'cli',
+    notes_en: 'Ready.',
+    notes_zh: '就绪。',
+  };
+
+  test('applySavedLineup keeps valid saved choices and falls back when a provider is unavailable', () => {
+    const saved = {
+      roles: {
+        brainstorm_and_final_gate: 'claude_sub',
+        tactical_planner: 'missing_cli',
+        critical_executor: 'codex_sub',
+      },
+      model_overrides: {
+        brainstorm_and_final_gate: 'claude_sub:claude-fable-5-2@medium',
+        tactical_planner: 'missing_cli:some-model@high',
+        critical_executor: 'codex_sub:gpt-6.2-astra@xhigh',
+      },
+    };
+    const restored = applySavedLineup(baseline, saved, ['agy_sub', 'claude_sub', 'codex_sub'], BUILTIN_MODEL_CATALOG);
+    expect(restored.roles).toEqual({
+      brainstorm_and_final_gate: 'claude_sub',
+      tactical_planner: 'claude_sub',
+      critical_executor: 'codex_sub',
+    });
+    expect(restored.model_overrides).toEqual({
+      brainstorm_and_final_gate: 'claude_sub:claude-fable-5-2@medium',
+      tactical_planner: 'claude_sub:claude-opus-5-5@medium',
+      critical_executor: 'codex_sub:gpt-6.2-astra@xhigh',
+    });
+
+    const profile = {
+      id: 'p-1',
+      name: 'My Mix',
+      roles: restored.roles,
+      model_overrides: restored.model_overrides ?? {},
+      updated_at: 1,
+    };
+    expect(matchSavedProfile([profile], restored)?.id).toBe('p-1');
+    expect(matchSavedProfile([profile], baseline)).toBeNull();
   });
 });

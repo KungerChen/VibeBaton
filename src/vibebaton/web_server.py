@@ -73,6 +73,10 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(r"/api/credentials"), "_post_credentials"),
     ("GET", re.compile(r"/api/attention/dismissed"), "_get_attention_dismissed"),
     ("POST", re.compile(r"/api/attention/dismiss"), "_post_attention_dismiss"),
+    ("GET", re.compile(r"/api/lineup-profiles"), "_get_lineup_profiles"),
+    ("POST", re.compile(r"/api/lineup-profiles/last-used"), "_post_lineup_last_used"),
+    ("POST", re.compile(r"/api/lineup-profiles"), "_post_lineup_profile"),
+    ("DELETE", re.compile(r"/api/lineup-profiles/([^/]+)"), "_delete_lineup_profile"),
     ("POST", re.compile(r"/api/rfc/check"), "_post_rfc_check"),
     ("POST", re.compile(r"/api/rfc/brainstorm"), "_post_rfc_brainstorm"),
     ("GET", re.compile(r"/api/cli-registry"), "_get_cli_registry"),
@@ -117,6 +121,160 @@ def _dismissed_alerts_path(credentials_path: Path | None) -> Path:
 def _model_catalog_cache_path(credentials_path: Path | None) -> Path:
     base = credentials.default_credentials_path(credentials_path)
     return base.parent / "model_catalog_cache.json"
+
+
+_LINEUP_PROFILES_LOCK = threading.Lock()
+_MAX_LINEUP_PROFILES = 50
+
+
+def _lineup_profiles_path(credentials_path: Path | None) -> Path:
+    base = credentials.default_credentials_path(credentials_path)
+    return base.parent / "lineup_profiles.json"
+
+
+def _sanitize_str_map(raw: object) -> dict[str, str]:
+    if not isinstance(raw, Mapping):
+        return {}
+    return {
+        key.strip(): val.strip()
+        for key, val in raw.items()
+        if isinstance(key, str) and key.strip() and isinstance(val, str) and val.strip()
+    }
+
+
+def _read_lineup_store(path: Path) -> dict[str, Any]:
+    empty: dict[str, Any] = {"profiles": [], "last_used": None}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, ValueError, RecursionError):
+        return empty
+    if not isinstance(raw, dict):
+        return empty
+    profiles: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for item in raw.get("profiles") if isinstance(raw.get("profiles"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        pid = item.get("id")
+        name = item.get("name")
+        roles = _sanitize_str_map(item.get("roles"))
+        if not isinstance(pid, str) or not pid.strip() or pid in seen_ids:
+            continue
+        if not isinstance(name, str) or not name.strip() or not roles:
+            continue
+        seen_ids.add(pid)
+        updated_at = item.get("updated_at")
+        profiles.append({
+            "id": pid.strip(),
+            "name": name.strip(),
+            "roles": roles,
+            "model_overrides": _sanitize_str_map(item.get("model_overrides")),
+            "updated_at": float(updated_at) if isinstance(updated_at, (int, float)) and math.isfinite(updated_at) else 0.0,
+        })
+    last_raw = raw.get("last_used")
+    last_used: dict[str, Any] | None = None
+    if isinstance(last_raw, dict):
+        roles = _sanitize_str_map(last_raw.get("roles"))
+        if roles:
+            pid = last_raw.get("profile_id")
+            pname = last_raw.get("profile_name")
+            updated_at = last_raw.get("updated_at")
+            last_used = {
+                "roles": roles,
+                "model_overrides": _sanitize_str_map(last_raw.get("model_overrides")),
+                "profile_id": pid.strip() if isinstance(pid, str) and pid.strip() else None,
+                "profile_name": pname.strip() if isinstance(pname, str) and pname.strip() else None,
+                "updated_at": float(updated_at) if isinstance(updated_at, (int, float)) and math.isfinite(updated_at) else 0.0,
+            }
+    return {"profiles": profiles, "last_used": last_used}
+
+
+def _write_lineup_store(path: Path, data: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_file = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False)
+    temp_path = Path(temp_file.name)
+    try:
+        with temp_file:
+            json.dump(dict(data), temp_file, ensure_ascii=False, indent=2)
+            temp_file.write("\n")
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _save_lineup_profile(
+    path: Path,
+    name: str,
+    roles: dict[str, str],
+    model_overrides: dict[str, str],
+    profile_id: str | None = None,
+) -> dict[str, Any]:
+    clean_name = name.strip()
+    if not clean_name:
+        raise _BadRequest("Profile name must be a non-empty string")
+    if not roles:
+        raise _BadRequest("roles must be a non-empty mapping")
+    now = time.time()
+    with _LINEUP_PROFILES_LOCK:
+        store = _read_lineup_store(path)
+        profiles: list[dict[str, Any]] = store["profiles"]
+        existing = next(
+            (p for p in profiles if (profile_id and p["id"] == profile_id) or p["name"].lower() == clean_name.lower()),
+            None,
+        )
+        entry = {
+            "id": existing["id"] if existing is not None else f"profile-{uuid.uuid4().hex[:8]}",
+            "name": clean_name,
+            "roles": dict(roles),
+            "model_overrides": dict(model_overrides),
+            "updated_at": now,
+        }
+        updated_profiles = [entry, *(p for p in profiles if p["id"] != entry["id"])][:_MAX_LINEUP_PROFILES]
+        last_used = store["last_used"]
+        if isinstance(last_used, dict) and last_used.get("profile_id") == entry["id"]:
+            last_used = {**last_used, "profile_name": entry["name"]}
+        next_store = {"profiles": updated_profiles, "last_used": last_used}
+        _write_lineup_store(path, next_store)
+    return {"profile": entry, **next_store}
+
+
+def _delete_lineup_profile(path: Path, profile_id: str) -> dict[str, Any] | None:
+    with _LINEUP_PROFILES_LOCK:
+        store = _read_lineup_store(path)
+        remaining = [p for p in store["profiles"] if p["id"] != profile_id]
+        if len(remaining) == len(store["profiles"]):
+            return None
+        last_used = store["last_used"]
+        if isinstance(last_used, dict) and last_used.get("profile_id") == profile_id:
+            last_used = {**last_used, "profile_id": None, "profile_name": None}
+        next_store = {"profiles": remaining, "last_used": last_used}
+        _write_lineup_store(path, next_store)
+    return next_store
+
+
+def _save_last_used_lineup(
+    path: Path,
+    roles: dict[str, str],
+    model_overrides: dict[str, str],
+    profile_id: str | None = None,
+    profile_name: str | None = None,
+) -> dict[str, Any]:
+    if not roles:
+        raise _BadRequest("roles must be a non-empty mapping")
+    with _LINEUP_PROFILES_LOCK:
+        store = _read_lineup_store(path)
+        last_used = {
+            "roles": dict(roles),
+            "model_overrides": dict(model_overrides),
+            "profile_id": profile_id.strip() if isinstance(profile_id, str) and profile_id.strip() else None,
+            "profile_name": profile_name.strip() if isinstance(profile_name, str) and profile_name.strip() else None,
+            "updated_at": time.time(),
+        }
+        next_store = {"profiles": store["profiles"], "last_used": last_used}
+        _write_lineup_store(path, next_store)
+    return next_store
 
 
 def _read_dismissed_alerts(path: Path) -> list[str]:
@@ -699,7 +857,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             return
         self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Vary", "Origin")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def _host_allowed(self) -> bool:
@@ -720,7 +878,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         if not self._host_allowed():
             return "Host header is not a loopback address"
         origin = self.headers.get("Origin")
-        if self.command in {"POST", "PUT", "OPTIONS"} and origin is not None and not _allowed_origin(origin):
+        if self.command in {"POST", "PUT", "DELETE", "OPTIONS"} and origin is not None and not _allowed_origin(origin):
             return "Cross-origin requests are not allowed"
         return None
 
@@ -824,6 +982,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
     do_GET = _dispatch
     do_POST = _dispatch
     do_PUT = _dispatch
+    do_DELETE = _dispatch
 
     def _get_health(self) -> None:
         with self.server.config_lock:
@@ -1153,6 +1312,53 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"error": "Dismissed notifications could not be saved"})
             return
         self._send_json(200, {"fingerprints": fingerprints})
+
+    def _get_lineup_profiles(self) -> None:
+        path = _lineup_profiles_path(self.server.credentials_path)
+        self._send_json(200, _read_lineup_store(path))
+
+    def _post_lineup_profile(self) -> None:
+        payload = self._read_json_body()
+        name = _text_field(payload, "name")
+        roles = _sanitize_str_map(payload.get("roles"))
+        model_overrides = _sanitize_str_map(payload.get("model_overrides"))
+        raw_id = payload.get("id")
+        profile_id = raw_id.strip() if isinstance(raw_id, str) and raw_id.strip() else None
+        path = _lineup_profiles_path(self.server.credentials_path)
+        try:
+            result = _save_lineup_profile(path, name, roles, model_overrides, profile_id)
+        except OSError:
+            self._send_json(500, {"error": "Lineup profiles could not be saved"})
+            return
+        self._send_json(200, result)
+
+    def _post_lineup_last_used(self) -> None:
+        payload = self._read_json_body()
+        roles = _sanitize_str_map(payload.get("roles"))
+        model_overrides = _sanitize_str_map(payload.get("model_overrides"))
+        raw_id = payload.get("profile_id")
+        raw_name = payload.get("profile_name")
+        profile_id = raw_id.strip() if isinstance(raw_id, str) and raw_id.strip() else None
+        profile_name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else None
+        path = _lineup_profiles_path(self.server.credentials_path)
+        try:
+            result = _save_last_used_lineup(path, roles, model_overrides, profile_id, profile_name)
+        except OSError:
+            self._send_json(500, {"error": "Last-used lineup could not be saved"})
+            return
+        self._send_json(200, result)
+
+    def _delete_lineup_profile(self, profile_id: str) -> None:
+        path = _lineup_profiles_path(self.server.credentials_path)
+        try:
+            result = _delete_lineup_profile(path, profile_id)
+        except OSError:
+            self._send_json(500, {"error": "Lineup profile could not be deleted"})
+            return
+        if result is None:
+            self._send_json(404, {"error": f"Unknown lineup profile: {profile_id}"})
+            return
+        self._send_json(200, result)
 
     def _post_rfc_check(self) -> None:
         markdown = _text_field(self._read_json_body(), "rfc_markdown")

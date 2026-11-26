@@ -123,6 +123,31 @@ export interface RecommendedLineup {
   notes_zh: string;
 }
 
+export interface SavedLineupProfile {
+  id: string;
+  name: string;
+  roles: Record<string, string>;
+  model_overrides: Record<string, string>;
+  updated_at: number;
+}
+
+export interface LastUsedLineup {
+  roles: Record<string, string>;
+  model_overrides: Record<string, string>;
+  profile_id: string | null;
+  profile_name: string | null;
+  updated_at: number;
+}
+
+export interface LineupProfilesResponse {
+  profiles: SavedLineupProfile[];
+  last_used: LastUsedLineup | null;
+}
+
+export interface SaveLineupProfileResponse extends LineupProfilesResponse {
+  profile: SavedLineupProfile;
+}
+
 export interface ModelCatalogEntry {
   id: string;
   label: string;
@@ -706,6 +731,45 @@ export class BatonApiClient {
     return this.requestJson('/api/workspace/init-git', { method: 'POST', body: {} });
   }
 
+  getLineupProfiles(): Promise<LineupProfilesResponse> {
+    if (this.mode === 'demo') return Promise.resolve({ profiles: [], last_used: null });
+    return this.requestJson('/api/lineup-profiles');
+  }
+
+  saveLineupProfile(payload: {
+    id?: string;
+    name: string;
+    roles: Record<string, string>;
+    model_overrides?: Record<string, string>;
+  }): Promise<SaveLineupProfileResponse> {
+    if (this.mode === 'demo') {
+      const profile: SavedLineupProfile = {
+        id: payload.id ?? 'demo-profile',
+        name: payload.name,
+        roles: payload.roles,
+        model_overrides: payload.model_overrides ?? {},
+        updated_at: Date.now() / 1000,
+      };
+      return Promise.resolve({ profile, profiles: [profile], last_used: null });
+    }
+    return this.requestJson('/api/lineup-profiles', { method: 'POST', body: payload });
+  }
+
+  deleteLineupProfile(profileId: string): Promise<LineupProfilesResponse> {
+    if (this.mode === 'demo') return Promise.resolve({ profiles: [], last_used: null });
+    return this.requestJson(`/api/lineup-profiles/${encodeURIComponent(profileId)}`, { method: 'DELETE' });
+  }
+
+  saveLastUsedLineup(payload: {
+    roles: Record<string, string>;
+    model_overrides?: Record<string, string>;
+    profile_id?: string | null;
+    profile_name?: string | null;
+  }): Promise<LineupProfilesResponse> {
+    if (this.mode === 'demo') return Promise.resolve({ profiles: [], last_used: null });
+    return this.requestJson('/api/lineup-profiles/last-used', { method: 'POST', body: payload });
+  }
+
   brainstormChat(payload: BrainstormChatRequest): Promise<BrainstormTurnResult> {
     return this.requestJson('/api/brainstorm/chat', { method: 'POST', body: payload });
   }
@@ -770,15 +834,17 @@ export class BatonApiClient {
 
   private async requestJson<T>(
     path: string,
-    write?: { method: 'POST' | 'PUT'; body: object },
+    write?: { method: 'POST' | 'PUT' | 'DELETE'; body?: object },
     signal?: AbortSignal,
   ): Promise<T> {
     if (this.mode === 'demo') throw new ApiError(0, 'Not available in standalone demo');
 
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, write ? {
       method: write.method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(write.body),
+      ...(write.body !== undefined ? {
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(write.body),
+      } : {}),
       ...(signal ? { signal } : {}),
     } : { method: 'GET', ...(signal ? { signal } : {}) });
 

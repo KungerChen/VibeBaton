@@ -532,6 +532,15 @@ export interface Messages {
       customBadge: string;
       useLineup: string;
       useCustomLineup: string;
+      savedProfilesTitle: string;
+      saveProfilePlaceholder: string;
+      saveProfileButton: string;
+      savingProfile: string;
+      profileSaved(name: string): string;
+      profileApplied(name: string): string;
+      deleteProfileAria(name: string): string;
+      lastUsedBadge: string;
+      lastUsedNamedBadge(name: string): string;
       installedDone: string;
       folderSelected: string;
       gitEnabledDone: string;
@@ -1373,6 +1382,15 @@ export const MESSAGES: Record<Locale, Messages> = {
         customBadge: 'Customized',
         useLineup: 'Use This Team',
         useCustomLineup: 'Continue with This Team',
+        savedProfilesTitle: 'Saved Presets:',
+        saveProfilePlaceholder: 'Name this lineup (e.g. Ultra + Codex)...',
+        saveProfileButton: 'Save Lineup',
+        savingProfile: 'Saving...',
+        profileSaved: (name) => `Saved lineup "${name}".`,
+        profileApplied: (name) => `Applied saved lineup "${name}".`,
+        deleteProfileAria: (name) => `Delete saved lineup ${name}`,
+        lastUsedBadge: 'Last Used',
+        lastUsedNamedBadge: (name) => `Last Used: ${name}`,
         installedDone: 'Installed and rescanned.',
         folderSelected: 'Project folder updated.',
         gitEnabledDone: 'Version history turned on.',
@@ -2232,6 +2250,15 @@ export const MESSAGES: Record<Locale, Messages> = {
         customBadge: '已自定义',
         useLineup: '使用这支团队',
         useCustomLineup: '使用当前搭配，进入下一步',
+        savedProfilesTitle: '已保存方案：',
+        saveProfilePlaceholder: '给当前分工命名（如 Ultra主力 + Codex攻坚）...',
+        saveProfileButton: '保存分工方案',
+        savingProfile: '正在保存…',
+        profileSaved: (name) => `已保存分工方案「${name}」。`,
+        profileApplied: (name) => `已切换为「${name}」分工方案。`,
+        deleteProfileAria: (name) => `删除分工方案 ${name}`,
+        lastUsedBadge: '上次使用',
+        lastUsedNamedBadge: (name) => `上次使用：${name}`,
         installedDone: '安装完成并已重新扫描。',
         folderSelected: '项目文件夹已切换。',
         gitEnabledDone: '版本记录已开启。',

@@ -416,7 +416,7 @@ class TestWebApi(WebServerTestCase):
         )
         self.assertEqual(status, 204)
         self.assertEqual(headers["Access-Control-Allow-Origin"], self.DEV_ORIGIN)
-        self.assertEqual(headers["Access-Control-Allow-Methods"], "GET, POST, PUT, OPTIONS")
+        self.assertEqual(headers["Access-Control-Allow-Methods"], "GET, POST, PUT, DELETE, OPTIONS")
         self.assertEqual(headers["Access-Control-Allow-Headers"], "Content-Type")
         self.assertEqual(body, b"")
 
@@ -832,6 +832,62 @@ class TestCredentialsApi(WebServerTestCase):
         get_status, _, get_body = self._request(Request(self.base + "/api/attention/dismissed"))
         self.assertEqual(get_status, 200)
         self.assertEqual(get_body, {"fingerprints": [fp]})
+
+    def test_lineup_profiles_crud_and_last_used_round_trip(self) -> None:
+        status, _, empty = self._request(Request(self.base + "/api/lineup-profiles"))
+        self.assertEqual(status, 200)
+        self.assertEqual(empty, {"profiles": [], "last_used": None})
+
+        bad_status, _, _ = self.send_json("/api/lineup-profiles", {"name": "  ", "roles": {"l0": "agy_sub"}})
+        self.assertEqual(bad_status, 400)
+        bad_roles, _, _ = self.send_json("/api/lineup-profiles", {"name": "My Team", "roles": {}})
+        self.assertEqual(bad_roles, 400)
+
+        roles = {"brainstorm_and_final_gate": "agy_sub", "tactical_planner": "claude_sub"}
+        overrides = {
+            "brainstorm_and_final_gate": "agy_sub:gemini-4-carbon@medium",
+            "tactical_planner": "claude_sub:claude-opus-5-5@medium",
+        }
+        save_status, _, saved = self.send_json("/api/lineup-profiles", {
+            "name": "Ultra + Opus",
+            "roles": roles,
+            "model_overrides": overrides,
+        })
+        self.assertEqual(save_status, 200)
+        profile_id = saved["profile"]["id"]
+        self.assertEqual(saved["profile"]["name"], "Ultra + Opus")
+        self.assertEqual(len(saved["profiles"]), 1)
+
+        # Updating same name (case-insensitive) overwrites in place instead of duplicating.
+        upd_status, _, updated = self.send_json("/api/lineup-profiles", {
+            "name": "ultra + opus",
+            "roles": {**roles, "bulk_worker": "dsh_opencode"},
+            "model_overrides": {**overrides, "bulk_worker": "dsh_opencode:deepseek-v4.1-flash@max"},
+        })
+        self.assertEqual(upd_status, 200)
+        self.assertEqual(len(updated["profiles"]), 1)
+        self.assertEqual(updated["profiles"][0]["id"], profile_id)
+        self.assertEqual(updated["profiles"][0]["roles"]["bulk_worker"], "dsh_opencode")
+
+        last_status, _, last_body = self.send_json("/api/lineup-profiles/last-used", {
+            "roles": roles,
+            "model_overrides": overrides,
+            "profile_id": profile_id,
+            "profile_name": "ultra + opus",
+        })
+        self.assertEqual(last_status, 200)
+        self.assertEqual(last_body["last_used"]["profile_id"], profile_id)
+        self.assertEqual(last_body["last_used"]["model_overrides"], overrides)
+
+        del_req = Request(self.base + f"/api/lineup-profiles/{profile_id}", method="DELETE")
+        del_status, _, after_del = self._request(del_req)
+        self.assertEqual(del_status, 200)
+        self.assertEqual(after_del["profiles"], [])
+        self.assertIsNone(after_del["last_used"]["profile_id"])
+        self.assertEqual(after_del["last_used"]["roles"], roles)
+
+        miss_status, _, _ = self._request(Request(self.base + "/api/lineup-profiles/missing", method="DELETE"))
+        self.assertEqual(miss_status, 404)
 
     def test_model_catalog_get_and_sync(self) -> None:
         status, _, body = self._request(Request(self.base + "/api/models/catalog"))
