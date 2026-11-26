@@ -488,6 +488,22 @@ export async function initGitAndRefresh(
   return api.getWorkspaceInfo();
 }
 
+/**
+ * Version-history state of the folder: the engine needs a git repo with at least one commit.
+ * `unknown` (no info yet) never blocks.
+ */
+export function workspaceHistoryState(workspace: WorkspaceInfo | null): 'unknown' | 'missing' | 'no-commits' | 'ready' {
+  if (!workspace) return 'unknown';
+  if (!workspace.is_git_repo) return 'missing';
+  return workspace.has_commits === false ? 'no-commits' : 'ready';
+}
+
+/** The team can be confirmed only when the folder's history lets a build start. */
+export function historyAllowsBuild(workspace: WorkspaceInfo | null): boolean {
+  const state = workspaceHistoryState(workspace);
+  return state === 'unknown' || state === 'ready';
+}
+
 /** Hands the lineup to the next step only when it is ready; returns whether `onReady` fired. */
 export function confirmLineup(lineup: RecommendedLineup | null, onReady: (lineup: RecommendedLineup) => void): boolean {
   if (!lineup?.ready) return false;
@@ -790,9 +806,10 @@ export function GuidedSetupStep({
   });
 
   const initGit = () => run('git', async () => {
+    const repairing = workspaceHistoryState(workspace) === 'no-commits';
     setWorkspaceFeedback(null);
     setWorkspace(await initGitAndRefresh(api));
-    setWorkspaceFeedback(copy.gitEnabledDone);
+    setWorkspaceFeedback(repairing ? copy.firstCommitDone : copy.gitEnabledDone);
   });
 
   const install = (driver: CliDriver) => run(`install:${driver.id}`, async () => {
@@ -925,7 +942,7 @@ export function GuidedSetupStep({
   };
 
   const handleConfirmLineup = () => {
-    if (!effectiveLineup || !effectiveLineup.ready) return;
+    if (!effectiveLineup || !effectiveLineup.ready || !historyAllowsBuild(workspace)) return;
     if (api.saveLastUsedLineup) {
       void api.saveLastUsedLineup({
         roles: effectiveLineup.roles,
@@ -941,6 +958,7 @@ export function GuidedSetupStep({
   const readyCount = drivers.filter((driver) => entries[driver.id]?.status === 'ready').length;
   const visibleDrivers = filterDrivers(drivers, entries, driverFilter);
 
+  const historyState = workspaceHistoryState(workspace);
   const workspaceBusyLabel = busy === 'browse'
     ? copy.browsing
     : busy === 'workspace'
@@ -994,13 +1012,15 @@ export function GuidedSetupStep({
         ) : null}
         {workspaceFeedback ? <p className="guided-setup__done-note" role="status">{workspaceFeedback}</p> : null}
         {workspace ? (
-          <p className="guided-setup__git" data-git={workspace.is_git_repo}>
-            {workspace.is_git_repo ? copy.gitReady : copy.gitMissing}
+          <p className="guided-setup__git" data-git={historyState === 'ready'}>
+            {historyState === 'ready' ? copy.gitReady : historyState === 'no-commits' ? copy.firstCommitMissing : copy.gitMissing}
           </p>
         ) : null}
-        {workspace && !workspace.is_git_repo ? (
+        {historyState === 'missing' || historyState === 'no-commits' ? (
           <button type="button" className="guided-setup__button guided-setup__button--primary" disabled={busy !== null} onClick={() => void initGit()}>
-            {busy === 'git' ? copy.initializingGit : copy.initGit}
+            {historyState === 'no-commits'
+              ? (busy === 'git' ? copy.creatingFirstCommit : copy.createFirstCommit)
+              : (busy === 'git' ? copy.initializingGit : copy.initGit)}
           </button>
         ) : null}
       </section>
@@ -1382,11 +1402,14 @@ export function GuidedSetupStep({
               <button
                 type="button"
                 className="guided-setup__button guided-setup__button--primary"
-                disabled={busy !== null}
+                disabled={busy !== null || !historyAllowsBuild(workspace)}
                 onClick={handleConfirmLineup}
               >
                 {isCustomized ? copy.useCustomLineup : copy.useLineup}
               </button>
+              {!historyAllowsBuild(workspace) ? (
+                <p className="guided-setup__git" data-git={false}>{copy.continueNeedsHistory}</p>
+              ) : null}
               {isCustomized ? (
                 <button
                   type="button"

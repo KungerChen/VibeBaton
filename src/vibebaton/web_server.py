@@ -493,6 +493,28 @@ def _workspace_info(repo: Path) -> dict[str, Any]:
     }
 
 
+_DEFAULT_GIT_IDENTITY = (("user.name", "VibeBaton"), ("user.email", "vibebaton@localhost"))
+
+
+def _make_first_commit(repo: Path) -> str | None:
+    """Give a repository without commits an empty root commit; return a short error, or None.
+
+    The user's files are never staged. When git resolves no ``user.name``/``user.email`` (global or
+    local), a repo-local default identity is written first; an existing identity is never replaced.
+    """
+    for key, value in _DEFAULT_GIT_IDENTITY:
+        current = _git(repo, "config", key)
+        if current is None:
+            return "git is not available"
+        if current.returncode != 0 or not current.stdout.strip():
+            _git(repo, "config", "--local", key, value)
+    commit = _git(repo, "commit", "--allow-empty", "-q", "-m", "chore: initialize repository")
+    if commit is None or commit.returncode != 0:
+        detail = "git is not available" if commit is None else (commit.stderr or commit.stdout).strip()
+        return f"The first commit failed: {detail[:300]}"
+    return None
+
+
 def _open_local_path(target: Path, *, reveal: bool = False) -> None:
     """Open a local file or reveal it inside the OS file manager without invoking a shell."""
     if sys.platform == "win32":
@@ -1505,8 +1527,14 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         self._read_json_body(optional=True)
         repo = self.server.repo_path
         info = _workspace_info(repo)
-        if info["is_git_repo"]:
-            self._send_json(200, {**info, "created": False})
+        created = not info["is_git_repo"]
+        if not created:
+            if not info["has_commits"]:  # an earlier init left no commit: repair in place, no re-init
+                error = _make_first_commit(repo)
+                if error:
+                    self._send_json(500, {"error": error})
+                    return
+            self._send_json(200, {**_workspace_info(repo), "created": False})
             return
         init = _git(repo, "init", "-b", "main")
         if init is not None and init.returncode != 0:  # git < 2.28 has no -b
@@ -1517,10 +1545,11 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             detail = "git is not available" if init is None else (init.stderr or init.stdout).strip()
             self._send_json(500, {"error": f"git init failed: {detail}"})
             return
-        if not any(entry.name not in {".git", ".baton"} for entry in repo.iterdir()):
-            # Empty tree: give main a root commit. Best effort; has_commits reports the outcome.
-            _git(repo, "commit", "--allow-empty", "-q", "-m", "chore: initialize repository")
-        self._send_json(200, {**_workspace_info(repo), "created": True})
+        error = _make_first_commit(repo)
+        if error:
+            self._send_json(500, {"error": error})
+            return
+        self._send_json(200, {**_workspace_info(repo), "created": created})
 
     def _lineup_overrides(self, payload: dict[str, Any]) -> dict[str, str]:
         """``model_overrides`` plus the Guided lineup's ``role_providers`` turned into overrides."""
@@ -1760,6 +1789,13 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             raise _BadRequest("rfc_markdown must be a string")
 
         repo = self.server.repo_path
+        info = _workspace_info(repo)
+        if info["is_git_repo"] and not info["has_commits"]:
+            # The engine branches off the base branch's head; without a commit it would fail right away.
+            raise _BadRequest(
+                "This repository has no commits yet. Create the first commit "
+                "(Guided Workspace: Turn On Version History) before starting a run."
+            )
         if markdown.strip():
             try:
                 rfc_path = _save_ui_rfc(repo, markdown)

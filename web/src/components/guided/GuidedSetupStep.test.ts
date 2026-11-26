@@ -28,6 +28,8 @@ import {
   recommendRoleSpec,
   scheduleStaleCatalogRefetch,
   STALE_CATALOG_REFETCH_MS,
+  historyAllowsBuild,
+  workspaceHistoryState,
   type GuidedDriverRowProps,
 } from './GuidedSetupStep';
 
@@ -129,6 +131,26 @@ describe('initGitAndRefresh', () => {
     };
     await expect(initGitAndRefresh(api)).resolves.toEqual(after);
     expect(order).toEqual(['init', 'info']);
+  });
+});
+
+describe('workspace history gate', () => {
+  const base: WorkspaceInfo = { path: '/repo', is_git_repo: true, branch: 'main', has_commits: true, has_rfc: false };
+
+  test('a repo without a first commit asks for one and blocks the build', () => {
+    const empty = { ...base, has_commits: false };
+    expect(workspaceHistoryState(empty)).toBe('no-commits');
+    expect(historyAllowsBuild(empty)).toBe(false);
+    const notGit = { ...base, is_git_repo: false, branch: null, has_commits: false };
+    expect(workspaceHistoryState(notGit)).toBe('missing');
+    expect(historyAllowsBuild(notGit)).toBe(false);
+  });
+
+  test('a repo with commits, or no info yet, lets the build continue', () => {
+    expect(workspaceHistoryState(base)).toBe('ready');
+    expect(historyAllowsBuild(base)).toBe(true);
+    expect(workspaceHistoryState(null)).toBe('unknown');
+    expect(historyAllowsBuild(null)).toBe(true);
   });
 });
 

@@ -17,6 +17,10 @@ Shared response contract (M1 workers: implement exactly these shapes; errors are
     POST /api/workspace/select      {path}-> 200 WorkspaceInfo of the new absolute directory (server switches repo)
                                              400 missing/relative/nonexistent path or not a directory
     POST /api/workspace/init-git    {}    -> 200 {...WorkspaceInfo, created: bool}  (branch "main"; idempotent)
+                                             A repo without commits gets an empty root commit (files are never
+                                             staged); with no git identity, a repo-local VibeBaton identity is
+                                             written first (global config untouched, existing identity kept).
+                                             500 {error} when git init or the root commit fails
     POST /api/brainstorm/chat       {messages: [{role, content}], scenario?: id|null, offline?: bool}
                                           -> 200 BrainstormTurnResult {reply, rfc_markdown, blueprint, provider_used, offline,
                                              guide: {question, options: [str] (<=4), checklist: [{id, status, value}]
@@ -464,6 +468,83 @@ class TestWorkspaceApi(GuidedApiTestCase):
 
         missing_status, missing_body = self._post("/api/workspace/open", {"path": "does-not-exist.txt"})
         self.assertEqual(missing_status, 404, missing_body)
+
+
+class TestWorkspaceFirstCommit(GuidedApiTestCase):
+    """init-git always leaves a first commit, even on a machine without a git identity."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.target = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        (self.target / "notes.txt").write_text("my own file\n", encoding="utf-8")
+        self.global_config = Path(self.enterContext(tempfile.TemporaryDirectory())) / "gitconfig"
+        self.global_config.write_text("", encoding="utf-8")
+        # No identity anywhere: drop the test identity env and isolate global/system config.
+        for key in GIT_IDENTITY:
+            os.environ.pop(key, None)
+        os.environ["GIT_CONFIG_GLOBAL"] = str(self.global_config)
+        os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+
+    def _select(self) -> None:
+        status, body = self._post("/api/workspace/select", {"path": str(self.target)})
+        self.assertEqual(status, 200, body)
+
+    def _local(self, key: str) -> str | None:
+        result = subprocess.run(["git", "-C", str(self.target), "config", "--local", key],
+                                capture_output=True, text=True, check=False)
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    def test_without_identity_init_writes_a_repo_local_identity_and_a_first_commit(self) -> None:
+        self._select()
+        status, body = self._post("/api/workspace/init-git")
+        self.assertEqual(status, 200, body)
+        self.assertEqual((body["created"], body["is_git_repo"], body["has_commits"]), (True, True, True))
+        self.assertEqual((self._local("user.name"), self._local("user.email")), ("VibeBaton", "vibebaton@localhost"))
+        self.assertEqual(self.global_config.read_text(encoding="utf-8"), "")  # global config untouched
+        self.assertEqual(_git(self.target, "ls-files"), "")  # the user's files are not staged
+        self.assertTrue((self.target / "notes.txt").is_file())
+
+    def test_existing_identity_is_kept(self) -> None:
+        self.global_config.write_text("[user]\n\tname = Ada\n\temail = ada@example.invalid\n", encoding="utf-8")
+        self._select()
+        status, body = self._post("/api/workspace/init-git")
+        self.assertEqual(status, 200, body)
+        self.assertIs(body["has_commits"], True)
+        self.assertEqual((self._local("user.name"), self._local("user.email")), (None, None))
+        self.assertEqual(_git(self.target, "log", "-1", "--format=%an <%ae>"), "Ada <ada@example.invalid>")
+
+    def test_repo_without_commits_is_repaired_in_place(self) -> None:
+        subprocess.run(["git", "init", "-q", "-b", "main", str(self.target)], check=True, capture_output=True)
+        self._select()
+        self.assertIs(self._get("/api/workspace/info")[1]["has_commits"], False)
+        status, body = self._post("/api/workspace/init-git")
+        self.assertEqual(status, 200, body)
+        self.assertEqual((body["created"], body["has_commits"], body["branch"]), (False, True, "main"))
+        self.assertEqual(self._local("user.name"), "VibeBaton")
+        self.assertEqual(_git(self.target, "ls-files"), "")
+        # Idempotent once a commit exists.
+        before = _git(self.target, "rev-parse", "HEAD")
+        self.assertEqual(self._post("/api/workspace/init-git")[1]["created"], False)
+        self.assertEqual(_git(self.target, "rev-parse", "HEAD"), before)
+
+    def test_failed_first_commit_is_reported_not_swallowed(self) -> None:
+        subprocess.run(["git", "init", "-q", "-b", "main", str(self.target)], check=True, capture_output=True)
+        hook = self.target / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\necho blocked by hook >&2\nexit 1\n", encoding="utf-8", newline="\n")
+        hook.chmod(0o755)
+        self._select()
+        status, body = self._post("/api/workspace/init-git")
+        self.assert_error((status, body), 500)
+        self.assertIn("blocked by hook", body["error"])
+        self.assertIs(self._get("/api/workspace/info")[1]["has_commits"], False)
+
+    def test_run_start_refuses_a_repo_without_commits(self) -> None:
+        subprocess.run(["git", "init", "-q", "-b", "main", str(self.target)], check=True, capture_output=True)
+        self._select()
+        status, body = self._post("/api/runs/start", {"rfc_markdown": "# RFC\n\nHello.\n"})
+        self.assert_error((status, body), 400)
+        self.assertIn("commit", body["error"])
+        self.assertEqual(self.spawn_calls, [])
 
 
 class TestBrainstormApi(GuidedApiTestCase):

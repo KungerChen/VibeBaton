@@ -507,6 +507,11 @@ export interface Messages {
       gitReady: string;
       gitMissing: string;
       initGit: string;
+      firstCommitMissing: string;
+      createFirstCommit: string;
+      creatingFirstCommit: string;
+      firstCommitDone: string;
+      continueNeedsHistory: string;
       scanClis: string;
       scanning: string;
       scanSummary: (ready: number, total: number) => string;
@@ -1371,6 +1376,11 @@ export const MESSAGES: Record<Locale, Messages> = {
         gitReady: 'Version history is on. Every change can be reviewed and undone.',
         gitMissing: 'This folder does not track version history yet. Turn it on so every change can be undone.',
         initGit: 'Turn On Version History',
+        firstCommitMissing: 'This project has no first save point yet, so the build cannot start. Create one with a click; your files stay as they are.',
+        createFirstCommit: 'Create First Save Point',
+        creatingFirstCommit: 'Creating the first save point...',
+        firstCommitDone: 'First save point created.',
+        continueNeedsHistory: 'Turn on version history above first; the build needs it to start.',
         scanClis: 'Scan AI Coding Tools',
         scanning: 'Scanning this computer…',
         scanSummary: (ready, total) => `${ready}/${total} ready`,
@@ -2259,6 +2269,11 @@ export const MESSAGES: Record<Locale, Messages> = {
         gitReady: '版本记录已开启，每一处改动都可审阅、可撤销。',
         gitMissing: '这个文件夹还没有开启版本记录。开启后，每一处改动都可以撤销。',
         initGit: '开启版本记录',
+        firstCommitMissing: '这个项目还没有第一份存档，无法开始施工。点一下就能创建，你的文件不会被改动。',
+        createFirstCommit: '创建第一份存档',
+        creatingFirstCommit: '正在创建第一份存档……',
+        firstCommitDone: '第一份存档已创建。',
+        continueNeedsHistory: '请先在上方开启版本记录，施工需要它才能开始。',
         scanClis: '扫描 AI 编程工具',
         scanning: '正在扫描本机……',
         scanSummary: (ready, total) => `已就绪 ${ready}/${total}`,
