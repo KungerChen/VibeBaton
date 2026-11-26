@@ -255,6 +255,14 @@ _ITEM_LABELS = {
     "What must not change": "limits", "How we know it is done": "done",
 }
 
+# Asked offline once every item is settled but the blueprint still has no command that proves the work.
+_CHECK_QUESTION = {
+    "zh": "还差最后一步：做完以后用哪条命令自动检查一遍？点一个最接近的就行，之后还能改。",
+    "en": "One last thing: which command should check the work automatically once it is built? "
+          "Pick the closest one; you can change it later.",
+}
+_DEFAULT_CHECK_COMMANDS = ("python -m unittest", "npm test", "pytest")
+
 # Offline questions, one per checklist item ("what" always comes from the first message).
 _OFFLINE_QUESTIONS: dict[str, dict[str, tuple[str, tuple[str, ...], str]]] = {
     # id: {lang: (question, options, assumption when the user leaves it to us)}
@@ -403,11 +411,12 @@ class _OfflineParts(TypedDict):
 
 
 def _compose_offline_rfc(
-    messages: list[ChatMessage], extra_commands: list[str] | None = None,
+    messages: list[ChatMessage], extra_commands: list[str] | None = None, audience: str | None = None,
 ) -> tuple[str, _OfflineParts]:
     """Synthesise the RFC from user turns only; also return how the sentences were classified.
 
     "Not sure / you decide" replies after the first turn are left out: they are not requirements.
+    ``audience`` (who it is for) becomes its own line under Goals instead of a bare bullet.
     """
     user_turns = [m["content"].strip() for m in messages if m["role"] == "user" and m["content"].strip()]
     user_turns = user_turns[:1] + [text for text in user_turns[1:] if not _UNSURE.search(text)]
@@ -423,7 +432,11 @@ def _compose_offline_rfc(
     constraints: list[str] = []
     non_goals: list[str] = []
     commands: list[str] = []
+    # A clicked "who" option says nothing else, so it lives only on the Audience line; typed answers stay as goals too.
+    who_options = {option for langs in _OFFLINE_QUESTIONS["who"].values() for option in langs[1]}
     for sentence in rest:
+        if sentence in who_options and sentence == audience:
+            continue
         command = _extract_command(sentence)
         if command is not None:
             if command not in commands:
@@ -467,6 +480,7 @@ def _compose_offline_rfc(
         "",
         first,
         "",
+        *([f"Audience: {audience}", ""] if audience else []),
         *bullets([first, *goals], first),
         "",
         "## Constraints",
@@ -529,6 +543,8 @@ def _answers(messages: list[ChatMessage]) -> dict[str, str]:
         for item_id, langs in _OFFLINE_QUESTIONS.items():
             if any(langs[lang][0] in message["content"] for lang in ("zh", "en")):
                 answers[item_id] = reply["content"].strip()
+        if any(question in message["content"] for question in _CHECK_QUESTION.values()):
+            answers["check"] = reply["content"].strip()
     return answers
 
 
@@ -564,6 +580,17 @@ def _project_commands(repo_path: Path) -> list[str]:
     return [command.split("  (")[0] for command in _detected_commands(repo, sorted(folders))]
 
 
+def _project_check_commands(repo_path: Path) -> list[str]:
+    """Project commands the readiness checker recognises, test commands first."""
+    commands = [c for c in _project_commands(repo_path) if check_rfc_readiness(c)["detected_commands"]]
+    return [c for c in commands if "test" in c] + [c for c in commands if "test" not in c]
+
+
+def _check_command_options(repo_path: Path) -> list[str]:
+    """2-4 clickable verification commands: the project's own first, then common defaults."""
+    return list(dict.fromkeys([*_project_check_commands(repo_path)[:2], *_DEFAULT_CHECK_COMMANDS]))[:4]
+
+
 def _offline_turn(
     repo_path: Path,
     messages: list[ChatMessage],
@@ -572,33 +599,55 @@ def _offline_turn(
     zh: bool,
 ) -> tuple[str, str, BrainstormGuide]:
     """Deterministic offline turn: ``(reply, rfc_markdown, guide)`` asking about the first open item."""
-    answers = _answers(messages)
-    rfc_markdown, parts = _compose_offline_rfc(messages)
-    if "done" in answers and not parts["commands"]:
-        # They answered how to check the work; use the project's own test command when it has one.
-        commands = _project_commands(repo_path)
-        extra = [next((c for c in commands if "test" in c), commands[0])] if commands else []
-        if extra:
-            rfc_markdown, parts = _compose_offline_rfc(messages, extra)
-    checklist = _offline_checklist(parts, answers, zh)
     lang = "zh" if zh else "en"
-    next_open = next((item["id"] for item in checklist if item["status"] == "open"), None)
-    question, options = ("", []) if next_open is None else (
-        _OFFLINE_QUESTIONS[next_open][lang][0], list(_OFFLINE_QUESTIONS[next_open][lang][1])
+    answers = _answers(messages)
+    check = answers.pop("check", None)
+    check_unsure = check is not None and bool(_UNSURE.search(check))
+    if check is not None and not check_unsure:
+        answers["done"] = check  # the command they picked or typed
+    who = answers.get("who")
+    audience = None if who is None else (
+        f"{_OFFLINE_QUESTIONS['who'][lang][2]} (assumed)" if _UNSURE.search(who) else who
     )
+    extra: list[str] = []
+    if check_unsure:
+        extra = _check_command_options(repo_path)[:1]  # they left it to us: take the first offered command
+    elif "done" in answers:
+        # They answered how to check the work; use the project's own test command when it has one.
+        extra = _project_check_commands(repo_path)[:1]
+    rfc_markdown, parts = _compose_offline_rfc(messages, None, audience)
+    if extra and not parts["commands"]:
+        rfc_markdown, parts = _compose_offline_rfc(messages, extra, audience)
+    checklist = _offline_checklist(parts, answers, zh)
+    if check_unsure and extra:
+        checklist = [
+            {"id": "done", "status": "assumed", "value": extra[0]} if item["id"] == "done" else item
+            for item in checklist
+        ]
+    ready = check_rfc_readiness(rfc_markdown)["safe_for_overnight"]
+    next_open = next((item["id"] for item in checklist if item["status"] == "open"), None)
+    if next_open is not None:
+        question, options = _OFFLINE_QUESTIONS[next_open][lang][0], list(_OFFLINE_QUESTIONS[next_open][lang][1])
+    elif not ready and not parts["commands"]:
+        # Every item is settled, but nothing can prove the work yet: ask for the command instead of claiming ready.
+        question, options = _CHECK_QUESTION[lang], _check_command_options(repo_path)
+    else:
+        question, options = "", []
 
     title = rfc_markdown.splitlines()[0][2:].strip()
     follow_up = any(message["role"] == "assistant" for message in messages)
     if zh:
         lead = f"从「{scenario['title_zh']}」出发，" if scenario else ""
         reply = "好的，记下了，蓝图已更新。" if follow_up else f"{lead}我把你的想法记进了蓝图：「{title}」。"
-        reply += f"\n\n{question}" if question else "\n\n该问的都问完了。看看右边的蓝图，没问题就可以开工了。"
+        closing = "该问的都问完了。看看右边的蓝图，没问题就可以开工了。" if ready else "该问的都问完了，看看右边的蓝图还差什么。"
     else:
         lead = f'Starting from "{scenario["title_en"]}", ' if scenario else ""
         reply = "Got it, the blueprint is updated." if follow_up else f'{lead}I added your idea to the blueprint: "{title}".'
-        reply += f"\n\n{question}" if question else (
-            "\n\nThat covers everything I wanted to ask. Check the blueprint on the right, and start building when it reads right."
+        closing = (
+            "That covers everything I wanted to ask. Check the blueprint on the right, and start building when it reads right."
+            if ready else "That covers everything I wanted to ask. The blueprint on the right shows what is still missing."
         )
+    reply += f"\n\n{question or closing}"
     return reply, rfc_markdown, {"question": question, "options": options, "checklist": checklist}
 
 

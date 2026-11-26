@@ -1306,8 +1306,10 @@ class BrainstormGuideTests(unittest.TestCase):
         self.assertEqual(statuses["scope"][0], "assumed")
         self.assertEqual(statuses["limits"][0], "clear")
         self.assertEqual(statuses["done"][0], "clear")
-        self.assertEqual(final["guide"]["question"], "")
-        self.assertEqual(final["guide"]["options"], [])
+        # No test command in this empty repo yet: the last question asks for one instead of claiming ready.
+        self.assertFalse(final["blueprint"]["ready_to_launch"])
+        self.assertTrue(final["guide"]["question"])
+        self.assertNotIn("start building", final["reply"])
         self.assertNotIn("not sure", final["rfc_markdown"])  # "you decide" replies are not requirements
 
     def test_offline_questions_are_bilingual(self) -> None:
@@ -1345,6 +1347,69 @@ class BrainstormGuideTests(unittest.TestCase):
             self.assertIn(f"'{label}'", messages_ts)
         self.assertIn("`关于「${item}」，我想改成：`", messages_ts)
         self.assertIn('`About "${item}", I want to change it to: `', messages_ts)
+
+    ZH_FLOW = ("只有我自己", "我不确定，你帮我定", "不要引入新的依赖", "我自己打开看一眼就行")
+    EN_FLOW = ("Just me", "I'm not sure, you decide", "Do not add new libraries", "I will just open it and look")
+
+    def _flow(self, first: str, answers: tuple[str, ...], locale: str) -> tuple[list[dict[str, str]], dict[str, Any]]:
+        os.environ["VIBEBATON_OFFLINE_BRAINSTORM"] = "1"
+        messages: list[dict[str, str]] = [{"role": "user", "content": first}]
+        for answer in answers:
+            result = brainstorm_turn(self.repo, messages, locale=locale)
+            messages += [{"role": "assistant", "content": result["reply"]}, {"role": "user", "content": answer}]
+        return messages, brainstorm_turn(self.repo, messages, locale=locale)
+
+    def test_offline_never_claims_ready_before_a_check_command_exists(self) -> None:
+        for first, answers, locale, ready_phrase in (
+            ("我想做一个个人记账小工具", self.ZH_FLOW, "zh", "可以开工"),
+            ("I want a small personal budget tracker", self.EN_FLOW, "en", "start building"),
+        ):
+            with self.subTest(locale=locale):
+                messages, result = self._flow(first, answers, locale)
+                self.assertEqual([i["status"] for i in result["guide"]["checklist"]].count("open"), 0)
+                self.assertFalse(result["blueprint"]["ready_to_launch"])
+                self.assertNotIn(ready_phrase, result["reply"])
+                question = result["guide"]["question"]
+                self.assertTrue(question)
+                self.assertIn(question, result["reply"])
+                options = result["guide"]["options"]
+                self.assertTrue(2 <= len(options) <= 4)
+                for option in options:
+                    self.assertEqual(check_rfc_readiness(option)["detected_commands"] != [], True, option)
+                self.assertEqual(brainstorm_turn(self.repo, messages, locale=locale), result)  # deterministic
+
+                # Picking one of the offered commands makes the blueprint ready, and only now says so.
+                picked = messages + [{"role": "assistant", "content": result["reply"]}, {"role": "user", "content": options[0]}]
+                done = brainstorm_turn(self.repo, picked, locale=locale)
+                self.assertTrue(done["blueprint"]["ready_to_launch"])
+                self.assertIn(ready_phrase, done["reply"])
+                self.assertEqual(done["guide"]["question"], "")
+                self.assertEqual(done["guide"]["options"], [])
+                by_id = {item["id"]: item for item in done["guide"]["checklist"]}
+                self.assertEqual((by_id["done"]["status"], by_id["done"]["value"]), ("clear", options[0]))
+                self.assertIn(options[0], done["rfc_markdown"])
+
+                # Leaving it to us picks the first offered command as an assumption.
+                unsure = messages + [{"role": "assistant", "content": result["reply"]}, {"role": "user", "content": answers[1]}]
+                assumed = brainstorm_turn(self.repo, unsure, locale=locale)
+                self.assertTrue(assumed["blueprint"]["ready_to_launch"])
+                self.assertEqual(next(i for i in assumed["guide"]["checklist"] if i["id"] == "done")["status"], "assumed")
+                self.assertIn(options[0], assumed["rfc_markdown"])
+
+    def test_check_command_options_put_the_project_commands_first(self) -> None:
+        (self.repo / "package.json").write_text(json.dumps({"scripts": {"test": "vitest run", "lint": "eslint ."}}), encoding="utf-8")
+        options = brainstorm._check_command_options(self.repo)
+        self.assertEqual(options[0], "npm run test")
+        self.assertTrue(2 <= len(options) <= 4)
+        self.assertEqual(len(options), len(set(options)))
+        for option in options:
+            self.assertTrue(check_rfc_readiness(option)["detected_commands"], option)
+
+    def test_offline_audience_answer_is_written_into_the_goals(self) -> None:
+        _, result = self._flow("我想做一个个人记账小工具", self.ZH_FLOW[:1], "zh")
+        goals = result["rfc_markdown"].split("## Constraints")[0]
+        self.assertIn("Audience: 只有我自己", goals)
+        self.assertNotIn("- 只有我自己\n", result["rfc_markdown"])
 
 
 class BrainstormModelChoiceTests(unittest.TestCase):
