@@ -483,15 +483,30 @@ class CliReportedModelTests(unittest.TestCase):
 
     def test_agy_model_list_parser_supports_text_ansi_and_json(self) -> None:
         text_output = (
-            "Available models:\n"
+            "Fetching available models...\n"
             "  auto                  Automatic router\n"
-            "  \x1b[1mgemini-4-carbon\x1b[22m       Gemini 4 Carbon (Ultra)\n"
-            "  gemini-4-neon         Gemini 4 Neon\n"
-            "  claude-opus-5-5       Claude Opus 5.5\n"
+            "  \x1b[1mgemini-4-carbon-low\x1b[22m\tGemini 4 Carbon (Low)\n"
+            "  gemini-4-carbon-medium\tGemini 4 Carbon (Medium)\n"
+            "  gemini-4-carbon-high\tGemini 4 Carbon (High)\n"
+            "  gemini-4-neon-xhigh\tGemini 4 Neon (XHigh)\n"
+            "  gemini-4-neon-medium\tGemini 4 Neon (Medium)\n"
+            "  gemini-4-neon-low\tGemini 4 Neon (Low)\n"
+            "  gemini-4-neon-high\tGemini 4 Neon (High)\n"
+            "  claude-opus-5-5-low\tClaude Opus 5.5 (Low)\n"
+            "  claude-opus-5-5-medium\tClaude Opus 5.5 (Medium)\n"
+            "  claude-opus-5-5-high\tClaude Opus 5.5 (High)\n"
+            "  gpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n"
         )
+        parsed = model_catalog.parse_agy_models(text_output)
+        self.assertEqual(parsed, {
+            "gemini-4-carbon": ["low", "medium", "high"],
+            "gemini-4-neon": ["low", "medium", "high", "xhigh"],
+            "claude-opus-5-5": ["low", "medium", "high"],
+            "gpt-oss-120b": ["medium"],
+        })
         self.assertEqual(
             model_catalog.parse_agy_model_list(text_output),
-            ["gemini-4-carbon", "gemini-4-neon", "claude-opus-5-5"],
+            ["gemini-4-carbon", "gemini-4-neon", "claude-opus-5-5", "gpt-oss-120b"],
         )
         json_output = json.dumps([
             {"id": "gemini-4-carbon"},
@@ -502,7 +517,24 @@ class CliReportedModelTests(unittest.TestCase):
             model_catalog.parse_agy_model_list(json_output),
             ["gemini-4-carbon", "claude-sonnet-5-5", "gemini-4-argon"],
         )
+        self.assertEqual(model_catalog.parse_agy_models(""), {})
         self.assertEqual(model_catalog.parse_agy_model_list(""), [])
+
+    def test_sync_with_real_agy_effort_slugs_recommends_carbon_medium(self) -> None:
+        feed = {"gemini/gemini-4-carbon": {"litellm_provider": "gemini", "mode": "chat"}}
+        cli_models = model_catalog.parse_agy_models(
+            "gemini-4-carbon-low\tGemini 4 Carbon (Low)\n"
+            "gemini-4-carbon-medium\tGemini 4 Carbon (Medium)\n"
+            "gemini-4-carbon-high\tGemini 4 Carbon (High)\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            models = _sync(Path(tmp) / "c.json", feed, cli_probe=lambda: {"agy_sub": cli_models})["catalog"]["models"]
+        carbon = next(m for m in models if m["id"] == "gemini-4-carbon")
+        self.assertEqual(carbon["provider_efforts"]["agy_sub"], ["low", "medium", "high"])
+        self.assertEqual(
+            model_catalog.recommend_role_assignment("brainstorm_and_final_gate", ["agy_sub", "gemini_sub", "claude_sub"], models),
+            {"provider": "agy_sub", "model": "gemini-4-carbon", "effort": "medium"},
+        )
 
     def test_probe_reads_both_clis_without_a_real_cli(self) -> None:
         calls: list[list[str]] = []

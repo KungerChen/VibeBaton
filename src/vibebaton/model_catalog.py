@@ -433,7 +433,9 @@ CliModels = dict[str, dict[str, list[str]]]
 _CLI_FEED_PROVIDER = {"gemini_sub": "gemini", "codex_sub": "openai"}
 _GEMINI_MODEL_LINE = re.compile(r"^(gemini-[\w.\-]+) \(")
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-_AGY_MODEL_ID_RE = re.compile(r"\b((?:gemini|claude|gpt)-[\w.\-]+)\b", re.IGNORECASE)
+_AGY_MODEL_ID_RE = re.compile(r"^(?:gemini|claude|gpt)-[\w.\-]+$", re.IGNORECASE)
+_AGY_EFFORT_SUFFIX_RE = re.compile(r"^(.+?)-(low|medium|high|xhigh|max|ultra)$", re.IGNORECASE)
+_AGY_EFFORT_ORDER = {"low": 0, "medium": 1, "high": 2, "xhigh": 3, "max": 4, "ultra": 5}
 CLI_PROBE_TIMEOUT_SEC = 30.0
 
 
@@ -445,11 +447,26 @@ def parse_gemini_model_list(text: str) -> list[str]:
     return list(dict.fromkeys(found))
 
 
-def parse_agy_model_list(text: str) -> list[str]:
-    """Model IDs from ``agy models`` (plain text, ANSI-styled table, or JSON list/object)."""
+def _record_agy_slug(grouped: dict[str, list[str]], slug: str) -> None:
+    normalized = slug.strip().lower()
+    if not _AGY_MODEL_ID_RE.fullmatch(normalized):
+        return
+    suffix = _AGY_EFFORT_SUFFIX_RE.match(normalized)
+    if suffix:
+        base_id, effort = suffix.group(1), suffix.group(2)
+        efforts = grouped.setdefault(base_id, [])
+        if effort not in efforts:
+            efforts.append(effort)
+    else:
+        grouped.setdefault(normalized, [])
+
+
+def parse_agy_models(text: str) -> dict[str, list[str]]:
+    """``{base_model_id: efforts}`` from ``agy models`` (tab-separated text, ANSI table, or JSON)."""
     clean = _ANSI_ESCAPE.sub("", text).strip()
     if not clean:
-        return []
+        return {}
+    grouped: dict[str, list[str]] = {}
     if clean.startswith(("[", "{")):
         try:
             payload = json.loads(clean)
@@ -457,7 +474,6 @@ def parse_agy_model_list(text: str) -> list[str]:
             payload = None
         items = payload.get("models") if isinstance(payload, Mapping) else payload
         if isinstance(items, list):
-            extracted: list[str] = []
             for item in items:
                 raw_id = item if isinstance(item, str) else (
                     next(
@@ -466,17 +482,27 @@ def parse_agy_model_list(text: str) -> list[str]:
                     )
                     if isinstance(item, Mapping) else None
                 )
-                if raw_id and _AGY_MODEL_ID_RE.fullmatch(raw_id.strip()):
-                    extracted.append(raw_id.strip().lower())
-            if extracted:
-                return list(dict.fromkeys(extracted))
-    found: list[str] = []
+                if raw_id:
+                    _record_agy_slug(grouped, raw_id)
+            if grouped:
+                return {
+                    model_id: sorted(efforts, key=lambda e: _AGY_EFFORT_ORDER.get(e, 99))
+                    for model_id, efforts in grouped.items()
+                }
     for line in clean.splitlines():
-        for match in _AGY_MODEL_ID_RE.finditer(line):
-            model_id = match.group(1).lower()
-            if model_id != "auto":
-                found.append(model_id)
-    return list(dict.fromkeys(found))
+        stripped = line.strip()
+        if not stripped:
+            continue
+        _record_agy_slug(grouped, stripped.split()[0])
+    return {
+        model_id: sorted(efforts, key=lambda e: _AGY_EFFORT_ORDER.get(e, 99))
+        for model_id, efforts in grouped.items()
+    }
+
+
+def parse_agy_model_list(text: str) -> list[str]:
+    """Base model IDs from ``agy models`` (stripping effort suffixes such as ``-medium``)."""
+    return list(parse_agy_models(text))
 
 
 def _infer_cli_feed_provider(provider: str, model_id: str) -> str:
@@ -537,9 +563,9 @@ def probe_cli_models(
                 [agy, "models"], capture_output=True, text=True,
                 encoding="utf-8", errors="replace", timeout=timeout_sec,
             )
-            agy_models = parse_agy_model_list(proc.stdout or "") if proc.returncode == 0 else []
+            agy_models = parse_agy_models(proc.stdout or "") if proc.returncode == 0 else {}
             if agy_models:
-                found["agy_sub"] = {model_id: [] for model_id in agy_models}
+                found["agy_sub"] = agy_models
         except (OSError, subprocess.SubprocessError, ValueError):
             pass
     gemini = which("gemini")
