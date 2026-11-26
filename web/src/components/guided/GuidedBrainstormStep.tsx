@@ -13,6 +13,7 @@ import { MESSAGES, type Locale } from '../../i18n/messages';
 import type { LaunchRunRequest } from '../../types/graph';
 import { localizeGuidedError } from './guidedErrors';
 import scenarioList from './brainstormScenarios.json';
+import { MarkdownView } from '../ui/MarkdownView';
 
 /** The three backend calls this step needs; inject a fake in tests or the App's shared client. */
 export interface GuidedBrainstormApi {
@@ -51,6 +52,15 @@ export function readinessTone(score: number): ReadinessTone {
   if (score < 50) return 'low';
   if (score < 80) return 'medium';
   return 'high';
+}
+
+/** One chat turn in the brainstorm transcript; assistant replies render as Markdown. */
+export function BrainstormTurn({ message }: { message: BrainstormMessage }) {
+  return (
+    <li className={`guided-brainstorm__turn guided-brainstorm__turn--${message.role}`}>
+      {message.role === 'assistant' ? <MarkdownView markdown={message.content} /> : message.content}
+    </li>
+  );
 }
 
 /** Launch is allowed only once the backend marks the blueprint ready. */
@@ -185,9 +195,7 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
         </div>
         <ol className="guided-brainstorm__transcript" aria-live="polite">
           {messages.map((message, index) => (
-            <li key={index} className={`guided-brainstorm__turn guided-brainstorm__turn--${message.role}`}>
-              {message.content}
-            </li>
+            <BrainstormTurn key={index} message={message} />
           ))}
         </ol>
         <p id={hintId} className="guided-brainstorm__input-hint">{labels.inputHint}</p>
@@ -256,7 +264,11 @@ export function GuidedBrainstormStep({ locale, lineup, onLaunched, api }: Guided
             >
               {showRfc ? labels.hideRfc : labels.showRfc}
             </button>
-            {showRfc ? <pre id={rfcId} className="guided-brainstorm__rfc">{turn.rfc_markdown}</pre> : null}
+            {showRfc ? (
+              <div id={rfcId} className="guided-brainstorm__rfc">
+                <MarkdownView markdown={turn.rfc_markdown} />
+              </div>
+            ) : null}
           </>
         ) : null}
         <button type="button" className="guided-brainstorm__launch" disabled={!launchable} onClick={launch}>

@@ -5,6 +5,7 @@ import type { BlueprintCard, BrainstormTurnResult, RecommendedLineup } from '../
 import {
   appendTurn,
   BRAINSTORM_SCENARIOS,
+  BrainstormTurn,
   canLaunch,
   confirmAndStart,
   GuidedBrainstormStep,
@@ -203,5 +204,28 @@ describe('GuidedBrainstormStep render', () => {
     const en = render('en');
     expect(en).toContain('how you will know it is done');
     for (const item of BRAINSTORM_SCENARIOS) expect(item.prompt_en.split('\n')).toHaveLength(5);
+  });
+
+  test('renders assistant replies as formatted Markdown while keeping user turns plain text', () => {
+    const assistantMarkup = renderToStaticMarkup(
+      createElement(BrainstormTurn, {
+        message: {
+          role: 'assistant',
+          content: '已理解你的**核心目标**，请运行 `pytest` 验证：\n\n- 选项一\n- 选项二',
+        },
+      }),
+    );
+    expect(assistantMarkup).toContain('<strong>核心目标</strong>');
+    expect(assistantMarkup).toContain('<code>pytest</code>');
+    expect(assistantMarkup).toContain('<ul><li>选项一</li><li>选项二</li></ul>');
+    expect(assistantMarkup).not.toContain('**核心目标**');
+
+    const userMarkup = renderToStaticMarkup(
+      createElement(BrainstormTurn, {
+        message: { role: 'user', content: '**keep raw**' },
+      }),
+    );
+    expect(userMarkup).toContain('**keep raw**');
+    expect(userMarkup).not.toContain('<strong>');
   });
 });

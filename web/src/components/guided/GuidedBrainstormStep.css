@@ -71,7 +71,6 @@
   max-width: 85%;
   padding: 0.5rem 0.75rem;
   border-radius: 0.75rem;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
@@ -79,11 +78,49 @@
   align-self: flex-end;
   background: var(--primary);
   color: var(--primary-foreground);
+  white-space: pre-wrap;
 }
 
 .guided-brainstorm__turn--assistant {
   align-self: flex-start;
   background: var(--muted);
+  white-space: normal;
+}
+
+.guided-brainstorm__turn--assistant .markdown-view {
+  gap: 0.45rem;
+  font-size: inherit;
+  line-height: 1.55;
+}
+
+.guided-brainstorm__turn--assistant .markdown-view > :first-child {
+  margin-top: 0;
+}
+
+.guided-brainstorm__turn--assistant .markdown-view > :last-child {
+  margin-bottom: 0;
+}
+
+.guided-brainstorm__turn--assistant .markdown-view p,
+.guided-brainstorm__turn--assistant .markdown-view ul,
+.guided-brainstorm__turn--assistant .markdown-view ol {
+  margin: 0.45rem 0;
+}
+
+.guided-brainstorm__turn--assistant .markdown-view ul,
+.guided-brainstorm__turn--assistant .markdown-view ol {
+  padding-left: 1.25rem;
+}
+
+.guided-brainstorm__turn--assistant .markdown-view code,
+.guided-brainstorm__turn--assistant .markdown-view pre {
+  background: var(--card);
+}
+
+.guided-brainstorm__turn--assistant .markdown-view pre,
+.guided-brainstorm__turn--assistant .markdown-view__table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .guided-brainstorm__composer {
@@ -213,10 +250,15 @@
   margin: 0;
   padding: 0.75rem;
   overflow: auto;
+  border: 1px solid var(--border);
   border-radius: 0.5rem;
   background: var(--muted);
-  font-size: 0.8rem;
-  white-space: pre-wrap;
+  font-size: 0.85rem;
+}
+
+.guided-brainstorm__rfc .markdown-view {
+  gap: 0.5rem;
+  font-size: inherit;
 }
 
 .guided-brainstorm__launch {

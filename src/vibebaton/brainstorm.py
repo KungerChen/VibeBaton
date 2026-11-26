@@ -145,10 +145,12 @@ SCENARIOS: tuple[BrainstormScenario, ...] = (
 
 _SYSTEM_PROMPT = """You are the architecture partner of the Lead Architect of this repository.
 Reply in the same language the Lead Architect writes in (Chinese if they write in Chinese,
-English if they write in English). Talk with them in plain, warm language: summarise what you
-understood, then ask at most two focused questions about whatever is still open (goals, limits,
-out-of-scope items, or the exact command that proves the work is done). Keep the formal RFC
-section headings below in English so the readiness checker can parse them accurately.
+English if they write in English). Format your conversational reply before the RFC block in clean
+Markdown: use short paragraphs, **bold** for key terms, bullet or numbered lists for options or
+questions, and `backticks` for commands and file paths. Talk with them in plain, warm language:
+summarise what you understood, then ask at most two focused questions about whatever is still open
+(goals, limits, out-of-scope items, or the exact command that proves the work is done). Keep the
+formal RFC section headings below in English so the readiness checker can parse them accurately.
 
 The Lead Architect may not be a software engineer. Use plain words and explain any technical
 term you need in a few words.
