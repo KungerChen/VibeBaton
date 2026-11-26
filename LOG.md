@@ -123,3 +123,30 @@
 - 未验证：任务栏的肉眼效果（会话内看不到任务栏）。快捷方式图标引用的是仓库内 `web\public\favicon.ico`，无需重新运行 `-CreateShortcut`；若桌面快捷方式仍显示旧图，运行 `ie4uinit.exe -show` 刷新 Windows 图标缓存。
 
 **commit**：341f9cb
+
+## L0006 2026-11-26 引导模式蓝图：一句话起步、一次一问、清单逐项点亮
+
+**目的**：把引导模式第二步从「11 个场景按钮 + 四栏空模板 + 0–100 就绪度」改成对非工程师友好的对话：一句话起步，AI 每轮只问一个问题并给可点选项，右侧五项清单逐项点亮；实时调用失败不再静默降级。
+
+**改动文件**：
+- `src/vibebaton/brainstorm.py`：`BrainstormTurnResult` 新增 `guide`（question / options ≤4 / 五项固定顺序 checklist：what、who、scope、limits、done，状态 clear|assumed|open）与 `error`；系统提示词改为「先复述、只问一个问题、不确定就自己假设并标 assumed、另输出 ```guide JSON 块」，称呼不再用 Lead Architect；解析并校验 guide 块（未知 id 丢弃、缺项补 open、非法状态视为 open、选项截到 4 个并过滤「不确定」类选项），缺失或非法时由 RFC 章节推导保底值；实时失败时仍返回离线结果，但 `error` 给出 ≤200 字符、屏蔽密钥的原因；离线模式按清单顺序逐项提问（中英文固定问题 + 3 个选项），「不确定/你定」类回答记为 assumed 且不写进 RFC；回答了「怎么算完成」时若项目有检测到的测试命令（优先含 test 的）就写入验证块；蓝图「改一下」发来的消息更新对应项而不是当作当前问题的答案；`SCENARIOS` 的 prompt 改为一句自然的示例开场白，删除 `_SCENARIO_FIELDS_*`、`_is_blank_field`、`_offline_reply`。
+- `web/src/components/guided/brainstormScenarios.json`：同步新开场白。
+- `web/src/components/guided/GuidedBrainstormStep.tsx` / `.css` / `.test.ts`：重写。开场为一个输入框 + 4 个示例（其余收进「更多灵感」），示例不覆盖用户自己写的内容；回复下方显示选项按钮 + 固定「我不确定，你帮我定」；Enter 发送、Shift+Enter 换行、输入法组字时不发送；右侧五项清单（三种状态样式、「已明确 N/5」、每项「改一下」预填并聚焦）、完整文档收进「查看技术文档」；开工前列出 AI 代定的假设，未就绪时用平实语言说明还差什么；`turn.error` 与请求异常都可重试（不重复追加用户消息、不丢输入）；分阶段等待文案；打字机效果（2–4 秒放完、点击立即显示、选项与清单放完后才更新、开关存 localStorage、尊重 prefers-reduced-motion、只播最新一条）；对话按项目路径存 localStorage，可「重新开始」。纯逻辑均导出并单测；删除 `readinessTone`。
+- `web/src/components/guided/GuidedWorkbench.tsx`：蓝图步骤也读取工作区路径，并以 `projectPath` 传给蓝图组件。
+- `web/src/api/client.ts`（+ `client.test.ts`）：新增 `BrainstormGuide`、`ChecklistItem` 等类型。
+- `web/src/i18n/messages.ts`：`guided.brainstorm` 键整体替换，中英文键位一致，EN 仅 ASCII，不出现 RFC / 就绪度 / 交付物。
+- `tests/test_guided_api.py`：新增 `BrainstormGuideTests`（合法/缺失/非法/多余 id、guide 在 RFC 前后、离线逐项提问顺序与确定性、双语、已给信息直接点亮、「改一下」、标签与前端文案一致）与失败可见、密钥屏蔽测试；更新场景与响应字段契约。
+
+**决策原因**：
+- 「就绪度」量的是章节格式，不是需求是否想清楚，所以清单另起一套 guide 契约；开工条件仍用 `ready_to_launch`（`rfc_checker` 不动）。
+- 离线模式判断某项是否已答，用「助手消息里含该项固定问题 → 下一条用户消息即答案」，加上原有句子分类（约束/非目标/命令）；保持同输入同输出。没有选择「每轮记录状态」的方案，因为对话本身就是唯一的状态来源，持久化与重试都更简单。
+- 「怎么算完成」回答后自动写入项目已有的测试命令，否则离线用户永远无法开工；只取一条，优先含 test 的。
+- 持久化只在发送成功/重新开始时写入，不用 effect 自动保存，避免切换项目时把旧对话写进新项目的键。
+- 「改一下」的识别依赖前端文案（`关于「X」，我想改成：` / `About "X", I want to change it to:`），后端有测试校验两边文案一致。
+- 多加了一个等待阶段「比平时久一些」（45 秒后），因为真实 CLI 常超过 40 秒。
+
+**验证**：
+- 已验证：后端指定 7 个模块 253 个测试通过；前端 vitest 714、`tsc --noEmit`、`npm run build` 通过。浏览器实测（`VIBEBATON_OFFLINE_BRAINSTORM=1`，临时演示仓库，中文界面）：开场与示例、Enter 发送、Shift+Enter 换行、打字机逐字出现且选项在放完后才出现、点击回复立即显示全文、点选项与「我不确定」（清单变为 AI 代你假设并在开工按钮上方列出）、「已明确 N/5」、打字机开关及其刷新后保持、「改一下」预填并聚焦、刷新后对话恢复且不重播、「查看技术文档」、「重新开始」清空本地存储、停掉服务后发送显示错误且输入保留、恢复服务后「重试」成功且用户消息只出现一次、回答完五项后开工按钮可用。实测中发现并修复两个问题：「改一下」消息被离线模式当成当前问题的答案；输入框已有自己的文字时点示例仍会切换场景。
+- 未验证：真实模型是否稳定输出 ```guide 块（只有单测覆盖解析与保底）；`turn.error` 的界面提示只在单测/代码层面验证，浏览器里没有构造真实的实时失败；等待阶段文案在离线模式下一闪而过，未肉眼确认；`prefers-reduced-motion` 未实测；英文界面只看了开场页。
+
+**commit**：d7e0a5b（后端契约）、c763ca5（前端重写 + 「改一下」修复）
