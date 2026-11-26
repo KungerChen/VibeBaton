@@ -386,11 +386,17 @@ def format_command_template(
     workdir: Path,
     prompt_file: Path,
     output_file: Path,
+    prompt: str = "",
 ) -> list[str]:
     if "@" in model:
         model_name, effort = model.split("@", 1)
     else:
         model_name, effort = model, ""
+    prompt_arg = (
+        prompt
+        if len(prompt) <= 20_000
+        else f"Read and follow the complete instructions in {prompt_file}."
+    )
     mapping = {
         "model": model,
         "model_name": model_name,
@@ -399,17 +405,16 @@ def format_command_template(
         "prompt_file": str(prompt_file),
         "output_file": str(output_file),
         "package_root": str(Path(__file__).resolve().parents[2]),
+        "prompt": prompt_arg,
     }
+    placeholder_re = re.compile(r"\{(" + "|".join(re.escape(k) for k in mapping) + r")\}")
     rendered: list[str] = []
     for token in template:
         if not effort and "{effort}" in token:
             if rendered and rendered[-1] in ("--effort", "-c", "--config"):
                 rendered.pop()
             continue
-        val = token
-        for k, v in mapping.items():
-            val = val.replace("{" + k + "}", v)
-        rendered.append(val)
+        rendered.append(placeholder_re.sub(lambda match: mapping[match.group(1)], token))
     return rendered
 
 
@@ -486,6 +491,7 @@ async def run_provider_cli(
         workdir=workdir,
         prompt_file=prompt_file,
         output_file=output_file,
+        prompt=prompt,
     )
     if not cmd:
         return CLIResult(

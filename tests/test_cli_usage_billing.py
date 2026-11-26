@@ -209,13 +209,21 @@ class TestParseCLIOutput(unittest.TestCase):
             ParsedCLIOutput("Antigravity task complete", 10415, 657, 8113, structured=True),
         )
         cmd = cli_runner.format_command_template(
-            ["agy", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "json"],
+            ["agy", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "json", "-p", "{prompt}"],
             model="gemini-4-carbon@medium", workdir=Path("."), prompt_file=Path("p"), output_file=Path("o"),
+            prompt="Design a health check",
         )
         self.assertEqual(
             cmd,
-            ["agy", "-p", "--model", "gemini-4-carbon", "--effort", "medium", "--dangerously-skip-permissions", "--output-format", "json"],
+            ["agy", "--model", "gemini-4-carbon", "--effort", "medium", "--dangerously-skip-permissions", "--output-format", "json", "-p", "Design a health check"],
         )
+        long_cmd = cli_runner.format_command_template(
+            ["agy", "--model", "{model_name}", "-p", "{prompt}"],
+            model="gemini-4-carbon@medium", workdir=Path("."), prompt_file=Path("C:/tmp/prompt.md"), output_file=Path("o"),
+            prompt="x" * 20_001,
+        )
+        self.assertIn("Read and follow the complete instructions in", long_cmd[-1])
+        self.assertIn("prompt.md", long_cmd[-1])
 
     def test_example_templates_parse_with_native_json_flags(self) -> None:
         path = Path(__file__).resolve().parents[1] / "baton.example.toml"

@@ -165,7 +165,7 @@
       "login_cmd": ["agy"],
       "auth_check_cmd": null,
       "official_url": "https://antigravity.google/docs/getting-started",
-      "command_template": ["agy", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "json"],
+      "command_template": ["agy", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "json", "-p", "{prompt}"],
       "version_cmd": ["agy", "--version"],
       "provider_ids": ["agy_sub"],
       "env_keys": []

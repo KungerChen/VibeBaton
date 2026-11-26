@@ -75,8 +75,8 @@ type = "cli"
 max_concurrency = 1
 cooldown_backoff_sec = [60, 300, 900]
 rate_limit_regex = "(rate.?limit|usage.?limit|quota|429|RESOURCE_EXHAUSTED|too many requests|overloaded)"
-command = ["agy", "-p", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "json"]
-prompt_via = "stdin"
+command = ["agy", "--model", "{model_name}", "--effort", "{effort}", "--dangerously-skip-permissions", "--output-format", "json", "-p", "{prompt}"]
+prompt_via = "arg"
 stall_timeout_sec = 900
 hard_timeout_sec = 2400
 
