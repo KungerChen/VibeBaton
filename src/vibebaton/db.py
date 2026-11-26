@@ -8,7 +8,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from .schemas import PlanDAG, RunStatus, TaskStatus
 
@@ -98,7 +98,37 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id, id);
 CREATE INDEX IF NOT EXISTS idx_tasks_run_status ON tasks(run_id, status);
+
+CREATE TABLE IF NOT EXISTS run_execution_locks (
+    run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+    token TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS run_stop_requests (
+    run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+    had_executor INTEGER NOT NULL
+);
 """
+
+_LINEAGE_COLUMNS = ("parent_run_id", "base_ref", "start_sha", "result_sha", "launch_request_id")
+_ACTIVE_RUN_STATUSES = (
+    RunStatus.PENDING, RunStatus.PLANNING, RunStatus.RUNNING, RunStatus.PAUSED,
+    RunStatus.WAITING_HUMAN, RunStatus.READY_FOR_FINAL_GATE,
+)
+_TERMINAL_RUN_STATUSES = (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.SUPERSEDED)
+_BUSY_TASK_STATUSES = (TaskStatus.RUNNING, TaskStatus.GATE_CHECKING, TaskStatus.REVIEWING, TaskStatus.COOLDOWN)
+
+
+class RunTerminalError(ValueError):
+    """A terminal run cannot be resumed or finalized."""
+
+    def __init__(self, run_id: str, status: str) -> None:
+        self.run_id, self.status = run_id, status
+        super().__init__(f"Run {run_id} is {status} and cannot be resumed or finalized")
+
+
+class ActiveRunError(ValueError):
+    """A conflicting run, executor, or pending stop prevents this operation."""
 
 
 class StateStore:
@@ -126,11 +156,50 @@ class StateStore:
 
     def _init_schema(self) -> None:
         with self._connect() as conn:
-            conn.executescript(_SCHEMA_SQL)
+            # Switching a legacy database to WAL can return SQLITE_BUSY without
+            # honoring busy_timeout when another opener is switching it too.
+            deadline = time.monotonic() + 10.0
+            while True:
+                try:
+                    conn.executescript(_SCHEMA_SQL)
+                    break
+                except sqlite3.OperationalError as exc:
+                    code = getattr(exc, "sqlite_errorcode", 0) & 0xFF
+                    if code not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.05)
+            # Serialize the check and ALTERs across store instances. SQLite's
+            # executescript commits first, so start a transaction afterwards.
+            conn.execute("BEGIN IMMEDIATE")
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(runs)")}
+            for column in (*_LINEAGE_COLUMNS, "rfc_snapshot_path"):
+                if column not in columns:
+                    conn.execute(f"ALTER TABLE runs ADD COLUMN {column} TEXT")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_launch_request_id "
+                "ON runs(launch_request_id) WHERE launch_request_id IS NOT NULL"
+            )
 
     # ------------------------------------------------------------------
     # Runs
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _conflicting_run(conn: sqlite3.Connection, run: sqlite3.Row) -> str | None:
+        """Find other reservations or executors in the same repository."""
+        placeholders = ", ".join("?" for _ in _ACTIVE_RUN_STATUSES)
+        status_test = f"status IN ({placeholders})"
+        if not run["start_sha"]:
+            # Legacy callers retain their historical queued-run behavior, but
+            # must not overlap a lineage run or a live executor.
+            status_test = f"(start_sha IS NOT NULL AND {status_test})"
+        row = conn.execute(
+            f"SELECT id FROM runs WHERE repo_path = ? AND id != ? AND ({status_test} "
+            "OR EXISTS (SELECT 1 FROM run_execution_locks WHERE run_id = runs.id) "
+            "OR (status != ? AND EXISTS (SELECT 1 FROM run_stop_requests WHERE run_id = runs.id))) LIMIT 1",
+            (run["repo_path"], run["id"], *(s.value for s in _ACTIVE_RUN_STATUSES), RunStatus.SUPERSEDED.value),
+        ).fetchone()
+        return row["id"] if row else None
 
     def create_run(
         self,
@@ -143,33 +212,315 @@ class StateStore:
     ) -> str:
         now = time.time()
         rid = run_id or f"run-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO runs (
-                    id, repo_path, rfc_path, plan_path, mode, status,
-                    model_overrides_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    rid,
-                    str(repo_path.resolve()),
-                    str(rfc_path.resolve()),
-                    str(plan_path.resolve()) if plan_path else None,
-                    mode,
-                    RunStatus.PENDING.value,
-                    json.dumps(model_overrides or {}, ensure_ascii=False),
-                    now,
-                    now,
-                ),
-            )
+        if rid in ("", ".", "..") or "/" in rid or "\\" in rid:
+            raise ValueError("Invalid run ID")
+        snapshot = repo_path.resolve() / ".baton" / "runs" / rid / "00_RFC.md"
+        made_snapshot = False
+        try:
+            with self._connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                placeholders = ", ".join("?" for _ in _ACTIVE_RUN_STATUSES)
+                active = conn.execute(
+                    f"SELECT id FROM runs WHERE repo_path = ? AND "
+                    f"((start_sha IS NOT NULL AND status IN ({placeholders})) "
+                    "OR EXISTS (SELECT 1 FROM run_execution_locks WHERE run_id = runs.id) "
+                    "OR (status != ? AND EXISTS (SELECT 1 FROM run_stop_requests WHERE run_id = runs.id))) LIMIT 1",
+                    (str(repo_path.resolve()), *(s.value for s in _ACTIVE_RUN_STATUSES), RunStatus.SUPERSEDED.value),
+                ).fetchone()
+                if active:
+                    raise ActiveRunError(f"Repository already has active run {active['id']}")
+                if conn.execute("SELECT 1 FROM runs WHERE id = ?", (rid,)).fetchone():
+                    raise ValueError(f"Run {rid} already exists")
+                snapshot_path = None
+                # Keep the historical missing-RFC behavior: execute_run reports
+                # the missing input. Existing files are frozen at creation.
+                if rfc_path.is_file():
+                    content = rfc_path.read_bytes()
+                    snapshot.parent.mkdir(parents=True, exist_ok=True)
+                    with snapshot.open("xb") as handle:
+                        made_snapshot = True
+                        handle.write(content)
+                    snapshot_path = str(snapshot)
+                conn.execute(
+                    """
+                    INSERT INTO runs (
+                        id, repo_path, rfc_path, plan_path, mode, status,
+                        model_overrides_json, created_at, updated_at, rfc_snapshot_path
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        rid, str(repo_path.resolve()), str(rfc_path.resolve()),
+                        str(plan_path.resolve()) if plan_path else None, mode, RunStatus.PENDING.value,
+                        json.dumps(model_overrides or {}, ensure_ascii=False), now, now, snapshot_path,
+                    ),
+                )
+        except BaseException:
+            if made_snapshot:
+                snapshot.unlink(missing_ok=True)
+                try:
+                    snapshot.parent.rmdir()
+                except OSError:
+                    pass
+            raise
         self.log_event(rid, "run_created", message=f"Run created in {mode} mode")
         return rid
+
+    def create_lineage_run(
+        self, repo_path: Path, run_id: str, *, parent_run_id: str | None,
+        mode: str, plan_path: Path | None, model_overrides: dict[str, str] | None,
+        prepare: Callable[[dict[str, Any] | None], tuple[Path, str]],
+    ) -> str:
+        """Reserve one repository run and supersede its settled parent atomically.
+
+        ``prepare`` writes the immutable snapshot and branch under the same
+        reservation; the caller cleans up its own artifacts if this fails.
+        """
+        repo = str(repo_path.resolve())
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            placeholders = ", ".join("?" for _ in _ACTIVE_RUN_STATUSES)
+            active = conn.execute(
+                f"SELECT id FROM runs WHERE repo_path = ? AND (status IN ({placeholders}) "
+                "OR EXISTS (SELECT 1 FROM run_execution_locks WHERE run_id = runs.id) "
+                "OR (status != ? AND EXISTS (SELECT 1 FROM run_stop_requests WHERE run_id = runs.id)))",
+                (repo, *(s.value for s in _ACTIVE_RUN_STATUSES), RunStatus.SUPERSEDED.value),
+            ).fetchall()
+            conflicting = [row["id"] for row in active if row["id"] != parent_run_id]
+            if conflicting:
+                raise ActiveRunError(f"Repository already has active run {conflicting[0]}")
+            if conn.execute("SELECT 1 FROM runs WHERE id = ?", (run_id,)).fetchone():
+                raise ValueError(f"Run {run_id} already exists")
+            # Existing task/milestone branches use the last six ID characters.
+            # Reusing a suffix could silently attach a run to an old branch.
+            if conn.execute("SELECT 1 FROM runs WHERE repo_path = ? AND substr(id, -6) = ? LIMIT 1",
+                            (repo, run_id[-6:])).fetchone():
+                raise ValueError(f"Run ID {run_id} shares an existing branch suffix")
+            parent = None
+            if parent_run_id is not None:
+                row = conn.execute("SELECT * FROM runs WHERE id = ?", (parent_run_id,)).fetchone()
+                if not row or row["repo_path"] != repo:
+                    raise ValueError(f"Parent run {parent_run_id} not found in this repository")
+                parent = dict(row)
+                stop = conn.execute("SELECT 1 FROM run_stop_requests WHERE run_id = ?", (parent_run_id,)).fetchone()
+                if parent["status"] in (RunStatus.COMPLETED, RunStatus.FAILED):
+                    raise RunTerminalError(parent_run_id, parent["status"])
+                if parent["status"] == RunStatus.SUPERSEDED and not stop:
+                    raise RunTerminalError(parent_run_id, parent["status"])
+                if stop and parent["status"] != RunStatus.SUPERSEDED:
+                    raise ActiveRunError(f"Run {parent_run_id} is still stopping for replan")
+                if conn.execute("SELECT 1 FROM runs WHERE parent_run_id = ?", (parent_run_id,)).fetchone():
+                    raise ActiveRunError(f"Run {parent_run_id} already has a revision")
+                if parent["status"] in (RunStatus.RUNNING, RunStatus.PLANNING):
+                    raise ActiveRunError(f"Run {parent_run_id} must be stopped before revision")
+                busy = ", ".join("?" for _ in _BUSY_TASK_STATUSES)
+                if (conn.execute("SELECT 1 FROM run_execution_locks WHERE run_id = ?", (parent_run_id,)).fetchone()
+                    or conn.execute(f"SELECT 1 FROM tasks WHERE run_id = ? AND status IN ({busy}) LIMIT 1",
+                                    (parent_run_id, *(s.value for s in _BUSY_TASK_STATUSES))).fetchone()):
+                    raise ActiveRunError(f"Run {parent_run_id} still has work in flight")
+                if not parent["result_sha"]:
+                    raise ValueError(f"Parent run {parent_run_id} has no result SHA")
+            snapshot, start_sha = prepare(parent)
+            now = time.time()
+            if parent and parent["status"] != RunStatus.SUPERSEDED:
+                conn.execute("UPDATE runs SET status = ?, updated_at = ?, finished_at = ? WHERE id = ?",
+                             (RunStatus.SUPERSEDED.value, now, now, parent_run_id))
+            conn.execute(
+                "INSERT INTO runs (id, repo_path, rfc_path, plan_path, mode, status, model_overrides_json, "
+                "created_at, updated_at, parent_run_id, base_ref, start_sha, rfc_snapshot_path) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (run_id, repo, str(snapshot), str(plan_path.resolve()) if plan_path else None, mode,
+                 RunStatus.PENDING.value, json.dumps(model_overrides or {}, ensure_ascii=False), now, now,
+                 parent_run_id, "main", start_sha, str(snapshot)),
+            )
+            conn.execute("INSERT INTO events (run_id, kind, message, created_at) VALUES (?, ?, ?, ?)",
+                         (run_id, "run_created", f"Run created in {mode} mode", now))
+        return run_id
+
+    def claim_run_execution(self, run_id: str) -> str:
+        """Claim an executor across processes; never steal an unconfirmed lock."""
+        token = uuid.uuid4().hex
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+            if not row:
+                raise ValueError(f"Run '{run_id}' not found")
+            if row["status"] in _TERMINAL_RUN_STATUSES:
+                raise RunTerminalError(run_id, row["status"])
+            if conn.execute("SELECT 1 FROM run_stop_requests WHERE run_id = ?", (run_id,)).fetchone():
+                raise ActiveRunError(f"Run {run_id} is stopping for replan")
+            if conn.execute("SELECT 1 FROM run_execution_locks WHERE run_id = ?", (run_id,)).fetchone():
+                raise ActiveRunError(f"Run {run_id} already has an executor")
+            conflict = self._conflicting_run(conn, row)
+            if conflict:
+                raise ActiveRunError(f"Repository already has active run {conflict}")
+            conn.execute("INSERT INTO run_execution_locks (run_id, token) VALUES (?, ?)", (run_id, token))
+        return token
+
+    def release_run_execution(self, run_id: str, token: str) -> None:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            owner = conn.execute("SELECT token FROM run_execution_locks WHERE run_id = ?", (run_id,)).fetchone()
+            run = conn.execute("SELECT status, summary FROM runs WHERE id = ?", (run_id,)).fetchone()
+            if owner and owner["token"] == token and run and run["status"] == RunStatus.FAILED:
+                busy = ", ".join("?" for _ in _BUSY_TASK_STATUSES)
+                conn.execute(
+                    f"UPDATE tasks SET status = ?, last_error = COALESCE(NULLIF(last_error, ''), ?), updated_at = ? "
+                    f"WHERE run_id = ? AND status IN ({busy})",
+                    (TaskStatus.FAILED.value, run["summary"] or "Run failed", time.time(), run_id,
+                     *(s.value for s in _BUSY_TASK_STATUSES)),
+                )
+            conn.execute("DELETE FROM run_execution_locks WHERE run_id = ? AND token = ?", (run_id, token))
+
+    def try_dispatch_task(self, run_id: str, task_id: str) -> bool:
+        """Order task dispatch against a cross-process stop request."""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT status FROM runs WHERE id = ?", (run_id,)).fetchone()
+            if (not row or row["status"] == RunStatus.PAUSED or row["status"] in _TERMINAL_RUN_STATUSES
+                or conn.execute("SELECT 1 FROM run_stop_requests WHERE run_id = ?", (run_id,)).fetchone()):
+                return False
+            updated = conn.execute("UPDATE tasks SET status = ?, updated_at = ? WHERE run_id = ? AND id = ?",
+                                   (TaskStatus.RUNNING.value, time.time(), run_id, task_id))
+            return updated.rowcount == 1
+
+    def is_stop_requested(self, run_id: str) -> bool:
+        with self._connect() as conn:
+            return bool(conn.execute("SELECT 1 FROM run_stop_requests WHERE run_id = ?", (run_id,)).fetchone())
+
+    def request_run_stop(self, run_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT status FROM runs WHERE id = ?", (run_id,)).fetchone()
+            if not row:
+                raise ValueError(f"Run '{run_id}' not found")
+            existing = conn.execute("SELECT 1 FROM run_stop_requests WHERE run_id = ?", (run_id,)).fetchone()
+            if row["status"] == RunStatus.COMPLETED or (row["status"] == RunStatus.SUPERSEDED and not existing):
+                raise RunTerminalError(run_id, row["status"])
+            if existing:
+                return
+            has_executor = bool(conn.execute("SELECT 1 FROM run_execution_locks WHERE run_id = ?", (run_id,)).fetchone())
+            # A pre-upgrade or orphaned RUNNING/PLANNING daemon has no lease;
+            # its absence is not evidence that external writes have stopped.
+            executor_state = 1 if has_executor else (-1 if row["status"] in (RunStatus.RUNNING, RunStatus.PLANNING) else 0)
+            conn.execute("INSERT INTO run_stop_requests (run_id, had_executor) VALUES (?, ?)", (run_id, executor_state))
+            if row["status"] != RunStatus.FAILED:
+                conn.execute("UPDATE runs SET status = ?, updated_at = ? WHERE id = ?",
+                             (RunStatus.PAUSED.value, time.time(), run_id))
+
+    def run_stop_settled(self, run_id: str) -> bool:
+        with self._connect() as conn:
+            stop = conn.execute("SELECT had_executor FROM run_stop_requests WHERE run_id = ?", (run_id,)).fetchone()
+            if (not stop or stop["had_executor"] < 0
+                or conn.execute("SELECT 1 FROM run_execution_locks WHERE run_id = ?", (run_id,)).fetchone()):
+                return False
+            busy = ", ".join("?" for _ in _BUSY_TASK_STATUSES)
+            task = conn.execute(f"SELECT 1 FROM tasks WHERE run_id = ? AND status IN ({busy}) LIMIT 1",
+                                (run_id, *(s.value for s in _BUSY_TASK_STATUSES))).fetchone()
+            return not task or bool(stop["had_executor"])
+
+    def complete_run_stop(self, run_id: str, sha: str) -> None:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT status, summary FROM runs WHERE id = ?", (run_id,)).fetchone()
+            stop = conn.execute("SELECT had_executor FROM run_stop_requests WHERE run_id = ?", (run_id,)).fetchone()
+            if not row or not stop:
+                raise ValueError(f"Run {run_id} has no stop request")
+            if row["status"] == RunStatus.SUPERSEDED:
+                return
+            if stop["had_executor"] < 0:
+                raise ActiveRunError(f"Run {run_id} has an unverified executor")
+            if conn.execute("SELECT 1 FROM run_execution_locks WHERE run_id = ?", (run_id,)).fetchone():
+                raise ActiveRunError(f"Run {run_id} still has an executor")
+            busy = ", ".join("?" for _ in _BUSY_TASK_STATUSES)
+            if not stop["had_executor"] and conn.execute(
+                f"SELECT 1 FROM tasks WHERE run_id = ? AND status IN ({busy}) LIMIT 1",
+                (run_id, *(s.value for s in _BUSY_TASK_STATUSES)),
+            ).fetchone():
+                raise ActiveRunError(f"Run {run_id} has unverified in-flight tasks")
+            now = time.time()
+            conn.execute(f"UPDATE tasks SET status = ?, last_error = COALESCE(NULLIF(last_error, ''), ?), updated_at = ? "
+                         f"WHERE run_id = ? AND status IN ({busy})",
+                         (TaskStatus.FAILED.value, "Stopped for replan", now, run_id,
+                          *(s.value for s in _BUSY_TASK_STATUSES)))
+            conn.execute("UPDATE milestones SET status = ?, updated_at = ? WHERE run_id = ? AND status = ?",
+                         (TaskStatus.FAILED.value, now, run_id, TaskStatus.RUNNING.value))
+            conn.execute("UPDATE runs SET status = ?, result_sha = ?, summary = ?, updated_at = ?, finished_at = ? WHERE id = ?",
+                         (RunStatus.SUPERSEDED.value, sha, row["summary"] or "Stopped for replan", now, now, run_id))
+            conn.execute("INSERT INTO events (run_id, kind, message, created_at) VALUES (?, ?, ?, ?)",
+                         (run_id, "run_stopped_for_replan", "Stopped for replan", now))
+
+    def mark_run_ready(self, run_id: str, sha: str | None, summary: str) -> bool:
+        with self._connect() as conn:
+            updated = conn.execute(
+                "UPDATE runs SET status = ?, result_sha = ?, summary = ?, updated_at = ? "
+                "WHERE id = ? AND status NOT IN (?, ?, ?, ?) "
+                "AND NOT EXISTS (SELECT 1 FROM run_stop_requests WHERE run_id = ?)",
+                (RunStatus.READY_FOR_FINAL_GATE.value, sha, summary, time.time(), run_id,
+                 RunStatus.PAUSED.value, *(s.value for s in _TERMINAL_RUN_STATUSES), run_id),
+            )
+            return updated.rowcount == 1
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
             return dict(row) if row else None
+
+    def set_run_lineage(
+        self, run_id: str, *, parent_run_id: str | None, base_ref: str | None, start_sha: str | None,
+    ) -> None:
+        """Record the parent and starting base for an existing run."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE runs SET parent_run_id = ?, base_ref = ?, start_sha = ?, updated_at = ? WHERE id = ?",
+                (parent_run_id, base_ref, start_sha, time.time(), run_id),
+            )
+
+    def set_run_result_sha(self, run_id: str, sha: str) -> None:
+        """Record the result commit for an existing run."""
+        with self._connect() as conn:
+            conn.execute("UPDATE runs SET result_sha = ?, updated_at = ? WHERE id = ?", (sha, time.time(), run_id))
+
+    def mark_run_superseded(self, run_id: str) -> None:
+        """Supersede an active run; repeated calls on a superseded run are a no-op."""
+        self.update_run_status(run_id, RunStatus.SUPERSEDED)
+
+    def get_run_by_launch_request_id(self, request_id: str) -> dict[str, Any] | None:
+        """Look up the run claimed by a non-null launch request ID."""
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM runs WHERE launch_request_id = ?", (request_id,)).fetchone()
+            return dict(row) if row else None
+
+    def get_active_run(self) -> dict[str, Any] | None:
+        """Return the newest nonterminal run in this store, including one awaiting sign-off."""
+        placeholders = ", ".join("?" for _ in _ACTIVE_RUN_STATUSES)
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT * FROM runs WHERE status IN ({placeholders}) ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                tuple(status.value for status in _ACTIVE_RUN_STATUSES),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_run_lineage_chain(self, run_id: str) -> list[dict[str, Any]]:
+        """Return root-to-run rows; report broken parent links or cycles rather than truncating."""
+        chain: list[dict[str, Any]] = []
+        visited: set[str] = set()
+        current = run_id
+        with self._connect() as conn:
+            conn.execute("BEGIN")  # Keep the chain in one consistent read snapshot.
+            while current is not None:
+                if current in visited:
+                    raise ValueError(f"Run lineage cycle at {current}")
+                visited.add(current)
+                row = conn.execute("SELECT * FROM runs WHERE id = ?", (current,)).fetchone()
+                if row is None:
+                    if not chain:
+                        return []
+                    raise ValueError(f"Run lineage has missing parent {current}")
+                item = dict(row)
+                chain.append(item)
+                current = item["parent_run_id"]
+        chain.reverse()
+        return chain
 
     def get_latest_run(self) -> dict[str, Any] | None:
         with self._connect() as conn:
@@ -192,7 +543,7 @@ class StateStore:
         plan_path: str | None = None,
     ) -> None:
         now = time.time()
-        finished_at = now if status in (RunStatus.COMPLETED, RunStatus.FAILED) else None
+        finished_at = now if status in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.SUPERSEDED) else None
         fields = ["status = ?", "updated_at = ?"]
         values: list[Any] = [status.value, now]
         if summary is not None:
@@ -209,7 +560,65 @@ class StateStore:
             values.append(finished_at)
         values.append(run_id)
         with self._connect() as conn:
-            conn.execute(f"UPDATE runs SET {', '.join(fields)} WHERE id = ?", values)
+            if status == RunStatus.RUNNING:
+                conn.execute("BEGIN IMMEDIATE")
+                current = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+                if current and current["status"] not in _TERMINAL_RUN_STATUSES:
+                    conflict = self._conflicting_run(conn, current)
+                    if conflict:
+                        raise ActiveRunError(f"Repository already has active run {conflict}")
+            if status == RunStatus.SUPERSEDED:
+                placeholders = ", ".join("?" for _ in _ACTIVE_RUN_STATUSES)
+                where = (f"status IN ({placeholders}) AND NOT EXISTS "
+                         "(SELECT 1 FROM run_stop_requests WHERE run_id = runs.id) AND NOT EXISTS "
+                         "(SELECT 1 FROM run_execution_locks WHERE run_id = runs.id)")
+                values.extend(item.value for item in _ACTIVE_RUN_STATUSES)
+            else:
+                where = "status != ?"
+                values.append(RunStatus.SUPERSEDED.value)
+                if status == RunStatus.RUNNING:
+                    where += " AND status NOT IN (?, ?)"
+                    values.extend((RunStatus.COMPLETED.value, RunStatus.FAILED.value))
+                if status != RunStatus.PAUSED:
+                    where += " AND NOT EXISTS (SELECT 1 FROM run_stop_requests WHERE run_id = runs.id)"
+            updated = conn.execute(f"UPDATE runs SET {', '.join(fields)} WHERE id = ? AND {where}", values)
+            if updated.rowcount == 0:
+                row = conn.execute("SELECT status FROM runs WHERE id = ?", (run_id,)).fetchone()
+                if row and row["status"] == RunStatus.SUPERSEDED.value:
+                    if status == RunStatus.SUPERSEDED:
+                        return
+                    raise RunTerminalError(run_id, row["status"])
+                if row and status == RunStatus.RUNNING and row["status"] in _TERMINAL_RUN_STATUSES:
+                    raise RunTerminalError(run_id, row["status"])
+                # An executor already in flight may finish writes while stopping;
+                # its late status updates must not undo the stop request.
+                if row and conn.execute("SELECT 1 FROM run_stop_requests WHERE run_id = ?", (run_id,)).fetchone():
+                    if status in (RunStatus.RUNNING, RunStatus.SUPERSEDED):
+                        raise ActiveRunError(f"Run {run_id} is stopping for replan")
+                    return
+                if (row and status == RunStatus.SUPERSEDED
+                    and conn.execute("SELECT 1 FROM run_execution_locks WHERE run_id = ?", (run_id,)).fetchone()):
+                    raise ActiveRunError(f"Run {run_id} still has an executor")
+                if row and status == RunStatus.SUPERSEDED:
+                    raise ValueError(f"Run {run_id} cannot be superseded from {row['status']}")
+
+    def resume_run(self, run_id: str) -> None:
+        """Atomically reject terminal, stopping, or still-executing runs."""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+            if not row:
+                raise ValueError(f"Run '{run_id}' not found")
+            if row["status"] in _TERMINAL_RUN_STATUSES:
+                raise RunTerminalError(run_id, row["status"])
+            if (conn.execute("SELECT 1 FROM run_stop_requests WHERE run_id = ?", (run_id,)).fetchone()
+                or conn.execute("SELECT 1 FROM run_execution_locks WHERE run_id = ?", (run_id,)).fetchone()):
+                raise ActiveRunError(f"Run {run_id} is stopping or still has an executor")
+            conflict = self._conflicting_run(conn, row)
+            if conflict:
+                raise ActiveRunError(f"Repository already has active run {conflict}")
+            conn.execute("UPDATE runs SET status = ?, updated_at = ? WHERE id = ?",
+                         (RunStatus.RUNNING.value, time.time(), run_id))
 
     def record_human_decision(
         self, run_id: str, decision: str, note: str = "", task_id: str | None = None
@@ -218,10 +627,25 @@ class StateStore:
         payload = json.dumps({"decision": decision, "note": note, "at": now, "task_id": task_id}, ensure_ascii=False)
         next_status = RunStatus.RUNNING if decision == "approve" else RunStatus.PAUSED
         with self._connect() as conn:
-            conn.execute(
-                "UPDATE runs SET human_decision = ?, status = ?, updated_at = ? WHERE id = ?",
-                (payload, next_status.value, now, run_id),
+            if next_status == RunStatus.RUNNING:
+                conn.execute("BEGIN IMMEDIATE")
+                current = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+                if current and current["status"] not in _TERMINAL_RUN_STATUSES:
+                    conflict = self._conflicting_run(conn, current)
+                    if conflict:
+                        raise ActiveRunError(f"Repository already has active run {conflict}")
+            updated = conn.execute(
+                "UPDATE runs SET human_decision = ?, status = ?, updated_at = ? WHERE id = ? "
+                "AND status NOT IN (?, ?, ?) "
+                "AND NOT EXISTS (SELECT 1 FROM run_stop_requests WHERE run_id = runs.id)",
+                (payload, next_status.value, now, run_id, *(s.value for s in _TERMINAL_RUN_STATUSES)),
             )
+            if updated.rowcount == 0:
+                row = conn.execute("SELECT status FROM runs WHERE id = ?", (run_id,)).fetchone()
+                if row and row["status"] in _TERMINAL_RUN_STATUSES:
+                    raise RunTerminalError(run_id, row["status"])
+                if row and conn.execute("SELECT 1 FROM run_stop_requests WHERE run_id = ?", (run_id,)).fetchone():
+                    raise ActiveRunError(f"Run {run_id} is stopping for replan")
         self.log_event(
             run_id,
             "human_decision",

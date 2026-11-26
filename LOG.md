@@ -192,3 +192,16 @@
 - 未验证：用户实际出问题的 `D:\AI\demo`（按要求未改动）；引擎里任务提交和合并提交（`git_ops.py`）在「仓库已有提交但本机没有身份」时仍会失败，本轮只在 init-git 时补身份，没处理这种情况。
 
 **commit**：61b6880
+
+## 20261126-080223-m1-favicon-gate
+
+- 时间：2026-11-26 08:02，America/Los_Angeles。授权：修复 M1 里程碑的全部阻塞项、增加回归测试并执行四项指定门禁。分支 `baton/e33e97/ms-m1-r1`，基线 `3324a57`；开始时工作区无已跟踪修改。
+- 问题：全量测试将 ICO 帧数固定断言为 3，但现有 `web/public/favicon.ico` 为 8 帧；L0005 和 `docs/guided2/lineage_contract.md` 已记录此旧失败。当前工作树独立复现了 `(0, 1, 8) != (0, 1, 3)`。
+- 环境：`web/node_modules` 链接到工作区外的共享目录，默认 Vite 构建写临时文件时被沙箱拒绝；`npm run build -- --configLoader runner` 已成功生成工作树内的 `web/dist`。原 `PYTHONPATH` 指向主仓库，验证时必须临时指向当前工作树的 `src`；未调整全局环境或共享依赖。
+- 改动：`tests/test_web_fullstack.py` 将固定 3 帧断言改为检查 ICO 头和服务返回的内容与源资源一致；新增独立 HTTP 测试，检查 16/24/32/40/48/64/128/256 像素帧及数据边界，允许额外尺寸。`AGENTS.md` 新增项目入口映射，复用现有 README、RFC、契约和日志，并记录工作树验证方式；`LOG-INDEX.md` 添加本记录索引。
+- 阶段验证：`tests.test_web_fullstack` 与 `tests.test_desktop_app` 共 18 项通过；第一项指定门禁 `tests.test_lineage_e2e -v` 6 项通过（57.163 秒），日志位于 `%TEMP%/vibebaton-e33e97-m1-r1-lineage.log`。
+- 第二项指定门禁 `tests.test_guided_lineage_api tests.test_guided_api tests.test_web_server -v` 178 项通过（114.755 秒），日志位于 `%TEMP%/vibebaton-e33e97-m1-r1-guided.log`。
+- 第三项指定门禁 `tests.test_stdlib_only -v` 2 项通过（0.300 秒），日志位于 `%TEMP%/vibebaton-e33e97-m1-r1-stdlib.log`。
+- 第四项指定门禁 `python -m unittest discover -s tests` 运行 874 项（473.468 秒，870 项通过、跳过 4 项），日志位于 `%TEMP%/vibebaton-e33e97-m1-r1-discovery.log`。复核跳过条件：两项缺 Docker CLI，一项因 Windows 无目录符号链接权限，一项因本地数据库没有运行记录。全量测试期间有 Python 子进程 `ResourceWarning`；结束后 22 个警告 PID 中仅一个当前存在，属于系统进程，PID 本身不足以证明与原进程的关系。Git 也报告无法读取用户级 ignore 文件；未影响门禁退出码。
+- 交接检查：`git diff --check` 通过；最终工作区仅有 `tests/test_web_fullstack.py`、`LOG.md`、`LOG-INDEX.md` 的修改和新增的 `AGENTS.md`。
+- 状态：已自测待用户验收。未进行真实浏览器或实际业务运行验证；本轮没有修改界面或运行时逻辑。回退参考：基线 `3324a57` 与本轮工作区差异，新增的 `AGENTS.md` 为未跟踪文件；尚无新提交。

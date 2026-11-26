@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import math
 import mimetypes
@@ -18,12 +20,13 @@ import time
 import tomllib
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import asdict
 from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import monotonic
-from typing import Any, Callable, Iterable, Mapping, Protocol, TypedDict
+from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol, TypedDict
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import __version__, case_export, cli_registry, credentials, model_catalog, presets, pricing
@@ -36,13 +39,20 @@ from .config import (
     build_model_catalog,
     find_config_path,
 )
-from .db import StateStore
+from .db import ActiveRunError, RunTerminalError, StateStore
+from .engine import OrchestrationEngine, StopRunTimeoutError
+from .gates import run_gate_suite
 from .git_ops import (
     GitError,
+    _attach_shared_node_modules,
+    _detach_shared_node_modules,
     backup_tag_name,
     create_backup_tag,
+    integrate_in_isolated_worktree,
     merge_branch_into,
     reset_branch_to,
+    resolve_ref_sha,
+    revert_range,
     uncommitted_paths,
 )
 from .graph_engine import SCENARIOS, simulate_graph
@@ -101,6 +111,9 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(r"/api/runs/([^/]+)/control"), "_post_run_control"),
     ("POST", re.compile(r"/api/runs/([^/]+)/resolve"), "_post_run_resolve"),
     ("POST", re.compile(r"/api/runs/([^/]+)/finalize"), "_post_run_finalize"),
+    ("POST", re.compile(r"/api/runs/([^/]+)/request-changes"), "_post_run_request_changes"),
+    ("POST", re.compile(r"/api/runs/([^/]+)/rollback"), "_post_run_rollback"),
+    ("POST", re.compile(r"/api/runs/([^/]+)/stop-and-replan"), "_post_run_stop_and_replan"),
 ]
 
 _TOML_STRING_KEY_LINE = re.compile(
@@ -473,6 +486,143 @@ def _git_stdout(repo: Path, *args: str) -> str:
     return result.stdout
 
 
+class _LineageError(Exception):
+    """A non-destructive, machine-readable lifecycle rejection."""
+
+    def __init__(self, code: str, message: str, **details: Any) -> None:
+        super().__init__(message)
+        self.code, self.details = code, details
+
+
+class _KeyedLaunchStore(StateStore):
+    """Attach a launch key to the engine's insert in the same SQLite transaction.
+
+    The connection-local trigger applies only to this run ID and disappears on
+    close. Existing engine admission, snapshot cleanup and DB uniqueness rules
+    remain in force without changing their public signatures.
+    """
+
+    def __init__(self, store: StateStore, run_id: str, request_id: str) -> None:
+        self.db_path = store.db_path
+        self.run_id = run_id
+        self.request_id = request_id
+
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        with super()._connect() as conn:
+            run_literal, key_literal = conn.execute("SELECT quote(?), quote(?)", (self.run_id, self.request_id)).fetchone()
+            conn.execute(
+                "CREATE TEMP TRIGGER keyed_launch_insert AFTER INSERT ON main.runs "
+                f"WHEN NEW.id = {run_literal} BEGIN "
+                f"UPDATE runs SET launch_request_id = {key_literal} WHERE id = NEW.id; END"
+            )
+            yield conn
+
+
+def _checked_out_locations(repo: Path, branch: str) -> list[Path]:
+    entries = _git_stdout(repo, "worktree", "list", "--porcelain", "-z").split("\0\0")
+    paths: list[Path] = []
+    for entry in entries:
+        fields = entry.split("\0")
+        if f"branch refs/heads/{branch}" in fields:
+            paths.extend(Path(field[9:]).resolve() for field in fields if field.startswith("worktree "))
+    return paths
+
+
+def _move_base_ref(repo: Path, branch: str, expected: str, target: str,
+                   *, verify_run: tuple[str, str] | None = None) -> None:
+    """Move a base ref with compare-and-swap and synchronize our checkout."""
+    _git_stdout(repo, "check-ref-format", f"refs/heads/{branch}")
+    locations = _checked_out_locations(repo, branch)
+    if any(path != repo.resolve() for path in locations):
+        raise _LineageError("BASE_CHECKED_OUT", f"{branch} is checked out in another worktree")
+    dirty = uncommitted_paths(repo)
+    if dirty:
+        raise _LineageError("DIRTY_WORKTREE", f"Commit or stash uncommitted changes first: {', '.join(dirty)}")
+    on_base = repo.resolve() in locations
+    if on_base:
+        _git_stdout(repo, "checkout", "-q", "--detach")
+    try:
+        if on_base:
+            # Detect checkout conflicts, including tracked .baton files, before
+            # moving the ref. The dry run leaves the index and worktree intact.
+            _git_stdout(repo, "read-tree", "--dry-run", "-m", "-u", expected, target)
+        try:
+            if verify_run is None:
+                _git_stdout(repo, "update-ref", f"refs/heads/{branch}", target, expected)
+            else:
+                run_branch, run_sha = verify_run
+                run_ref = f"refs/heads/{run_branch}"
+                _git_stdout(repo, "check-ref-format", run_ref)
+                transaction = (f"start\nverify {run_ref} {run_sha}\n"
+                               f"update refs/heads/{branch} {target} {expected}\nprepare\ncommit\n")
+                result = subprocess.run(["git", "-C", str(repo), "update-ref", "--stdin"],
+                                        input=transaction.encode("utf-8"), capture_output=True,
+                                        timeout=_GIT_TIMEOUT_SEC, check=False)
+                if result.returncode:
+                    raise GitError((result.stderr or result.stdout).decode("utf-8", errors="replace").strip())
+        except GitError as exc:
+            if verify_run is not None:
+                try:
+                    actual_run = resolve_ref_sha(repo, f"refs/heads/{verify_run[0]}")
+                except GitError:
+                    actual_run = None
+                if actual_run != verify_run[1]:
+                    raise _LineageError("RUN_STALE", "Run branch changed during approval") from exc
+            raise _LineageError("BASE_MOVED", f"{branch} changed during the operation; retry") from exc
+    finally:
+        if on_base:
+            _git_stdout(repo, "checkout", "-q", branch)
+
+
+def _lineage_gate_commands(store: StateStore, chain: list[dict[str, Any]]) -> list[str]:
+    """Collect the task and milestone commands recorded for the entire chain."""
+    commands: list[str] = []
+    try:
+        for run in chain:
+            for task in store.get_tasks(run["id"]):
+                spec = json.loads(task["spec_json"])
+                if not isinstance(spec, dict):
+                    raise ValueError("Task specification is not an object")
+                command = spec.get("verify_cmd")
+                if command is not None and not isinstance(command, str):
+                    raise ValueError("Task verify_cmd is not a string")
+                if command and command.strip():
+                    commands.append(command)
+            for milestone in store.get_milestones(run["id"]):
+                gates = json.loads(milestone["gate_commands_json"])
+                if not isinstance(gates, list) or any(not isinstance(cmd, str) for cmd in gates):
+                    raise ValueError("Milestone gate_commands is not a string list")
+                commands.extend(cmd for cmd in gates if cmd.strip())
+    except (KeyError, TypeError, ValueError) as exc:
+        raise _LineageError("INVALID_GATES", f"Cannot read configured gates: {exc}") from exc
+    return commands
+
+
+def _gate_integrated_commit(repo: Path, sha: str, commands: list[str], worktree_root: Path) -> list[dict[str, Any]]:
+    """Run the recorded commands against the exact integrated commit."""
+    worktree_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="baton-gates-", dir=worktree_root) as temp_dir:
+        worktree = Path(temp_dir) / "worktree"
+        added = False
+        try:
+            _git_stdout(repo, "worktree", "add", "--detach", "--", str(worktree), sha)
+            added = True
+            _attach_shared_node_modules(repo, worktree)
+            try:
+                suite = asyncio.run(run_gate_suite(commands, workdir=worktree))
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise _LineageError("GATE_EXECUTION_FAILED", f"Could not run configured gates: {exc}") from exc
+            results = [asdict(result) for result in suite.results]
+            if not suite.passed:
+                raise _LineageError("GATE_FAILED", "Integrated result failed its configured gates", gates=results)
+            return results
+        finally:
+            if added:
+                _detach_shared_node_modules(worktree)
+                _git_stdout(repo, "worktree", "remove", "--force", "--", str(worktree))
+
+
 def _workspace_info(repo: Path) -> dict[str, Any]:
     inside = _git(repo, "rev-parse", "--is-inside-work-tree")
     is_git = inside is not None and inside.returncode == 0 and inside.stdout.strip() == "true"
@@ -839,6 +989,7 @@ class _CanvasHTTPServer(ThreadingHTTPServer):
     def __init__(self, address: tuple[str, int]) -> None:
         self.shutdown_event = threading.Event()
         self.config_lock = threading.Lock()
+        self._launch_lock = threading.Lock()
         self._lifecycle_lock = threading.Lock()
         self._serving = False
         super().__init__(address, _CanvasRequestHandler)
@@ -995,6 +1146,15 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                     self._send_json(415, {"error": str(exc)})
                 except _BadRequest as exc:
                     self._send_json(400, {"error": str(exc)})
+                except _LineageError as exc:
+                    self._send_json(409, {"error": str(exc), "code": exc.code, **exc.details})
+                except RunTerminalError as exc:
+                    code = "RUN_SUPERSEDED" if exc.status == RunStatus.SUPERSEDED.value else "RUN_STALE"
+                    self._send_json(409, {"error": str(exc), "code": code})
+                except ActiveRunError as exc:
+                    self._send_json(409, {"error": str(exc), "code": "RUN_BUSY"})
+                except GitError as exc:
+                    self._send_json(409, {"error": str(exc), "code": "GIT_ERROR"})
                 return
         if self.command == "GET" and path != "/api" and not path.startswith("/api/"):
             self._serve_static(raw_path, path)
@@ -1627,6 +1787,10 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                     "created_at": run["created_at"],
                     "updated_at": run["updated_at"],
                     "finished_at": run.get("finished_at"),
+                    "parent_run_id": run.get("parent_run_id"),
+                    "base_ref": run.get("base_ref"),
+                    "start_sha": run.get("start_sha"),
+                    "result_sha": run.get("result_sha"),
                     "elapsed_sec": telemetry["elapsed_sec"],
                     "passed_tasks": sum(1 for t in tasks if t["status"] == "PASSED"),
                     "total_tasks": len(tasks),
@@ -1780,6 +1944,47 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
 
     def _post_run_start(self) -> None:
         payload = self._read_json_body()
+        with self.server._launch_lock:
+            self._start_run(payload)
+
+    def _existing_launch(self, request_id: str, deterministic_id: str) -> dict[str, Any] | None:
+        store = self.server.store
+        run = store.get_run_by_launch_request_id(request_id) or store.get_run(deterministic_id)
+        if run is None:
+            return None
+        if (Path(run["repo_path"]).resolve() != self.server.repo_path
+                or run["launch_request_id"] not in (None, request_id)):
+            raise _LineageError("LAUNCH_KEY_CONFLICT", "Launch request ID belongs to another run")
+        if run["launch_request_id"] is None:
+            # The deterministic run ID is durable in the creation transaction.
+            # Recover the indexed key if a process stopped immediately after insert.
+            with store._connect() as conn:
+                conn.execute("UPDATE runs SET launch_request_id = ? WHERE id = ? AND launch_request_id IS NULL",
+                             (request_id, run["id"]))
+            run = store.get_run(run["id"])
+        return run
+
+    def _send_existing_launch(self, run: dict[str, Any]) -> None:
+        self._send_json(200, {"run_id": run["id"], "daemon_pid": None,
+                              "status": run["status"], "reused": True})
+
+    def _start_run(self, payload: dict[str, Any]) -> None:
+        request_id = payload.get("launch_request_id")
+        if request_id is not None:
+            if (not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 256
+                    or "\0" in request_id):
+                raise _BadRequest("launch_request_id must be a non-empty string of at most 256 characters")
+            try:
+                request_bytes = request_id.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise _BadRequest("launch_request_id must be valid UTF-8 text") from exc
+            deterministic_id = "run-request-" + hashlib.sha256(request_bytes).hexdigest()
+            existing = self._existing_launch(request_id, deterministic_id)
+            if existing is not None:
+                self._send_existing_launch(existing)
+                return
+        else:
+            deterministic_id = None
         mode = payload.get("mode", "overnight")
         if mode not in ("overnight", "interactive", "panel"):
             raise _BadRequest("mode must be overnight, interactive or panel")
@@ -1796,9 +2001,11 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                 "This repository has no commits yet. Create the first commit "
                 "(Guided Workspace: Turn On Version History) before starting a run."
             )
+        created_rfc = False
         if markdown.strip():
             try:
                 rfc_path = _save_ui_rfc(repo, markdown)
+                created_rfc = True
             except OSError as exc:
                 self._send_json(500, {"error": f"Cannot save RFC markdown ({exc})"})
                 return
@@ -1809,9 +2016,33 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             rfc_path = _resolve_rfc_path(repo, supplied_path)
 
         store = self.server.store
-        run_id = store.create_run(
-            repo_path=repo, rfc_path=rfc_path, mode=mode, plan_path=None, model_overrides=overrides
-        )
+        creation_store = (_KeyedLaunchStore(store, deterministic_id, request_id)
+                          if request_id is not None and deterministic_id is not None else store)
+        try:
+            if info["is_git_repo"]:
+                engine = OrchestrationEngine(repo, self.server.loader, creation_store,
+                                             credentials_path=self.server.credentials_path)
+                run_id = engine.create_run(rfc_path, mode=mode, model_overrides=overrides,
+                                           run_id=deterministic_id)
+            else:
+                # Preserve the historical non-Git canvas behavior.
+                run_id = creation_store.create_run(repo_path=repo, rfc_path=rfc_path, mode=mode,
+                                                   plan_path=None, model_overrides=overrides, run_id=deterministic_id)
+        except (ActiveRunError, ValueError, sqlite3.IntegrityError, GitError) as exc:
+            if request_id is not None:
+                existing = self._existing_launch(request_id, deterministic_id)
+                if existing is not None:
+                    if created_rfc:
+                        rfc_path.unlink(missing_ok=True)
+                    self._send_existing_launch(existing)
+                    return
+            if created_rfc:
+                rfc_path.unlink(missing_ok=True)
+            if isinstance(exc, (ActiveRunError, GitError)):
+                raise
+            raise _LineageError("LAUNCH_FAILED", f"Could not create run: {exc}") from exc
+        if request_id is not None:
+            self._existing_launch(request_id, deterministic_id)
         pid = self._spawn_run_daemon(run_id, RunStatus.FAILED)
         if pid is not None:
             store.log_event(run_id, "daemon_spawned", message=f"Detached daemon started (pid={pid})")
@@ -1819,17 +2050,24 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
 
     def _post_run_control(self, run_id: str) -> None:
         store = self.server.store
-        if store.get_run(run_id) is None:
+        run = store.get_run(run_id)
+        if run is None:
             self._send_run_not_found(run_id)
             return
         action = self._read_json_body().get("action")
         if action not in ("pause", "resume"):
             raise _BadRequest("action must be pause or resume")
+        if run["status"] == RunStatus.SUPERSEDED.value:
+            raise RunTerminalError(run_id, run["status"])
         if action == "pause":
             status, kind = RunStatus.PAUSED, "run_paused"
         else:
             status, kind = RunStatus.RUNNING, "run_resumed"
-        store.update_run_status(run_id, status)
+        if action == "resume" and run["start_sha"]:
+            self._validate_run_branch(run)
+            store.resume_run(run_id)
+        else:
+            store.update_run_status(run_id, status)
         store.log_event(run_id, kind, actor="human", message=f"Run {action} requested from the canvas")
         response: dict[str, str | int] = {"run_id": run_id, "status": status.value}
         if action == "resume":
@@ -1842,9 +2080,16 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
 
     def _post_run_resolve(self, run_id: str) -> None:
         store = self.server.store
-        if store.get_run(run_id) is None:
+        run = store.get_run(run_id)
+        if run is None:
             self._send_run_not_found(run_id)
             return
+        if run["status"] == RunStatus.SUPERSEDED.value:
+            raise RunTerminalError(run_id, run["status"])
+        if store.is_stop_requested(run_id):
+            raise ActiveRunError(f"Run {run_id} is stopping for replan")
+        if run["start_sha"]:
+            self._validate_run_branch(run)
         payload = self._read_json_body()
         # GuidedDecisionModal sends {task_id, choice, note}; the canvas sends {decision, note}.
         guided = "choice" in payload or "task_id" in payload
@@ -1943,6 +2188,167 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def _validate_run_branch(self, run: dict[str, Any]) -> None:
+        if not run["start_sha"]:
+            return
+        try:
+            actual = resolve_ref_sha(self.server.repo_path, OrchestrationEngine.run_branch(run["id"]))
+            if run["result_sha"] and actual != resolve_ref_sha(self.server.repo_path, run["result_sha"]):
+                raise _LineageError("RUN_STALE", "Run branch no longer matches its recorded result")
+        except GitError as exc:
+            raise _LineageError("RUN_STALE", f"Run branch or recorded result is unavailable: {exc}") from exc
+
+    def _lineage_chain(self, run: dict[str, Any]) -> list[dict[str, Any]]:
+        try:
+            chain = self.server.store.get_run_lineage_chain(run["id"])
+        except ValueError as exc:
+            raise _LineageError("RUN_STALE", str(exc)) from exc
+        if not chain or not chain[0]["start_sha"] or not run["base_ref"]:
+            raise _LineageError("RUN_STALE", "Run lineage has no recorded base")
+        for parent, child in zip(chain, chain[1:]):
+            if (not parent["result_sha"] or child["start_sha"] != parent["result_sha"]
+                    or child["base_ref"] != chain[0]["base_ref"]):
+                raise _LineageError("RUN_STALE", "Run lineage does not match its parent results")
+        self._validate_run_branch(run)
+        return chain
+
+    def _request_changes(self, run: dict[str, Any], note: str, *, allow_stopped: bool = False) -> None:
+        store, repo = self.server.store, self.server.repo_path
+        run_id = run["id"]
+        if run["status"] == RunStatus.SUPERSEDED.value and not (allow_stopped and store.is_stop_requested(run_id)):
+            raise RunTerminalError(run_id, run["status"])
+        self._lineage_chain(run)
+        if not run["result_sha"]:
+            raise _LineageError("RUN_STALE", "A revision requires a recorded result commit")
+        source = Path(run["rfc_snapshot_path"] or run["rfc_path"])
+        try:
+            original = source.read_text(encoding="utf-8")
+            overrides = json.loads(run["model_overrides_json"] or "{}")
+            if not isinstance(overrides, dict):
+                raise ValueError("Run model overrides are not an object")
+            directory = repo / ".baton" / "ui_rfcs"
+            directory.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".md", dir=directory,
+                                             delete=False) as temp:
+                temporary = Path(temp.name)
+                temp.write(original.rstrip() + "\n\n## Requested changes\n\n" + note.strip() + "\n")
+            child = f"run-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex}"
+            revisions = repo / ".baton" / "runs" / child / "revisions.md"
+            made_directory = False
+            try:
+                revisions.parent.mkdir(parents=True, exist_ok=False)
+                made_directory = True
+                revisions.write_text(f"## Revision request\n\n{note.strip()}\n", encoding="utf-8")
+                engine = OrchestrationEngine(repo, self.server.loader, store,
+                                             credentials_path=self.server.credentials_path)
+                child = engine.create_run(temporary, parent_run_id=run_id, mode=run["mode"],
+                                          model_overrides=overrides, run_id=child)
+            except BaseException:
+                if made_directory:
+                    revisions.unlink(missing_ok=True)
+                    try:
+                        revisions.parent.rmdir()
+                    except OSError:
+                        pass
+                raise
+            finally:
+                temporary.unlink(missing_ok=True)
+            store.log_event(run_id, "revision_requested", actor="human", message=note,
+                            payload={"revision_run_id": child})
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise _LineageError("REVISION_FAILED", f"Could not create revision: {exc}") from exc
+        except ValueError as exc:
+            if isinstance(exc, (RunTerminalError, ActiveRunError)):
+                raise
+            raise _LineageError("RUN_STALE", str(exc)) from exc
+        pid = self._spawn_run_daemon(child, RunStatus.FAILED)
+        if pid is None:
+            return
+        store.log_event(child, "daemon_spawned", message=f"Detached daemon started (pid={pid})")
+        self._send_json(200, {
+            "ok": True, "run_id": run_id, "action": "revise", "status": "SUPERSEDED",
+            "backup_tag": None, "base_branch": run["base_ref"],
+            "base_head": resolve_ref_sha(repo, run["base_ref"]), "revisions_path": str(revisions),
+            "revision_run_id": child, "revision_status": store.get_run(child)["status"], "daemon_pid": pid,
+        })
+
+    def _post_run_request_changes(self, run_id: str) -> None:
+        run = self.server.store.get_run(run_id)
+        if run is None:
+            self._send_run_not_found(run_id)
+            return
+        note = self._read_json_body().get("note")
+        if not isinstance(note, str) or not note.strip():
+            raise _BadRequest("note must be a non-empty string")
+        if not run["start_sha"]:
+            raise _LineageError("RUN_STALE", "Request Changes requires a lineage run")
+        self._request_changes(run, note, allow_stopped=True)
+
+    def _approve_lineage(self, run: dict[str, Any], note: str) -> None:
+        store, repo, run_id = self.server.store, self.server.repo_path, run["id"]
+        if run["status"] != RunStatus.READY_FOR_FINAL_GATE.value:
+            raise _LineageError("RUN_STALE", f"Run is {run['status']}, not READY_FOR_FINAL_GATE")
+        token = store.claim_run_execution(run_id)
+        try:
+            chain = self._lineage_chain(run)
+            if not run["result_sha"]:
+                raise _LineageError("RUN_STALE", "Run has no recorded result")
+            base, root = run["base_ref"], chain[0]["start_sha"]
+            base_head = resolve_ref_sha(repo, f"refs/heads/{base}")
+            result_sha = resolve_ref_sha(repo, run["result_sha"])
+            ancestor = _git(repo, "merge-base", "--is-ancestor", root, result_sha)
+            if ancestor is None or ancestor.returncode != 0:
+                raise _LineageError("RUN_STALE", "Run result does not descend from its recorded base")
+            dirty = uncommitted_paths(repo)
+            if dirty:
+                raise _LineageError("DIRTY_WORKTREE", f"Commit or stash uncommitted changes first: {', '.join(dirty)}")
+            drifted = base_head != resolve_ref_sha(repo, root)
+            gates: list[dict[str, Any]] = []
+            if drifted:
+                worktree_root = Path(self.server.loader.current.daemon.worktree_root)
+                if not worktree_root.is_absolute():
+                    worktree_root = repo / worktree_root
+                integrated = integrate_in_isolated_worktree(repo, base_head, result_sha, worktree_root=worktree_root)
+                if integrated["conflicts"]:
+                    raise _LineageError("INTEGRATION_CONFLICT", "Run conflicts with the current base",
+                                        conflicts=integrated["conflicts"], base_head=base_head)
+                target = integrated["integrated_sha"]
+                if not target:
+                    raise _LineageError("INTEGRATION_FAILED", "Integration returned no commit")
+                gates = _gate_integrated_commit(repo, target, _lineage_gate_commands(store, chain), worktree_root)
+            else:
+                target = result_sha
+            changed = _git_stdout(repo, "diff", "--name-only", base_head, target).splitlines()
+            with store._connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                current = conn.execute("SELECT status, result_sha FROM runs WHERE id = ?", (run_id,)).fetchone()
+                stop = conn.execute("SELECT 1 FROM run_stop_requests WHERE run_id = ?", (run_id,)).fetchone()
+                owner = conn.execute("SELECT token FROM run_execution_locks WHERE run_id = ?", (run_id,)).fetchone()
+                if (not current or current["status"] != RunStatus.READY_FOR_FINAL_GATE.value
+                        or current["result_sha"] != run["result_sha"] or stop or not owner or owner["token"] != token):
+                    raise _LineageError("RUN_STALE", "Run changed during approval")
+                self._validate_run_branch(run)
+                if resolve_ref_sha(repo, f"refs/heads/{base}") != base_head:
+                    raise _LineageError("BASE_MOVED", "Base changed during integration; retry approval")
+                backup_tag = create_backup_tag(repo, run_id, base_head)
+                _move_base_ref(repo, base, base_head, target,
+                               verify_run=(OrchestrationEngine.run_branch(run_id), result_sha))
+                now = time.time()
+                conn.execute("UPDATE runs SET status = ?, updated_at = ?, finished_at = ? WHERE id = ?",
+                             (RunStatus.COMPLETED.value, now, now, run_id))
+                approval = {"backup_tag": backup_tag, "base_branch": base,
+                            "dev_branch": OrchestrationEngine.run_branch(run_id), "merged_commit": target,
+                            "pre_merge_head": base_head, "drifted": drifted}
+                conn.execute("INSERT INTO events (run_id, kind, actor, message, payload_json, created_at) "
+                             "VALUES (?, ?, ?, ?, ?, ?)",
+                             (run_id, "final_gate_approved", "human", note, json.dumps(approval), now))
+            self._send_json(200, {"ok": True, "run_id": run_id, "action": "approve", "status": "COMPLETED",
+                                  "backup_tag": backup_tag, "base_branch": base, "base_head": target,
+                                  "merged_commit": target, "changed_files": changed,
+                                  "reintegrated": drifted, "gates": gates})
+        finally:
+            store.release_run_execution(run_id, token)
+
     def _post_run_finalize(self, run_id: str) -> None:
         store = self.server.store
         run = store.get_run(run_id)
@@ -1958,7 +2364,21 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             raise _BadRequest("note must be a string")
         if action == "revise" and not note.strip():
             raise _BadRequest("revise requires a non-empty note")
+        if run["status"] == RunStatus.SUPERSEDED.value:
+            raise RunTerminalError(run_id, run["status"])
+        if store.is_stop_requested(run_id):
+            raise ActiveRunError(f"Run {run_id} is stopping for replan")
+        if run["start_sha"]:
+            if action == "revise":
+                self._request_changes(run, note)
+            elif action == "approve":
+                self._approve_lineage(run, note)
+            else:
+                self._rollback_lineage(run, "undo", note, legacy_response=True)
+            return
         repo = self.server.repo_path
+        if action in ("approve", "revise") and run["status"] in (RunStatus.COMPLETED.value, RunStatus.FAILED.value):
+            raise RunTerminalError(run_id, run["status"])
         with self.server.config_lock:
             daemon_cfg = self.server.loader.current.daemon
         base_branch, dev_branch = daemon_cfg.base_branch, daemon_cfg.dev_branch
@@ -1979,7 +2399,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                 extra["revisions_path"] = str(revisions)
             elif action == "approve":
                 if run["status"] != RunStatus.READY_FOR_FINAL_GATE.value:
-                    self._send_json(409, {"error": f"Run is {run['status']}, not READY_FOR_FINAL_GATE"})
+                    self._send_json(409, {"error": f"Run is {run['status']}, not READY_FOR_FINAL_GATE", "code": "RUN_STALE"})
                     return
                 dirty = uncommitted_paths(repo)
                 if dirty:
@@ -2070,6 +2490,131 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                 **extra,
             },
         )
+
+    def _post_run_rollback(self, run_id: str) -> None:
+        run = self.server.store.get_run(run_id)
+        if run is None:
+            self._send_run_not_found(run_id)
+            return
+        payload = self._read_json_body()
+        mode = payload.get("mode")
+        if mode not in ("revert_revision", "abandon_all", "undo"):
+            raise _BadRequest("mode must be revert_revision, abandon_all or undo")
+        note = payload.get("note", "")
+        if not isinstance(note, str):
+            raise _BadRequest("note must be a string")
+        if run["status"] == RunStatus.SUPERSEDED.value:
+            raise RunTerminalError(run_id, run["status"])
+        if not run["start_sha"]:
+            raise _LineageError("RUN_STALE", "Explicit rollback modes require a lineage run")
+        self._rollback_lineage(run, mode, note)
+
+    def _rollback_lineage(self, run: dict[str, Any], mode: str, note: str,
+                          *, legacy_response: bool = False) -> None:
+        store, repo, run_id = self.server.store, self.server.repo_path, run["id"]
+        base = run["base_ref"]
+        if mode == "undo":
+            if run["status"] != RunStatus.COMPLETED.value:
+                raise _LineageError("RUN_STALE", "Only an approved run can be undone")
+            with store._connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                current = conn.execute("SELECT status FROM runs WHERE id = ?", (run_id,)).fetchone()
+                event = conn.execute("SELECT kind, payload_json FROM events WHERE run_id = ? "
+                                     "AND kind IN ('final_gate_approved', 'final_gate_rolled_back') "
+                                     "ORDER BY id DESC LIMIT 1", (run_id,)).fetchone()
+                if not current or current["status"] != RunStatus.COMPLETED.value or not event or event["kind"] != "final_gate_approved":
+                    raise _LineageError("RUN_STALE", "Run has no approved final-gate merge to undo")
+                approved = _json_object(event["payload_json"])
+                merged, target = approved.get("merged_commit"), approved.get("pre_merge_head")
+                if not isinstance(merged, str) or not isinstance(target, str) or approved.get("base_branch") != base:
+                    raise _LineageError("RUN_STALE", "Approval did not record a valid pre-merge base")
+                head = resolve_ref_sha(repo, f"refs/heads/{base}")
+                if head != merged:
+                    raise _LineageError(
+                        "MERGE_NOT_HEAD", f"{base} has advanced beyond this run's merge",
+                        merged_commit=merged, base_head=head,
+                        guidance=f"Review git log {target}..{merged}; use git revert for the run's commits. "
+                                 "For a merge commit, use git revert -m 1 <merge-commit>; preserve later commits.",
+                    )
+                conflict = store._conflicting_run(conn, conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone())
+                if conflict:
+                    raise _LineageError("RUN_BUSY", f"Repository already has active run {conflict}")
+                if merged != target:
+                    _move_base_ref(repo, base, merged, target)
+                now = time.time()
+                conn.execute("UPDATE runs SET status = ?, updated_at = ? WHERE id = ?",
+                             (RunStatus.PAUSED.value, now, run_id))
+                conn.execute("INSERT INTO events (run_id, kind, actor, message, payload_json, created_at) "
+                             "VALUES (?, ?, ?, ?, ?, ?)",
+                             (run_id, "final_gate_rolled_back", "human", note,
+                              json.dumps({"base_branch": base, "restored_to": target}), now))
+            backup_tag = approved.get("backup_tag")
+        else:
+            if run["status"] not in (RunStatus.READY_FOR_FINAL_GATE.value, RunStatus.PAUSED.value):
+                raise _LineageError("RUN_STALE", "Unmerged rollback requires a settled run")
+            token = store.claim_run_execution(run_id)
+            try:
+                chain = self._lineage_chain(run)
+                if not run["result_sha"]:
+                    raise _LineageError("RUN_STALE", "Run has no recorded result to roll back")
+                if mode == "revert_revision" and len(chain) < 2:
+                    raise _LineageError("RUN_STALE", "Root runs have no revision to revert")
+                target = run["start_sha"] if mode == "revert_revision" else chain[0]["start_sha"]
+                branch = OrchestrationEngine.run_branch(run_id)
+                if _checked_out_locations(repo, branch):
+                    raise _LineageError("RUN_BUSY", "Run branch is checked out in a worktree")
+                with store._connect() as conn:
+                    conn.execute("BEGIN IMMEDIATE")
+                    current = conn.execute("SELECT status, result_sha FROM runs WHERE id = ?", (run_id,)).fetchone()
+                    stop = conn.execute("SELECT 1 FROM run_stop_requests WHERE run_id = ?", (run_id,)).fetchone()
+                    owner = conn.execute("SELECT token FROM run_execution_locks WHERE run_id = ?", (run_id,)).fetchone()
+                    if (not current or current["status"] not in ("READY_FOR_FINAL_GATE", "PAUSED")
+                            or current["result_sha"] != run["result_sha"] or stop or not owner or owner["token"] != token):
+                        raise _LineageError("RUN_STALE", "Run changed during rollback")
+                    head = resolve_ref_sha(repo, f"refs/heads/{base}")
+                    is_merged = _git(repo, "merge-base", "--is-ancestor", run["result_sha"], head)
+                    if is_merged is None or is_merged.returncode not in (0, 1):
+                        raise _LineageError("GIT_ERROR", "Could not verify whether the run result is already merged")
+                    if run["result_sha"] != run["start_sha"] and is_merged.returncode == 0:
+                        raise _LineageError("RUN_STALE", "Run result is already contained in the base branch")
+                    target = revert_range(repo, branch, run["result_sha"], target)
+                    now = time.time()
+                    conn.execute("UPDATE runs SET result_sha = ?, status = ?, updated_at = ? WHERE id = ?",
+                                 (target, RunStatus.PAUSED.value, now, run_id))
+                    conn.execute("INSERT INTO events (run_id, kind, actor, message, payload_json, created_at) "
+                                 "VALUES (?, ?, ?, ?, ?, ?)",
+                                 (run_id, "lineage_rolled_back", "human", note,
+                                  json.dumps({"mode": mode, "from_sha": run["result_sha"], "restored_to": target}), now))
+                backup_tag = None
+            finally:
+                store.release_run_execution(run_id, token)
+        response: dict[str, Any] = {"ok": True, "run_id": run_id, "mode": mode, "status": "PAUSED",
+                                    "restored_to": target, "base_branch": base,
+                                    "base_head": resolve_ref_sha(repo, f"refs/heads/{base}")}
+        if legacy_response:
+            response.update(action="rollback", backup_tag=backup_tag)
+        self._send_json(200, response)
+
+    def _post_run_stop_and_replan(self, run_id: str) -> None:
+        run = self.server.store.get_run(run_id)
+        if run is None:
+            self._send_run_not_found(run_id)
+            return
+        payload = self._read_json_body()
+        timeout = payload.get("timeout_sec", 30.0)
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 0 <= timeout <= 30:
+            raise _BadRequest("timeout_sec must be a number between 0 and 30")
+        engine = OrchestrationEngine(self.server.repo_path, self.server.loader, self.server.store,
+                                     credentials_path=self.server.credentials_path)
+        try:
+            context = asyncio.run(engine.stop_run_for_replan(run_id, timeout_sec=float(timeout)))
+        except StopRunTimeoutError as exc:
+            raise _LineageError("STOP_PENDING", str(exc)) from exc
+        except ValueError as exc:
+            if isinstance(exc, (RunTerminalError, ActiveRunError)):
+                raise
+            raise _LineageError("RUN_STALE", str(exc)) from exc
+        self._send_json(200, {"ok": True, "status": "SUPERSEDED", **context})
 
     def _serve_static(self, raw_path: str, path: str) -> None:
         relative = Path(path.lstrip("/") or "index.html")

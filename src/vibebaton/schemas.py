@@ -18,6 +18,7 @@ class RunStatus(StrEnum):
     READY_FOR_FINAL_GATE = "READY_FOR_FINAL_GATE"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    SUPERSEDED = "SUPERSEDED"
 
 
 class TaskStatus(StrEnum):

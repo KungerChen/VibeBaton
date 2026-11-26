@@ -6,14 +6,17 @@ import asyncio
 import ctypes
 import json
 import logging
+import re
+import subprocess
 import sys
 import time
+import uuid
 from collections.abc import Iterable
 from contextlib import contextmanager, suppress
 from dataclasses import replace
 from itertools import count
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, TypedDict
 
 from . import cli_runner, pricing
 from .allocation import compute_step_up_target, parse_model_spec, resolve_task_allocation
@@ -27,7 +30,7 @@ from .config import (
     RoleConfig,
     build_model_catalog,
 )
-from .db import StateStore
+from .db import ActiveRunError, RunTerminalError, StateStore
 from .gates import run_gate_suite
 from .git_ops import (
     GitError,
@@ -36,6 +39,7 @@ from .git_ops import (
     check_path_whitelist,
     commit_worktree_changes,
     create_backup_tag,
+    create_run_branch_at,
     create_worktree,
     ensure_branch,
     ensure_git_ready,
@@ -43,6 +47,7 @@ from .git_ops import (
     merge_branch_into,
     merge_branch_with_resolver,
     remove_worktree,
+    resolve_ref_sha,
     revert_disallowed_files,
 )
 from .notifier import AttentionEvent, AttentionNotifier, ChannelResult, should_notify
@@ -61,6 +66,18 @@ from .schemas import (
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class StopRunTimeoutError(TimeoutError):
+    """The stop remains requested because the executor has not settled."""
+
+
+class ReplanFailureContext(TypedDict):
+    run_id: str
+    failed_tasks: list[dict[str, Any]]
+    last_errors: dict[str, str]
+    current_sha: str
+    run_summary: str
 
 
 async def run_provider_cli(provider: ProviderConfig, **kwargs: Any) -> CLIResult:
@@ -109,10 +126,134 @@ class OrchestrationEngine:
         self._notified_episodes: set[tuple[str, str, str]] = set()
         self._semaphores: dict[str, tuple[int, asyncio.Semaphore]] = {}
         self._merge_lock = asyncio.Lock()
+        self._run_children: dict[str, set[asyncio.Task[bool]]] = {}
 
     @property
     def cfg(self) -> BatonConfig:
         return self.config_loader.current
+
+    @staticmethod
+    def run_branch(run_id: str) -> str:
+        """Return the dedicated branch containing a lineage run's result."""
+        return f"baton/runs/{run_id}"
+
+    def create_run(
+        self, rfc_path: Path, *, parent_run_id: str | None = None,
+        mode: str = "overnight", plan_path: Path | None = None,
+        model_overrides: dict[str, str] | None = None, run_id: str | None = None,
+    ) -> str:
+        """Create a lineage run with an immutable RFC and an exact starting ref.
+
+        The DB reservation serializes launches across processes. A revision
+        requires its parent to be settled and have a recorded result commit.
+        """
+        rid = run_id or f"run-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex}"
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", rid):
+            raise ValueError("Invalid run ID")
+        source = Path(rfc_path)
+        if not source.is_absolute():
+            source = self.repo_path / source
+        snapshot = self.repo_path / ".baton" / "runs" / rid / "00_RFC.md"
+        branch = self.run_branch(rid)
+        made_snapshot = False
+        branch_target: str | None = None
+
+        def prepare(parent: dict[str, Any] | None) -> tuple[Path, str]:
+            nonlocal made_snapshot, branch_target
+            start_sha = resolve_ref_sha(self.repo_path, parent["result_sha"] if parent else "main")
+            existing = subprocess.run(
+                ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+                cwd=self.repo_path, capture_output=True, check=False,
+            )
+            if existing.returncode == 0:
+                raise ValueError(f"Run branch {branch} already exists")
+            if existing.returncode != 1:
+                raise GitError(f"Cannot check run branch {branch}: {existing.stderr.decode(errors='replace').strip()}")
+            content = source.read_bytes()
+            snapshot.parent.mkdir(parents=True, exist_ok=True)
+            with snapshot.open("xb") as handle:
+                made_snapshot = True
+                handle.write(content)
+            branch_target = start_sha
+            create_run_branch_at(self.repo_path, branch, start_sha)
+            return snapshot, start_sha
+
+        try:
+            return self.store.create_lineage_run(
+                self.repo_path, rid, parent_run_id=parent_run_id, mode=mode, plan_path=plan_path,
+                model_overrides=model_overrides, prepare=prepare,
+            )
+        except BaseException:
+            if branch_target is not None:
+                # Only remove the ref we created, and only if it still points at our starting SHA.
+                subprocess.run(["git", "update-ref", "-d", f"refs/heads/{branch}", branch_target],
+                               cwd=self.repo_path, capture_output=True, check=False)
+            if made_snapshot:
+                snapshot.unlink(missing_ok=True)
+                with suppress(OSError):
+                    snapshot.parent.rmdir()
+            raise
+
+    async def resume_run(self, run_id: str) -> RunStatus:
+        """Resume a nonterminal run after the prior executor has settled."""
+        run = self.store.get_run(run_id)
+        if not run or Path(run["repo_path"]).resolve() != self.repo_path:
+            raise ValueError(f"Run '{run_id}' not found in this repository")
+        self.store.resume_run(run_id)
+        return await self.execute_run(run_id)
+
+    def finalize_run(self, run_id: str) -> dict[str, Any]:
+        """Validate final-gate entry; the caller performs the selected gate action."""
+        run = self.store.get_run(run_id)
+        if not run or Path(run["repo_path"]).resolve() != self.repo_path:
+            raise ValueError(f"Run '{run_id}' not found in this repository")
+        if run["status"] in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.SUPERSEDED):
+            raise RunTerminalError(run_id, run["status"])
+        if self.store.is_stop_requested(run_id):
+            raise ActiveRunError(f"Run {run_id} is stopping for replan")
+        if run["status"] != RunStatus.READY_FOR_FINAL_GATE:
+            raise ValueError(f"Run {run_id} is {run['status']}, not READY_FOR_FINAL_GATE")
+        return run
+
+    async def stop_run_for_replan(self, run_id: str, *, timeout_sec: float = 30.0) -> ReplanFailureContext:
+        """Stop new dispatch, wait for the executor, and return settled failure context.
+
+        A timeout leaves the stop request in place. Retrying after the executor
+        drains completes the stop; no terminal state is fabricated on timeout.
+        """
+        if timeout_sec < 0:
+            raise ValueError("timeout_sec must be non-negative")
+        run = self.store.get_run(run_id)
+        if not run or Path(run["repo_path"]).resolve() != self.repo_path:
+            raise ValueError(f"Run '{run_id}' not found in this repository")
+        self.store.request_run_stop(run_id)
+        deadline = time.monotonic() + timeout_sec
+        while not self.store.run_stop_settled(run_id):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise StopRunTimeoutError(f"Run {run_id} has not settled; stop remains requested")
+            await asyncio.sleep(min(0.1, remaining))
+        run = self.store.get_run(run_id)
+        if run["status"] == RunStatus.SUPERSEDED:
+            sha = run["result_sha"]
+        else:
+            branch = self.run_branch(run_id) if run["start_sha"] else self.cfg.daemon.dev_branch
+            try:
+                sha = resolve_ref_sha(self.repo_path, branch)
+            except GitError:
+                if run["start_sha"]:
+                    raise
+                sha = resolve_ref_sha(self.repo_path, "HEAD")
+            self.store.complete_run_stop(run_id, sha)
+            sha = self.store.get_run(run_id)["result_sha"]
+        tasks = self.store.get_tasks(run_id)
+        return {
+            "run_id": run_id,
+            "failed_tasks": [task for task in tasks if task["status"] == TaskStatus.FAILED],
+            "last_errors": {task["id"]: task["last_error"] for task in tasks if task["last_error"]},
+            "current_sha": sha,
+            "run_summary": self.store.get_run(run_id)["summary"],
+        }
 
     async def _emit_attention(
         self,
@@ -167,10 +308,16 @@ class OrchestrationEngine:
         if not run or run["status"] != RunStatus.PAUSED:
             return False
         pending = tuple(in_flight)
-        for task in pending:
-            task.cancel()
+        # Replanning drains workers instead of cancelling a gate or merge
+        # subprocess that could continue writing after its coroutine exits.
+        replan = self.store.is_stop_requested(run["id"])
+        if not replan:
+            for task in pending:
+                task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+        if replan:
+            return True
         await self._emit_attention(
             run["id"], "paused", "warning", "Run paused", "The run was paused by the user or host.",
             "Resume the run in Studio when ready.",
@@ -485,8 +632,26 @@ class OrchestrationEngine:
     async def execute_run(self, run_id: str) -> RunStatus:
         """Execute (or resume) a full pipeline run."""
         run = self.store.get_run(run_id)
-        if not run:
-            raise ValueError(f"Run '{run_id}' not found")
+        if not run or Path(run["repo_path"]).resolve() != self.repo_path:
+            raise ValueError(f"Run '{run_id}' not found in this repository")
+        if run["status"] in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.SUPERSEDED):
+            # Preserve the historical read-only result of re-executing a failed
+            # legacy run. Explicit resume always rejects terminal runs.
+            if run["status"] == RunStatus.FAILED and not run["start_sha"]:
+                return RunStatus.FAILED
+            raise RunTerminalError(run_id, run["status"])
+        token = self.store.claim_run_execution(run_id)
+        self._run_children[run_id] = set()
+        try:
+            return await self._execute_run_claimed(run_id)
+        finally:
+            children = self._run_children.pop(run_id, set())
+            if children:
+                await asyncio.gather(*children, return_exceptions=True)
+            self.store.release_run_execution(run_id, token)
+
+    async def _execute_run_claimed(self, run_id: str) -> RunStatus:
+        run = self.store.get_run(run_id)
 
         try:
             if await self._stop_if_paused(run):
@@ -503,7 +668,10 @@ class OrchestrationEngine:
                 pricing.trigger_background_pricing_sync(cfg.pricing)
 
             overrides: dict[str, str] = json.loads(run["model_overrides_json"] or "{}")
-            rfc_path = Path(run["rfc_path"])
+            snapshot = self.repo_path / ".baton" / "runs" / run_id / "00_RFC.md"
+            # Once recorded, a missing snapshot must not fall back to mutable input.
+            rfc_path = (Path(run["rfc_snapshot_path"]) if run["rfc_snapshot_path"]
+                        else snapshot if snapshot.exists() else Path(run["rfc_path"]))
             if not rfc_path.exists():
                 summary = f"RFC file missing: {rfc_path}"
                 self.store.update_run_status(run_id, RunStatus.FAILED, summary=summary)
@@ -514,12 +682,16 @@ class OrchestrationEngine:
             rfc_text = rfc_path.read_text(encoding="utf-8")
 
             with windows_wake_lock(cfg.daemon.prevent_sleep_windows):
+                dev_branch = self.run_branch(run_id) if run["start_sha"] else cfg.daemon.dev_branch
+                if run["start_sha"]:
+                    # A deleted run branch must not be silently recreated at main.
+                    resolve_ref_sha(self.repo_path, dev_branch)
+                    resolve_ref_sha(self.repo_path, run["base_ref"])
                 base_branch = ensure_git_ready(
                     self.repo_path,
-                    base_branch=cfg.daemon.base_branch,
-                    dev_branch=cfg.daemon.dev_branch,
+                    base_branch=run["base_ref"] or cfg.daemon.base_branch,
+                    dev_branch=dev_branch,
                 )
-                dev_branch = cfg.daemon.dev_branch
                 # Snapshot the base head before any dev change so the final gate can roll back.
                 try:
                     create_backup_tag(self.repo_path, run_id, base_branch)
@@ -590,7 +762,21 @@ class OrchestrationEngine:
                     f"All {len(plan.milestones)} milestone(s) passed mechanical gates and AI reviews "
                     f"and are merged into '{dev_branch}'. Ready for L0 final gate review before merging to '{base_branch}'."
                 )
-                self.store.update_run_status(run_id, RunStatus.READY_FOR_FINAL_GATE, summary=summary)
+                try:
+                    result_sha = resolve_ref_sha(self.repo_path, dev_branch)
+                except GitError:
+                    # Legacy callers can supply a fully mocked Git backend in
+                    # a non-repository directory. Real repos and all lineage
+                    # runs must resolve a result commit before becoming ready.
+                    probe = subprocess.run(
+                        ["git", "rev-parse", "--is-inside-work-tree"], cwd=self.repo_path,
+                        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+                    )
+                    if run["start_sha"] or probe.returncode == 0 or "not a git repository" not in probe.stderr.lower():
+                        raise
+                    result_sha = None
+                if not self.store.mark_run_ready(run_id, result_sha, summary):
+                    return RunStatus(self.store.get_run(run_id)["status"])
                 self.store.log_event(run_id, "ready_for_final_gate", message=summary)
                 await self._emit_attention(
                     run_id, "ready_for_final_gate", "info", "Ready for final gate", summary,
@@ -599,9 +785,15 @@ class OrchestrationEngine:
                 return RunStatus.READY_FOR_FINAL_GATE
 
         except Exception as exc:
+            current = self.store.get_run(run_id)
+            if current and current["status"] == RunStatus.PAUSED and self.store.is_stop_requested(run_id):
+                return RunStatus.PAUSED
             self.store.log_event(run_id, "run_exception", message=str(exc))
             summary = f"Unhandled error: {exc}"
             self.store.update_run_status(run_id, RunStatus.FAILED, summary=summary)
+            current = self.store.get_run(run_id)
+            if current and current["status"] == RunStatus.PAUSED and self.store.is_stop_requested(run_id):
+                return RunStatus.PAUSED
             await self._emit_attention(
                 run_id, "failed", "error", "Run failed", summary, "Inspect the run events in Studio.",
             )
@@ -808,7 +1000,9 @@ class OrchestrationEngine:
                 if tid in done_ids or tid in in_flight or tid in waiting_ids:
                     continue
                 if all(dep in done_ids or dep not in tasks_by_id for dep in spec.depends_on):
-                    in_flight[tid] = asyncio.create_task(
+                    if not self.store.try_dispatch_task(run_id, tid):
+                        break
+                    task = asyncio.create_task(
                         self._execute_task(
                             run_id=run_id,
                             milestone_id=milestone.id,
@@ -818,8 +1012,15 @@ class OrchestrationEngine:
                             catalog=catalog,
                         )
                     )
+                    in_flight[tid] = task
+                    children = self._run_children.get(run_id)
+                    if children is not None:
+                        children.add(task)
+                        task.add_done_callback(children.discard)
 
             if not in_flight:
+                if await self._stop_if_paused(self.store.get_run(run_id)):
+                    return False
                 message = "No runnable tasks remaining before milestone completion."
                 self.store.log_event(
                     run_id,
@@ -836,7 +1037,9 @@ class OrchestrationEngine:
                 )
                 return False
 
-            done_futures, _ = await asyncio.wait(in_flight.values(), return_when=asyncio.FIRST_COMPLETED)
+            done_futures, _ = await asyncio.wait(
+                in_flight.values(), timeout=0.1, return_when=asyncio.FIRST_COMPLETED,
+            )
             completed_keys = [k for k, fut in in_flight.items() if fut in done_futures]
             for k in completed_keys:
                 fut = in_flight.pop(k)

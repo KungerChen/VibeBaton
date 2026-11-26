@@ -104,8 +104,10 @@ class WebFullStackTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertEqual(response.headers.get_content_type(), "image/x-icon")
             ico_bytes = response.read()
+        self.assertEqual(ico_bytes, (web_dir / "public" / "favicon.ico").read_bytes())
         reserved, icon_type, count = struct.unpack("<HHH", ico_bytes[:6])
-        self.assertEqual((reserved, icon_type, count), (0, 1, 3))
+        self.assertEqual((reserved, icon_type), (0, 1))
+        self.assertGreater(count, 0)
 
         script = re.search(r"""<script\b[^>]*\bsrc=["'](\./assets/[^"']+\.js)["']""", index.decode("utf-8"))
         if script is None:
@@ -154,6 +156,33 @@ class WebFullStackTests(unittest.TestCase):
         self.assertIs(readiness["safe_for_overnight"], True)
         self.assertEqual(readiness["missing_sections"], [])
         self.assertEqual(readiness["detected_commands"], ["python -m unittest"])
+
+    def test_serves_multi_resolution_favicon(self) -> None:
+        public_dir = REPO / "web" / "public"
+        with urlopen(urljoin(self.start_server(static_dir=public_dir), "favicon.ico"), timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), "image/x-icon")
+            ico_bytes = response.read()
+        self.assertEqual(ico_bytes, (public_dir / "favicon.ico").read_bytes())
+
+        reserved, icon_type, count = struct.unpack_from("<HHH", ico_bytes)
+        self.assertEqual((reserved, icon_type), (0, 1))
+        required_sizes = {16, 24, 32, 40, 48, 64, 128, 256}
+        self.assertGreaterEqual(count, len(required_sizes))
+        directory_end = 6 + count * 16
+        self.assertGreaterEqual(len(ico_bytes), directory_end)
+        sizes = set()
+        for index in range(count):
+            width, height, _, _, _, _, length, offset = struct.unpack_from(
+                "<BBBBHHII", ico_bytes, 6 + index * 16
+            )
+            size = (width or 256, height or 256)
+            sizes.add(size)
+            with self.subTest(frame=index, size=size):
+                self.assertGreater(length, 0)
+                self.assertGreaterEqual(offset, directory_end)
+                self.assertLessEqual(offset + length, len(ico_bytes))
+        self.assertTrue({(size, size) for size in required_sizes}.issubset(sizes))
 
     def test_live_snapshot_exposes_exact_billing_and_conflict_counts(self) -> None:
         store = StateStore(self.repo / ".baton" / "state.sqlite")

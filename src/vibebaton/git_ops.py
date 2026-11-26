@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +45,13 @@ class MergeResult(TypedDict):
     merged: bool
     conflicts: list[str]
     resolved_by_ai: bool
+
+
+class LineageIntegrationResult(TypedDict):
+    """Integrated commit on success, or the conflicted paths on merge conflict."""
+
+    integrated_sha: str | None
+    conflicts: list[str]
 
 
 @dataclass
@@ -133,6 +141,111 @@ def reset_branch_to(repo: Path, branch: str, commit: str) -> str:
     _run_git(repo, ["checkout", "-q", branch])
     _run_git(repo, ["reset", "-q", "--hard", commit])
     return commit
+
+
+def resolve_ref_sha(repo: Path, ref: str = "main") -> str:
+    """Return the full commit SHA for ``ref``; raise GitError if it cannot be resolved."""
+    # Prefer a local branch over an identically named tag: in particular,
+    # "main" means the base branch even if a tag named "main" also exists.
+    if ref != "HEAD" and not ref.startswith("refs/"):
+        branch = _run_git(
+            repo, ["rev-parse", "--verify", "--end-of-options", f"refs/heads/{ref}^{{commit}}"],
+            check=False,
+        )
+        if branch.returncode == 0:
+            return branch.stdout.strip()
+    return _run_git(repo, ["rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"]).stdout.strip()
+
+
+def create_run_branch_at(repo: Path, branch: str, sha: str) -> str:
+    """Create or reset a run branch at ``sha`` and return the branch name.
+
+    Refuse to move a branch checked out in a worktree; never alter the base ref.
+    """
+    target = resolve_ref_sha(repo, sha)
+    # Git itself rejects -f if this branch is checked out in any worktree.
+    _run_git(repo, ["branch", "--force", "--", branch, target])
+    return branch
+
+
+def has_ref_advanced(repo: Path, base_ref: str, recorded_sha: str) -> bool:
+    """Return whether the base ref differs from the recorded commit, including rewrites."""
+    return resolve_ref_sha(repo, base_ref) != recorded_sha
+
+
+def integrate_in_isolated_worktree(
+    repo: Path, base_ref: str, result_sha: str, *, worktree_root: Path | None = None,
+) -> LineageIntegrationResult:
+    """Integrate a result onto the current base in a disposable worktree.
+
+    Return an integrated commit SHA or conflicted paths, and always remove the
+    worktree. Do not move the base ref or touch the user's working tree.
+    """
+    base = resolve_ref_sha(repo, base_ref)
+    result = resolve_ref_sha(repo, result_sha)
+    if worktree_root is not None:
+        worktree_root = worktree_root.resolve()
+        worktree_root.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix="baton-lineage-", dir=worktree_root) as temp_dir:
+        worktree = Path(temp_dir) / "worktree"
+        try:
+            _run_git(repo, ["worktree", "add", "--detach", "--", str(worktree), base])
+            merge = _run_git(
+                worktree,
+                ["-c", "user.name=VibeBaton", "-c", "user.email=vibebaton@localhost",
+                 "-c", "commit.gpgsign=false", "merge", "--no-edit", "--ff", "--", result],
+                check=False,
+            )
+            if merge.returncode != 0:
+                conflicts = sorted(set(_git_paths(worktree, ["diff", "--name-only", "--diff-filter=U", "-z"])))
+                if conflicts:
+                    return {"integrated_sha": None, "conflicts": conflicts}
+                detail = merge.stderr.strip() or merge.stdout.strip()
+                raise GitError(f"git merge failed ({merge.returncode}): {detail}")
+            return {"integrated_sha": resolve_ref_sha(worktree, "HEAD"), "conflicts": []}
+        finally:
+            removed = _run_git(repo, ["worktree", "remove", "--force", "--", str(worktree)], check=False)
+            if removed.returncode != 0:
+                # A failed add may still have registered a worktree. Do not
+                # report success if removal left that registration behind.
+                entries = _run_git(repo, ["worktree", "list", "--porcelain", "-z"]).stdout.split("\0")
+                target = os.path.normcase(os.path.realpath(worktree))
+                if any(
+                    entry.startswith("worktree ")
+                    and os.path.normcase(os.path.realpath(entry[len("worktree "):])) == target
+                    for entry in entries
+                ):
+                    detail = removed.stderr.strip() or removed.stdout.strip()
+                    raise GitError(f"Could not remove integration worktree '{worktree}': {detail}")
+
+
+def revert_range(repo: Path, branch: str, from_sha: str, to_sha: str) -> str:
+    """Rewind an unmerged run branch from ``from_sha`` to its ancestor ``to_sha``.
+
+    Require the branch head to equal ``from_sha`` and return the full target SHA.
+    This operation moves only the run ref; it does not update a checked-out
+    worktree or create a Git revert commit.
+    """
+    branch_ref = f"refs/heads/{branch}"
+    current = resolve_ref_sha(repo, branch_ref)
+    source = resolve_ref_sha(repo, from_sha)
+    target = resolve_ref_sha(repo, to_sha)
+    if current != source:
+        raise GitError(f"Refusing to rewind '{branch}': its head is {current}, not {source}")
+    ancestor = _run_git(repo, ["merge-base", "--is-ancestor", target, source], check=False)
+    if ancestor.returncode != 0:
+        detail = ancestor.stderr.strip()
+        raise GitError(f"Refusing to rewind '{branch}': {target} is not an ancestor of {source}" +
+                       (f" ({detail})" if detail else ""))
+    # The expected old value closes the race between validation and the ref move.
+    _run_git(repo, ["update-ref", "--no-deref", branch_ref, target, source])
+    return target
+
+
+def is_head_commit(repo: Path, branch: str, commit: str) -> bool:
+    """Return whether ``commit`` resolves to the current head of ``branch``."""
+    return resolve_ref_sha(repo, f"refs/heads/{branch}") == resolve_ref_sha(repo, commit)
 
 
 def ensure_branch(repo: Path, branch_name: str, start_point: str) -> None:
