@@ -247,6 +247,14 @@ _ERROR_MAX = 200
 _SECRET_ENV_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL", re.IGNORECASE)
 _SECRET_TOKEN = re.compile(r"\b(?:sk|pk|rk|ghp|gho|xox[bp])[-_][A-Za-z0-9_-]{8,}")
 
+# The blueprint's "Change" prefill (web/src/i18n/messages.ts guided.brainstorm.editPrefill and items).
+_EDIT_MESSAGE = re.compile(r'^(?:关于「(?P<zh>[^」]+)」，我想改成：|About "(?P<en>[^"]+)", I want to change it to:)(?P<value>.*)$', re.S)
+_ITEM_LABELS = {
+    "做什么": "what", "给谁用": "who", "做到什么程度": "scope", "不能动什么": "limits", "怎么算完成": "done",
+    "What to make": "what", "Who it is for": "who", "How far this round goes": "scope",
+    "What must not change": "limits", "How we know it is done": "done",
+}
+
 # Offline questions, one per checklist item ("what" always comes from the first message).
 _OFFLINE_QUESTIONS: dict[str, dict[str, tuple[str, tuple[str, ...], str]]] = {
     # id: {lang: (question, options, assumption when the user leaves it to us)}
@@ -502,11 +510,21 @@ def _clip(text: str, limit: int = _GUIDE_VALUE_MAX) -> str:
 
 
 def _answers(messages: list[ChatMessage]) -> dict[str, str]:
-    """Map checklist ids to the user reply that followed the offline question for that item."""
+    """Map checklist ids to the user reply that followed the offline question for that item.
+
+    A "Change" message from the blueprint (``关于「给谁用」，我想改成：…``) updates the named item
+    instead of answering the pending question.
+    """
     answers: dict[str, str] = {}
     for index, message in enumerate(messages[:-1]):
         reply = messages[index + 1]
         if message["role"] != "assistant" or reply["role"] != "user" or not reply["content"].strip():
+            continue
+        edit = _EDIT_MESSAGE.match(reply["content"].strip())
+        edited = _ITEM_LABELS.get((edit.group("zh") or edit.group("en") or "").strip()) if edit else None
+        if edited is not None:
+            if edit.group("value").strip():
+                answers[edited] = edit.group("value").strip()
             continue
         for item_id, langs in _OFFLINE_QUESTIONS.items():
             if any(langs[lang][0] in message["content"] for lang in ("zh", "en")):

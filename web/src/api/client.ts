@@ -275,6 +275,28 @@ export interface BrainstormTurnResult {
   /** null when the deterministic offline composer produced the turn. */
   provider_used: string | null;
   offline: boolean;
+  guide: BrainstormGuide;
+  /** Short reason when a live turn failed and the offline composer answered instead. */
+  error: string | null;
+}
+
+export type ChecklistId = 'what' | 'who' | 'scope' | 'limits' | 'done';
+export type ChecklistStatus = 'clear' | 'assumed' | 'open';
+
+export interface ChecklistItem {
+  id: ChecklistId;
+  status: ChecklistStatus;
+  /** One plain sentence; empty while the item is open. */
+  value: string;
+}
+
+export interface BrainstormGuide {
+  /** The single question of this turn; empty when nothing is left to ask. */
+  question: string;
+  /** 0-4 clickable answers; the page adds its own "not sure" button. */
+  options: string[];
+  /** Always the five ids, in order: what, who, scope, limits, done. */
+  checklist: ChecklistItem[];
 }
 
 export interface BlueprintConfirmResult {

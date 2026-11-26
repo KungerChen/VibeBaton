@@ -220,7 +220,8 @@ export function GuidedWorkbench({ locale, client, apiMode, liveSnapshot, onFollo
   const shownStep: GuidedStep = runId ? stepFromRun(snapshot?.run?.status) ?? 'live' : step;
 
   useEffect(() => {
-    if (shownStep !== 'signoff' || typeof client.getWorkspaceInfo !== 'function') return;
+    // Sign-Off shows the folder; Blueprint keeps its conversation per folder.
+    if ((shownStep !== 'signoff' && shownStep !== 'brainstorm') || typeof client.getWorkspaceInfo !== 'function') return;
     let active = true;
     client.getWorkspaceInfo()
       .then((info) => {
@@ -329,6 +330,7 @@ export function GuidedWorkbench({ locale, client, apiMode, liveSnapshot, onFollo
               locale={locale}
               lineup={lineup}
               api={client}
+              projectPath={workspacePath}
               onLaunched={(launchedRunId) => {
                 setRunId(launchedRunId);
                 setStep(nextStep('brainstorm'));

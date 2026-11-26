@@ -1,16 +1,35 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test, vi } from 'vitest';
-import type { BlueprintCard, BrainstormTurnResult, RecommendedLineup } from '../../api/client';
+import type { BlueprintCard, BrainstormTurnResult, ChecklistItem, RecommendedLineup } from '../../api/client';
+import { MESSAGES } from '../../i18n/messages';
 import {
   appendTurn,
+  applyExample,
   BRAINSTORM_SCENARIOS,
   BrainstormTurn,
+  brainstormStorageKey,
   canLaunch,
+  checklistProgress,
+  clearBrainstorm,
   confirmAndStart,
+  editPrefill,
+  FEATURED_SCENARIO_IDS,
   GuidedBrainstormStep,
-  readinessTone,
+  loadBrainstorm,
+  loadTypewriterPref,
+  normalizeChecklist,
+  notReadyReason,
+  retryBrainstormTurn,
+  retryTranscript,
+  saveBrainstorm,
+  saveTypewriterPref,
   sendBrainstormTurn,
+  shouldSubmitOnKey,
+  typewriterFrames,
+  TYPEWRITER_MAX_MS,
+  TYPEWRITER_MIN_MS,
+  waitingPhase,
   type GuidedBrainstormApi,
 } from './GuidedBrainstormStep';
 
@@ -30,13 +49,23 @@ function card(score: number, ready: boolean): BlueprintCard {
   };
 }
 
-function turnResult(reply: string, ready: boolean): BrainstormTurnResult {
+function checklist(statuses: Record<string, ChecklistItem['status']> = {}): ChecklistItem[] {
+  return (['what', 'who', 'scope', 'limits', 'done'] as const).map((id) => {
+    const status = statuses[id] ?? 'open';
+    return { id, status, value: status === 'open' ? '' : `${id} value` };
+  });
+}
+
+function turnResult(reply: string, ready: boolean, extra: Partial<BrainstormTurnResult> = {}): BrainstormTurnResult {
   return {
     reply,
     rfc_markdown: `# Todo\n\n${reply}`,
     blueprint: card(ready ? 92 : 40, ready),
     provider_used: null,
     offline: true,
+    guide: { question: 'Who is it for?', options: ['Me', 'My team'], checklist: checklist({ what: 'clear' }) },
+    error: null,
+    ...extra,
   };
 }
 
@@ -59,6 +88,22 @@ function fakeApi(replies: BrainstormTurnResult[], calls: string[] = []) {
   } satisfies GuidedBrainstormApi & { calls: string[] };
 }
 
+function memoryStorage(initial: Record<string, string> = {}) {
+  const data = new Map(Object.entries(initial));
+  return {
+    data,
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => void data.set(key, value),
+    removeItem: (key: string) => void data.delete(key),
+  };
+}
+
+const brokenStorage = {
+  getItem: () => { throw new Error('blocked'); },
+  setItem: () => { throw new Error('full'); },
+  removeItem: () => { throw new Error('blocked'); },
+};
+
 describe('pure helpers', () => {
   test('appendTurn returns a new array and leaves the input untouched', () => {
     const before = [{ role: 'user' as const, content: 'hi' }];
@@ -67,19 +112,123 @@ describe('pure helpers', () => {
     expect(before).toHaveLength(1);
   });
 
-  test('readinessTone bands the score', () => {
-    expect(readinessTone(0)).toBe('low');
-    expect(readinessTone(49)).toBe('low');
-    expect(readinessTone(50)).toBe('medium');
-    expect(readinessTone(79)).toBe('medium');
-    expect(readinessTone(80)).toBe('high');
-    expect(readinessTone(100)).toBe('high');
-  });
-
   test('canLaunch requires ready_to_launch', () => {
     expect(canLaunch(null)).toBe(false);
     expect(canLaunch(card(95, false))).toBe(false);
     expect(canLaunch(card(95, true))).toBe(true);
+  });
+
+  test('examples fill an empty box or replace another example, never the user\'s own words', () => {
+    const [first, second] = BRAINSTORM_SCENARIOS;
+    expect(applyExample('', first.prompt_zh)).toBe(first.prompt_zh);
+    expect(applyExample('  ', first.prompt_en)).toBe(first.prompt_en);
+    expect(applyExample(first.prompt_en, second.prompt_en)).toBe(second.prompt_en);
+    expect(applyExample('My own idea', second.prompt_en)).toBe('My own idea');
+  });
+
+  test('change prefill replaces an earlier change prefix and keeps the rest', () => {
+    const prefixes = ['About "A", I want to change it to: ', 'About "B", I want to change it to: '];
+    expect(editPrefill('', prefixes[0], prefixes)).toBe(prefixes[0]);
+    expect(editPrefill(`${prefixes[0]}only admins`, prefixes[1], prefixes)).toBe(`${prefixes[1]}only admins`);
+    expect(editPrefill('draft text', prefixes[1], prefixes)).toBe(`${prefixes[1]}draft text`);
+  });
+
+  test('Enter sends, Shift+Enter and IME composition do not', () => {
+    expect(shouldSubmitOnKey({ key: 'Enter', shiftKey: false })).toBe(true);
+    expect(shouldSubmitOnKey({ key: 'Enter', shiftKey: true })).toBe(false);
+    expect(shouldSubmitOnKey({ key: 'Enter', shiftKey: false, isComposing: true })).toBe(false);
+    expect(shouldSubmitOnKey({ key: 'a', shiftKey: false })).toBe(false);
+  });
+
+  test('checklist is normalized to five ordered items and counted', () => {
+    const items = normalizeChecklist(turnResult('x', false, {
+      guide: { question: '', options: [], checklist: [{ id: 'done', status: 'assumed', value: 'Run tests' }] },
+    }));
+    expect(items.map((item) => item.id)).toEqual(['what', 'who', 'scope', 'limits', 'done']);
+    expect(items[4]).toEqual({ id: 'done', status: 'assumed', value: 'Run tests' });
+    expect(normalizeChecklist(null).every((item) => item.status === 'open')).toBe(true);
+    expect(checklistProgress(checklist({ what: 'clear', who: 'clear', scope: 'assumed' }))).toEqual({
+      clear: 2, assumed: 1, total: 5,
+    });
+  });
+
+  test('not-ready reason names what is missing in plain words', () => {
+    const labels = MESSAGES.en.guided.brainstorm;
+    expect(notReadyReason(null, true, labels, ', ')).toBeNull();
+    expect(notReadyReason(turnResult('x', true), true, labels, ', ')).toBeNull();
+    expect(notReadyReason(turnResult('x', true), false, labels, ', ')).toBe(labels.notReadyLineup);
+    expect(notReadyReason(turnResult('x', false), true, labels, ', ')).toBe(
+      labels.notReadyMissing('Who it is for, How far this round goes, What must not change, How we know it is done'),
+    );
+    const allSettled = turnResult('x', false, {
+      guide: { question: '', options: [], checklist: checklist({ what: 'clear', who: 'clear', scope: 'clear', limits: 'clear', done: 'assumed' }) },
+    });
+    expect(notReadyReason(allSettled, true, labels, ', ')).toBe(labels.notReadyCheck);
+  });
+
+  test('waiting copy moves from reading to drafting to slower than usual', () => {
+    expect(waitingPhase(0)).toBe('understanding');
+    expect(waitingPhase(4999)).toBe('understanding');
+    expect(waitingPhase(5000)).toBe('drafting');
+    expect(waitingPhase(44999)).toBe('drafting');
+    expect(waitingPhase(45000)).toBe('slow');
+  });
+
+  test('typewriter frames grow to the full text and play in 2-4 seconds', () => {
+    for (const text of ['Short reply here.', '这是一段比较短的中文回复。', 'word '.repeat(400), '长'.repeat(1000)]) {
+      const { frames, intervalMs } = typewriterFrames(text);
+      expect(frames[frames.length - 1]).toBe(text);
+      expect(frames.length).toBeLessThanOrEqual(60);
+      for (let i = 1; i < frames.length; i += 1) {
+        expect(frames[i].startsWith(frames[i - 1])).toBe(true);
+        expect(frames[i].length).toBeGreaterThan(frames[i - 1].length);
+      }
+      const total = intervalMs * frames.length;
+      expect(total).toBeGreaterThanOrEqual(TYPEWRITER_MIN_MS - 60);
+      expect(total).toBeLessThanOrEqual(TYPEWRITER_MAX_MS + 60);
+    }
+    expect(typewriterFrames('Hi')).toEqual({ frames: ['Hi'], intervalMs: 0 });
+  });
+});
+
+describe('local persistence', () => {
+  const saved = {
+    messages: [{ role: 'user' as const, content: 'Build a todo app' }, { role: 'assistant' as const, content: 'Who is it for?' }],
+    scenario: 'web_app',
+    turn: turnResult('Who is it for?', false),
+  };
+
+  test('round-trips per project and clears', () => {
+    const storage = memoryStorage();
+    saveBrainstorm(storage, '/repo/a', saved);
+    expect(loadBrainstorm(storage, '/repo/a')).toEqual(saved);
+    expect(loadBrainstorm(storage, '/repo/b')).toBeNull();
+    clearBrainstorm(storage, '/repo/a');
+    expect(loadBrainstorm(storage, '/repo/a')).toBeNull();
+  });
+
+  test('broken data and blocked storage are ignored', () => {
+    const key = brainstormStorageKey('/repo');
+    for (const raw of ['{not json', '[]', '{"messages": "x"}', '{"messages": [{"role": "system", "content": "x"}]}', '{"messages": []}']) {
+      expect(loadBrainstorm(memoryStorage({ [key]: raw }), '/repo')).toBeNull();
+    }
+    const badTurn = JSON.stringify({ ...saved, turn: { reply: 'x' } });
+    expect(loadBrainstorm(memoryStorage({ [key]: badTurn }), '/repo')).toEqual({ ...saved, turn: null });
+    expect(loadBrainstorm(brokenStorage, '/repo')).toBeNull();
+    expect(loadBrainstorm(null, '/repo')).toBeNull();
+    expect(() => saveBrainstorm(brokenStorage, '/repo', saved)).not.toThrow();
+    expect(() => clearBrainstorm(brokenStorage, '/repo')).not.toThrow();
+  });
+
+  test('typing effect defaults on and remembers the choice', () => {
+    const storage = memoryStorage();
+    expect(loadTypewriterPref(storage)).toBe(true);
+    saveTypewriterPref(storage, false);
+    expect(loadTypewriterPref(storage)).toBe(false);
+    saveTypewriterPref(storage, true);
+    expect(loadTypewriterPref(storage)).toBe(true);
+    expect(loadTypewriterPref(brokenStorage)).toBe(true);
+    expect(() => saveTypewriterPref(brokenStorage, false)).not.toThrow();
   });
 });
 
@@ -99,6 +248,25 @@ describe('chat -> confirm -> start flow', () => {
     expect(second.messages[3].content).toBe('Ready to build.');
     expect(api.brainstormChat).toHaveBeenLastCalledWith(expect.objectContaining({ messages: first.messages.concat({ role: 'user', content: 'npm test' }) }));
     expect(canLaunch(second.turn.blueprint)).toBe(true);
+  });
+
+  test('retry resends the last user turn once and replaces the fallback reply', async () => {
+    const history = [
+      { role: 'user' as const, content: 'Build a todo app' },
+      { role: 'assistant' as const, content: 'Offline draft.' },
+    ];
+    expect(retryTranscript(history)).toEqual([history[0]]);
+    expect(retryTranscript([history[0]])).toEqual([history[0]]);
+    expect(retryTranscript([])).toBeNull();
+    expect(retryTranscript([history[1]])).toBeNull();
+
+    const api = fakeApi([turnResult('Live reply.', false)]);
+    const result = await retryBrainstormTurn(api, history, 'web_app', 'en');
+    expect(api.brainstormChat).toHaveBeenLastCalledWith({
+      messages: [history[0]], scenario: 'web_app', locale: 'en',
+    });
+    expect(result.messages).toEqual([history[0], { role: 'assistant', content: 'Live reply.' }]);
+    await expect(retryBrainstormTurn(api, [], null)).rejects.toThrow();
   });
 
   test('the lineup L0 model choice is sent with each turn', async () => {
@@ -182,28 +350,57 @@ describe('GuidedBrainstormStep render', () => {
     expect(render('en')).toMatch(/<button type="button" class="guided-brainstorm__launch" disabled="">/);
   });
 
-  test('renders localized labels and scenario cards', () => {
+  test('opens with one sentence box, a few examples and the rest folded away', () => {
     const zh = render('zh');
-    expect(zh).toContain('你想做什么？');
+    expect(zh).toContain('用一句话说说你想做什么');
     expect(zh).toContain('确认蓝图并开始施工');
-    expect(zh).toContain('交付一个新功能');
+    expect(zh).toContain('更多灵感');
+    expect(zh).toContain('<details class="guided-brainstorm__more">');
+    for (const item of BRAINSTORM_SCENARIOS) expect(zh).toContain(item.title_zh);
+    const featuredEnd = zh.indexOf('<details');
+    for (const item of BRAINSTORM_SCENARIOS) {
+      const position = zh.indexOf(item.title_zh);
+      expect(position < featuredEnd).toBe(FEATURED_SCENARIO_IDS.includes(item.id));
+    }
+    expect(FEATURED_SCENARIO_IDS.length).toBeGreaterThanOrEqual(3);
+    expect(FEATURED_SCENARIO_IDS.length).toBeLessThanOrEqual(4);
     const en = render('en');
+    expect(en).toContain('Tell me in one sentence what you want to make');
     expect(en).toContain('Confirm Blueprint &amp; Start Building');
-    expect(en).toContain('Ship a new feature');
   });
 
-  test('offers every scenario and says what to write', () => {
+  test('the blueprint shows all five checklist items as not discussed yet', () => {
+    const en = render('en');
+    for (const label of Object.values(MESSAGES.en.guided.brainstorm.items)) expect(en).toContain(label);
+    expect(en.match(/guided-brainstorm__item--open/g)).toHaveLength(5);
+    expect(en).toContain('Typing effect');
+  });
+
+  test('scenario openers are one natural sentence', () => {
     expect(BRAINSTORM_SCENARIOS.map((item) => item.id)).toEqual([
       'new_feature', 'bug_fix', 'refactor', 'add_tests', 'web_app', 'performance',
       'ui_redesign', 'dependency_upgrade', 'write_docs', 'script_or_data', 'not_sure',
     ]);
-    const zh = render('zh');
-    for (const item of BRAINSTORM_SCENARIOS) expect(zh).toContain(item.title_zh);
-    expect(zh).toContain('guided-brainstorm__input-hint');
-    expect(zh).toContain('怎么算完成');
-    const en = render('en');
-    expect(en).toContain('how you will know it is done');
-    for (const item of BRAINSTORM_SCENARIOS) expect(item.prompt_en.split('\n')).toHaveLength(5);
+    for (const item of BRAINSTORM_SCENARIOS) {
+      expect(item.prompt_en).not.toContain('\n');
+      expect(item.prompt_zh).not.toContain('\n');
+    }
+  });
+
+  test('blueprint copy avoids jargon and keeps English ASCII', () => {
+    const jargon = /RFC|readiness|deliverable|就绪度|交付物/i;
+    for (const locale of ['en', 'zh'] as const) {
+      const labels = MESSAGES[locale].guided.brainstorm;
+      const texts = Object.entries(labels).flatMap(([, value]) => {
+        if (typeof value === 'function') return [String((value as (...args: unknown[]) => string)('x', 'y'))];
+        if (typeof value === 'object') return Object.values(value as Record<string, string>);
+        return [value as string];
+      });
+      for (const text of texts) {
+        expect(text).not.toMatch(jargon);
+        if (locale === 'en') expect(/^[\x20-\x7e]*$/.test(text), text).toBe(true);
+      }
+    }
   });
 
   test('renders assistant replies as formatted Markdown while keeping user turns plain text', () => {

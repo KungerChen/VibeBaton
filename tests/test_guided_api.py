@@ -1325,6 +1325,27 @@ class BrainstormGuideTests(unittest.TestCase):
         statuses = {item["id"]: item["status"] for item in guide["checklist"]}
         self.assertEqual(statuses, {"what": "clear", "who": "open", "scope": "clear", "limits": "clear", "done": "clear"})
 
+    def test_offline_change_message_updates_the_named_item_not_the_pending_question(self) -> None:
+        os.environ["VIBEBATON_OFFLINE_BRAINSTORM"] = "1"
+        messages: list[dict[str, str]] = [{"role": "user", "content": "给订单页加一个导出按钮"}]
+        first = brainstorm_turn(self.repo, messages, locale="zh")
+        messages += [{"role": "assistant", "content": first["reply"]}, {"role": "user", "content": "我的团队或同事"}]
+        second = brainstorm_turn(self.repo, messages, locale="zh")  # now asks about scope
+        messages += [{"role": "assistant", "content": second["reply"]},
+                     {"role": "user", "content": "关于「给谁用」，我想改成：只给管理员用"}]
+        third = brainstorm_turn(self.repo, messages, locale="zh")
+        by_id = {item["id"]: item for item in third["guide"]["checklist"]}
+        self.assertEqual((by_id["who"]["status"], by_id["who"]["value"]), ("clear", "只给管理员用"))
+        self.assertEqual(by_id["scope"]["status"], "open")
+        self.assertEqual(third["guide"]["question"], second["guide"]["question"])  # still asks about scope
+
+    def test_change_labels_match_the_studio_copy(self) -> None:
+        messages_ts = (Path(__file__).resolve().parents[1] / "web" / "src" / "i18n" / "messages.ts").read_text(encoding="utf-8")
+        for label in brainstorm._ITEM_LABELS:
+            self.assertIn(f"'{label}'", messages_ts)
+        self.assertIn("`关于「${item}」，我想改成：`", messages_ts)
+        self.assertIn('`About "${item}", I want to change it to: `', messages_ts)
+
 
 class BrainstormModelChoiceTests(unittest.TestCase):
     """The brainstorm uses the Guided lineup's L0 model when the page sends it."""

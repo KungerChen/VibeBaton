@@ -728,6 +728,8 @@ test('calls every Guided Studio endpoint with typed payloads', async () => {
     },
     provider_used: null,
     offline: true,
+    guide: { question: '', options: [], checklist: [] },
+    error: null,
   };
   const confirmed: BlueprintConfirmResult = {
     rfc_path: '/repo/.baton/00_RFC.md',

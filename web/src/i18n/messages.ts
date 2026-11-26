@@ -570,20 +570,34 @@ export interface Messages {
       effortUnsupported: string;
     };
     brainstorm: {
-      scenariosTitle: string;
+      openTitle: string;
+      openHint: string;
+      examplesTitle: string;
+      moreExamples: string;
       inputPlaceholder: string;
       inputHint: string;
       send: string;
-      sending: string;
+      notSure: string;
+      typewriter: string;
+      restart: string;
+      waitUnderstanding: string;
+      waitDrafting: string;
+      waitSlow: string;
       blueprintTitle: string;
       emptyCard: string;
-      summary: string;
-      deliverables: string;
-      touchedAreas: string;
-      verificationPlan: string;
-      readiness: string;
-      notReadyHint: string;
+      progress: (clear: number, total: number) => string;
+      progressAssumed: (count: number) => string;
+      items: { what: string; who: string; scope: string; limits: string; done: string };
+      statuses: { clear: string; assumed: string; open: string };
+      editItem: string;
+      editPrefill: (item: string) => string;
+      assumptionsTitle: string;
+      notReadyMissing: (items: string) => string;
+      notReadyCheck: string;
+      notReadyLineup: string;
       offlineNotice: string;
+      liveFailed: (reason: string) => string;
+      retry: string;
       confirmLaunch: string;
       launching: string;
       showRfc: string;
@@ -1420,24 +1434,44 @@ export const MESSAGES: Record<Locale, Messages> = {
         effortUnsupported: 'This CLI has no thinking-effort option',
       },
       brainstorm: {
-        scenariosTitle: 'What would you like to do?',
-        inputPlaceholder: 'For example: add a date filter to the orders list, for admins only; do not change the database; done when npm test passes.',
-        inputHint: 'Most useful: the result you want, who it is for, what must not change, and how you will know it is done. No test command in mind? The AI partner can suggest one.',
+        openTitle: 'Tell me in one sentence what you want to make',
+        openHint: 'No need to have it all worked out. I will ask one short question at a time.',
+        examplesTitle: 'Or start from an example:',
+        moreExamples: 'More ideas',
+        inputPlaceholder: 'For example: add a button that exports the order list to a spreadsheet',
+        inputHint: 'Enter to send, Shift+Enter for a new line',
         send: 'Send',
-        sending: 'Drafting blueprint…',
+        notSure: "I'm not sure, you decide",
+        typewriter: 'Typing effect',
+        restart: 'Start over',
+        waitUnderstanding: 'Reading your idea...',
+        waitDrafting: 'Updating the blueprint, this usually takes 10-40 seconds...',
+        waitSlow: 'Taking longer than usual, still working on it...',
         blueprintTitle: 'Blueprint',
-        emptyCard: 'Your blueprint appears here after the first message.',
-        summary: 'Summary',
-        deliverables: 'Deliverables',
-        touchedAreas: 'Areas of the project that will change',
-        verificationPlan: 'How we will verify it',
-        readiness: 'Readiness',
-        notReadyHint: 'Almost there: name the command that proves it works (for example npm test) so the build can start.',
-        offlineNotice: 'No AI tool answered, so this draft was assembled from your own words. Connect a tool in Workspace for a smarter partner.',
+        emptyCard: 'Your blueprint lights up here, item by item, as we talk.',
+        progress: (clear, total) => `Clear: ${clear}/${total}`,
+        progressAssumed: (count) => `, ${count} picked by the AI for you`,
+        items: {
+          what: 'What to make',
+          who: 'Who it is for',
+          scope: 'How far this round goes',
+          limits: 'What must not change',
+          done: 'How we know it is done',
+        },
+        statuses: { clear: 'Clear', assumed: 'Picked by the AI for you', open: 'Not discussed yet' },
+        editItem: 'Change',
+        editPrefill: (item) => `About "${item}", I want to change it to: `,
+        assumptionsTitle: 'Before you start: the AI picked these for you. Change any that are wrong.',
+        notReadyMissing: (items) => `Still to talk about: ${items}.`,
+        notReadyCheck: 'One thing is missing: a way to check the work is done, such as a test command. Tell the AI how you would check it, or let it pick one.',
+        notReadyLineup: 'Connect an AI tool in Workspace before starting.',
+        offlineNotice: 'No AI tool answered, so this blueprint was put together from your own words. Connect a tool in Workspace for a smarter partner.',
+        liveFailed: (reason) => `The AI did not answer this time, so this draft was put together from your own words. Reason: ${reason}`,
+        retry: 'Try again',
         confirmLaunch: 'Confirm Blueprint & Start Building',
-        launching: 'Starting AI build…',
-        showRfc: 'Show Full RFC',
-        hideRfc: 'Hide Full RFC',
+        launching: 'Starting the build...',
+        showRfc: 'Show technical document',
+        hideRfc: 'Hide technical document',
       },
       nodeDetail: {
         title: 'Task Details',
@@ -2288,24 +2322,44 @@ export const MESSAGES: Record<Locale, Messages> = {
         effortUnsupported: '该 CLI 不支持设置思考强度',
       },
       brainstorm: {
-        scenariosTitle: '你想做什么？',
-        inputPlaceholder: '例如：给订单列表加一个按日期筛选，只给管理员用；不要改数据库；npm test 全部通过就算完成。',
-        inputHint: '写清楚这四点最有用：想达到的结果、给谁用、不能动的东西、怎么算完成。说不出验证命令也没关系，AI 伙伴会建议一条。',
+        openTitle: '用一句话说说你想做什么',
+        openHint: '不用一次想清楚，我会一次只问一个小问题。',
+        examplesTitle: '或者从一个例子开始：',
+        moreExamples: '更多灵感',
+        inputPlaceholder: '例如：加一个按钮，把订单列表导出成表格',
+        inputHint: 'Enter 发送，Shift+Enter 换行',
         send: '发送',
-        sending: '正在生成蓝图……',
+        notSure: '我不确定，你帮我定',
+        typewriter: '打字效果',
+        restart: '重新开始',
+        waitUnderstanding: '正在理解你的想法……',
+        waitDrafting: '正在整理蓝图，通常需要 10–40 秒……',
+        waitSlow: '比平时久一些，还在努力整理……',
         blueprintTitle: '蓝图',
-        emptyCard: '发送第一条消息后，蓝图会显示在这里。',
-        summary: '概要',
-        deliverables: '交付物',
-        touchedAreas: '将会改动的项目区域',
-        verificationPlan: '验证方式',
-        readiness: '就绪度',
-        notReadyHint: '还差一步：告诉我用哪条命令证明它能用（比如 npm test），即可开始施工。',
-        offlineNotice: '暂无 AI 工具响应，这份草稿是根据你的原话整理的。在「工作区」连接工具后可获得更聪明的伙伴。',
+        emptyCard: '聊着聊着，蓝图会在这里一项项亮起来。',
+        progress: (clear, total) => `已明确 ${clear}/${total}`,
+        progressAssumed: (count) => `，AI 代你假设了 ${count} 项`,
+        items: {
+          what: '做什么',
+          who: '给谁用',
+          scope: '做到什么程度',
+          limits: '不能动什么',
+          done: '怎么算完成',
+        },
+        statuses: { clear: '已明确', assumed: 'AI 代你假设', open: '还没聊到' },
+        editItem: '改一下',
+        editPrefill: (item) => `关于「${item}」，我想改成：`,
+        assumptionsTitle: '开工前请知悉：下面几项是 AI 代你定的，不合适可以先改一下。',
+        notReadyMissing: (items) => `还有这些没聊到：${items}。`,
+        notReadyCheck: '还差一个确认「做完了」的办法，比如一条测试命令。直接告诉 AI 你想怎么检查，或者让它帮你定。',
+        notReadyLineup: '请先在「工作区」连接一个 AI 工具，再开工。',
+        offlineNotice: '暂时没有 AI 工具回应，这份蓝图是根据你的原话整理的。在「工作区」连接工具后，伙伴会更聪明。',
+        liveFailed: (reason) => `这次 AI 没有成功回应，下面是根据你的原话整理的草稿。原因：${reason}`,
+        retry: '重试',
         confirmLaunch: '确认蓝图并开始施工',
         launching: '正在启动 AI 施工……',
-        showRfc: '查看完整 RFC',
-        hideRfc: '收起完整 RFC',
+        showRfc: '查看技术文档',
+        hideRfc: '收起技术文档',
       },
       nodeDetail: {
         title: '任务详情',
