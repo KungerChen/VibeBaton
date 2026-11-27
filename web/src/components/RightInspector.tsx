@@ -9,7 +9,6 @@ import { cn } from '../lib/utils';
 import { updateWorkspaceReadiness, useWorkspaceReadiness } from './CanvasWorkspace';
 import { EdgeEditor, NodeEditor } from './inspector/GraphEditor';
 import { LiveRunPanel } from './inspector/LiveRunPanel';
-import { LaunchGraphContext } from './inspector/wizard/PreflightStep';
 import { getPresetProviderHealth } from './nodes/readiness';
 import type { NodeDoctorProps, RightInspectorProps } from './types';
 import { Badge, type BadgeProps } from './ui/badge';
@@ -391,24 +390,22 @@ export function RightInspector({
           )}
         </section>
         {mode === 'local' && (
-          <LaunchGraphContext.Provider value={graph}>
-            <LiveRunPanel
-              client={client}
-              onToast={onToast}
-              visible={tab === 'trace'}
-              liveSnapshot={liveSnapshot}
-              recentRuns={recentRuns}
-              selectedRunId={selectedRunId}
-              runSynced={runSynced}
-              runSyncStatus={runSyncStatus}
-              liveReconnecting={liveReconnecting}
-              onSelectRunId={onSelectRunId}
-              onRefreshLiveRun={onRefreshLiveRun}
-              onOpenStartRun={onOpenStartRun}
-              liveNowSec={liveNowSec}
-              openBattleReportToken={openBattleReportToken}
-            />
-          </LaunchGraphContext.Provider>
+          <LiveRunPanel
+            client={client}
+            onToast={onToast}
+            visible={tab === 'trace'}
+            liveSnapshot={liveSnapshot}
+            recentRuns={recentRuns}
+            selectedRunId={selectedRunId}
+            runSynced={runSynced}
+            runSyncStatus={runSyncStatus}
+            liveReconnecting={liveReconnecting}
+            onSelectRunId={onSelectRunId}
+            onRefreshLiveRun={onRefreshLiveRun}
+            onOpenStartRun={onOpenStartRun}
+            liveNowSec={liveNowSec}
+            openBattleReportToken={openBattleReportToken}
+          />
         )}
       </section>
     </aside>

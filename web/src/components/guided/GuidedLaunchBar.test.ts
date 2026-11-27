@@ -4,10 +4,10 @@ import { describe, expect, test, vi } from 'vitest';
 import type { GuidedSession, ModelCatalogEntry, RecommendedLineup, WorkflowRecommendation } from '../../api/client';
 import { MESSAGES } from '../../i18n/messages';
 import {
-  GuidedLaunchBar, mergeTeamRows, panelToggleState, recommendationHeadline, recommendationReasons, teamRows,
-  type GuidedLaunchBarProps,
+  flowLine, GuidedLaunchBar, launchConfirmation, mergeTeamRows, panelToggleState, recommendationHeadline,
+  recommendationReasons, requestFlow, rfcTitle, teamRows, type GuidedLaunchBarProps,
 } from './GuidedLaunchBar';
-import { initialWorkflow } from './GuidedBrainstormStep';
+import { initialWorkflow, launchRequest } from './GuidedBrainstormStep';
 import { BUILTIN_MODEL_CATALOG } from './GuidedSetupStep';
 
 const lineup: RecommendedLineup = {
@@ -146,24 +146,130 @@ describe('recommendation display helpers', () => {
     expect(recommendationHeadline({ ...recommendation, lineup: null }, copy)).toBe(copy.headlines.no_lineup);
   });
 
-  test('a small project also says the plan is lean, after the three backend reasons', () => {
+  test('a small project describes its plan once, in the flow line that matches the run', () => {
     const small = { ...recommendation, size: 'small' as const, reason_code: 'small_eco',
       explanation_codes: ['size_estimated', 'small_eco', 'provider_substituted', 'eco_model_unavailable'] };
-    const reasons = recommendationReasons(small, copy);
-    expect(reasons).toHaveLength(4);
-    expect(reasons[3]).toBe(copy.smallPlan);
-    expect(recommendationReasons({ ...small, reason_code: 'custom_lineup_kept',
-      explanation_codes: ['size_from_model', 'custom_lineup_kept'] }, copy)).toContain(copy.smallPlan);
-    for (const size of ['medium', 'large'] as const) {
-      expect(recommendationReasons({ ...recommendation, size }, copy)).not.toContain(copy.smallPlan);
-    }
-    expect(MESSAGES.zh.guided.m3.recommendation.smallPlan).toContain('逐任务审校');
+    expect(recommendationReasons(small, copy)).toEqual([
+      'Judged a small project from what the blueprint lists.', copy.reasons.small_eco, copy.reasons.provider_substituted,
+    ]);
+    const m3 = MESSAGES.en.guided.m3;
+    expect(flowLine({ flow: 'lean', reason: null, switchable: true }, 'small', m3)).toEqual({ text: m3.launch.flowLean, reason: null });
+    expect(flowLine({ flow: 'full', reason: 'lean_flow_off', switchable: true }, 'small', m3))
+      .toEqual({ text: m3.launch.flowFullSmall, reason: m3.launch.flowWhy.lean_flow_off });
+    expect(flowLine({ flow: 'full', reason: 'size_not_small', switchable: false }, 'medium', m3))
+      .toEqual({ text: m3.launch.flowFull, reason: m3.launch.flowWhy.size_not_small });
+    expect(flowLine(null, 'small', m3)).toEqual({ text: m3.launch.flowChecking, reason: null });
+    expect(flowLine('inherited', 'small', m3)).toEqual({ text: m3.launch.flowInherited, reason: null });
+    expect(MESSAGES.zh.guided.m3.launch.flowFullSmall).toContain('逐任务审校');
   });
 
   test('the panel switch is disabled with a reason only when the panel cannot run', () => {
     expect(panelToggleState('Needs a key.', false)).toEqual({ disabled: true, reason: 'Needs a key.' });
     expect(panelToggleState(null, false)).toEqual({ disabled: false, reason: null });
     expect(panelToggleState(null, true)).toEqual({ disabled: true, reason: null });
+  });
+});
+
+describe('the flow this run will use', () => {
+  const lean = { size: 'small' as const, flow: 'lean' as const, flow_reason: 'small_rfc_has_verification' };
+  const smallLineup = { roles: { planner: 'codex_sub' }, model_overrides: {}, size: 'small' as const };
+  const request = (extra: Record<string, unknown> = {}) => ({ mode: 'overnight' as const, lineup: smallLineup, ...extra });
+
+  test('follows the engine checks in order: size, panel, the switch, then the check command', () => {
+    expect(requestFlow(request({ lineup: { ...smallLineup, size: 'medium' } }), lean))
+      .toEqual({ flow: 'full', reason: 'size_not_small', switchable: false });
+    expect(requestFlow(request({ mode: 'panel' }), lean)).toEqual({ flow: 'full', reason: 'panel_mode', switchable: false });
+    expect(requestFlow(request({ lean_flow: false }), lean)).toEqual({ flow: 'full', reason: 'lean_flow_off', switchable: true });
+    expect(requestFlow(request(), lean)).toEqual({ flow: 'lean', reason: null, switchable: true });
+    expect(requestFlow(request(), { size: 'small', flow: 'full' }))
+      .toEqual({ flow: 'full', reason: 'no_verification_command', switchable: false });
+  });
+
+  test('is unknown until a small recommendation says whether the document has a check to run', () => {
+    expect(requestFlow(request(), { size: 'small' })).toBeNull();
+    expect(requestFlow(request(), { size: 'medium', flow: 'full' })).toBeNull();
+    expect(requestFlow(request(), null)).toBeNull();
+    expect(requestFlow(request({ lineup: { roles: {}, model_overrides: {} } }), null))
+      .toEqual({ flow: 'full', reason: 'size_not_small', switchable: false });
+  });
+
+  test('the request carries lean_flow false only when the switch is off and the run would be lean', () => {
+    const build = (leanFlow: boolean, extra: { mode?: 'overnight' | 'panel'; size?: 'small' | 'medium'; flow?: 'lean' | 'full' } = {}) =>
+      launchRequest('# RFC', { ...smallLineup, size: extra.size ?? 'small' }, extra.mode ?? 'overnight', null, leanFlow,
+        { size: extra.size ?? 'small', flow: extra.flow ?? 'lean' });
+    expect(build(true)).toEqual({ rfc_markdown: '# RFC', mode: 'overnight', lineup: smallLineup, preset: null });
+    expect(build(false)).toEqual({ rfc_markdown: '# RFC', mode: 'overnight', lineup: smallLineup, preset: null, lean_flow: false });
+    for (const extra of [{ size: 'medium' as const }, { mode: 'panel' as const }, { flow: 'full' as const }]) {
+      expect(build(false, extra), JSON.stringify(extra)).not.toHaveProperty('lean_flow');
+    }
+  });
+});
+
+describe('launch confirmation', () => {
+  const m3 = MESSAGES.en.guided.m3;
+  const pair = { planner: 'codex_sub:gpt-6.2-sol@high', coder: 'codex_sub:gpt-6.2-sol@high' };
+  const saved = {
+    launch_request_id: 'saved-key', rfc_markdown: '\n# Health endpoint\n\n## Goals\n- Add it.\n', mode: 'panel' as const,
+    lineup: { roles: { planner: 'codex_sub', coder: 'codex_sub' }, model_overrides: pair, size: 'small' as const }, preset: null,
+  };
+  const context = { locale: 'en' as const, copy: m3, inherited: false, budget: 'Balanced', missingSections: [] };
+
+  test('the title is the first line heading, with a fixed fallback', () => {
+    expect(rfcTitle('\n  \n# Health endpoint  \n## Goals')).toBe('Health endpoint');
+    expect(rfcTitle('Intro line\n# Later heading')).toBeNull();
+    expect(rfcTitle('## Second level')).toBeNull();
+    expect(rfcTitle('')).toBeNull();
+    expect(launchConfirmation({ ...saved, rfc_markdown: 'No heading' }, BUILTIN_MODEL_CATALOG, null, context).title)
+      .toBe(m3.launch.untitled);
+  });
+
+  test('renders exactly the request it will send, with display names only', () => {
+    const view = launchConfirmation(saved, BUILTIN_MODEL_CATALOG, { size: 'small', flow: 'lean' }, context);
+    const model = BUILTIN_MODEL_CATALOG.models.find((entry) => entry.id === 'gpt-6.2-sol')!.label;
+    const effort = BUILTIN_MODEL_CATALOG.efforts.find((entry) => entry.id === 'high')!.label;
+    expect(view).toEqual({
+      title: 'Health endpoint',
+      team: [{ role: 'planner+coder', roleLabel: 'planner, coder', tool: 'OpenAI Codex', model, effort }],
+      mode: m3.launch.modePanel,
+      flow: { text: m3.launch.flowFullSmall, reason: m3.launch.flowWhy.panel_mode },
+      budget: 'Balanced',
+      missingSections: null,
+    });
+    expect(JSON.stringify(view)).not.toMatch(/codex_sub|gpt-6\.2-sol@high/);
+    const overnight = launchConfirmation({ ...saved, mode: 'overnight', lean_flow: false }, BUILTIN_MODEL_CATALOG,
+      { size: 'small', flow: 'lean' }, { ...context, missingSections: ['Constraints', 'Acceptance Criteria'] });
+    expect(overnight.mode).toBe(m3.recommendation.overnight);
+    expect(overnight.flow.reason).toBe(m3.launch.flowWhy.lean_flow_off);
+    expect(overnight.missingSections).toBe(
+      'The document is missing these sections: Constraints, Acceptance Criteria. You can still start the build.');
+    expect(launchConfirmation(saved, BUILTIN_MODEL_CATALOG, null, { ...context, inherited: true }).flow)
+      .toEqual({ text: m3.launch.flowInherited, reason: null });
+  });
+
+  test('the card shows the flow, labels each per-run choice and confirms in place of the start button', () => {
+    const view = launchConfirmation(saved, BUILTIN_MODEL_CATALOG, { size: 'small', flow: 'lean' },
+      { ...context, missingSections: ['Constraints'] });
+    const onConfirm = vi.fn();
+    const html = renderToStaticMarkup(createElement(GuidedLaunchBar, props({
+      flow: { text: 'Flow sentence.', reason: 'Why not lean.' }, leanFlow: { checked: false, onChange: vi.fn() },
+      confirmation: view, onConfirm, onCancelConfirm: vi.fn(), onOpenBudget: vi.fn(),
+    })));
+    expect(html).toContain('Flow sentence.');
+    expect(html).toContain('Why not lean.');
+    expect(html).toContain(m3.launch.leanSwitch);
+    expect(html.match(/type="checkbox" role="switch"/g)).toHaveLength(2);
+    // Team change, panel switch and lean switch are per-run choices; saved teams are not labelled.
+    expect(html.match(/guided-launch-bar__scope">This run only</g)).toHaveLength(6);
+    expect(html).not.toContain('class="guided-launch-bar__launch"');
+    for (const text of ['Health endpoint', 'OpenAI Codex', m3.launch.modePanel, m3.launch.flowFullSmall,
+      m3.launch.flowWhy.panel_mode, 'Balanced', m3.launch.projectDefault, m3.launch.changeBudget, m3.launch.confirm,
+      'The document is missing these sections: Constraints.']) {
+      expect(html).toContain(text);
+    }
+    const closed = renderToStaticMarkup(createElement(GuidedLaunchBar, props({ flow: { text: 'Flow sentence.', reason: null } })));
+    expect(closed).toContain('class="guided-launch-bar__launch"');
+    expect(closed).not.toContain('Use the lean flow');
+    expect(closed.match(/guided-launch-bar__scope">This run only</g)).toHaveLength(2);
   });
 });
 

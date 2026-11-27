@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { ApiError, type BlueprintCard, type BrainstormTurnResult, type ChecklistItem, type GuidedSession, type RecommendedLineup } from '../../api/client';
 import { MESSAGES } from '../../i18n/messages';
+import type { RfcReadinessResult } from '../../types/graph';
 import { BUILTIN_MODEL_CATALOG } from './GuidedSetupStep';
 import {
   appendTurn,
@@ -15,7 +16,6 @@ import {
   canLaunch,
   checklistProgress,
   clearBrainstorm,
-  confirmAndStart,
   createLaunchFlight,
   editPrefill,
   FEATURED_SCENARIO_IDS,
@@ -82,10 +82,6 @@ function fakeApi(replies: BrainstormTurnResult[], calls: string[] = []) {
     brainstormChat: vi.fn(async () => {
       calls.push('chat');
       return queue.shift()!;
-    }),
-    brainstormConfirm: vi.fn(async () => {
-      calls.push('confirm');
-      return { rfc_path: '/repo/.baton/00_RFC.md', readiness: {} as never, ready_to_launch: true };
     }),
     startRun: vi.fn(async () => {
       calls.push('start');
@@ -241,8 +237,8 @@ describe('protected online blueprint and keyed launch', () => {
       ensureLaunchRequestId: vi.fn(async () => { calls.push('key'); return 'new-stable-key'; }),
     };
     const onPrepared = vi.fn();
-    const options = { api: { startRun }, session, persistence, pending: null, draft: '# revised',
-      lineup: { roles: LINEUP.roles, model_overrides: {} }, mode: 'overnight' as const, preset: null, onPrepared };
+    const options = { api: { startRun }, session, persistence, pending: null, onPrepared,
+      request: { rfc_markdown: '# revised', lineup: { roles: LINEUP.roles, model_overrides: {} }, mode: 'overnight' as const, preset: null } };
     const flight = createLaunchFlight();
     const first = flight(() => startKeyedLaunch(options));
     const second = flight(() => startKeyedLaunch(options));
@@ -293,8 +289,8 @@ describe('protected online blueprint and keyed launch', () => {
     const session = { active_run_id: 'parent' } as GuidedSession;
     const api = { startRun: vi.fn().mockResolvedValue({ run_id: 'recovered-run' }) };
     const persistence = { save: vi.fn(), flush: vi.fn(), ensureLaunchRequestId: vi.fn() };
-    const result = await startKeyedLaunch({ api, session, persistence, pending, draft: '# changed',
-      lineup: { roles: {}, model_overrides: {} }, mode: 'overnight', preset: null, onPrepared: vi.fn() });
+    const result = await startKeyedLaunch({ api, session, persistence, pending, onPrepared: vi.fn(),
+      request: { rfc_markdown: '# changed', lineup: { roles: {}, model_overrides: {} }, mode: 'overnight', preset: null } });
     expect(result).toBe('recovered-run');
     expect(api.startRun).toHaveBeenCalledWith(pending);
     expect(persistence.ensureLaunchRequestId).not.toHaveBeenCalled();
@@ -400,53 +396,6 @@ describe('chat -> confirm -> start flow', () => {
       role_providers: { brainstorm_and_final_gate: 'codex_sub' },
     }));
   });
-
-  test('confirm runs before start, the lineup is forwarded and the run id is returned', async () => {
-    const api = fakeApi([]);
-    const runId = await confirmAndStart(api, '# Todo', LINEUP);
-    expect(api.calls).toEqual(['confirm', 'start']);
-    expect(api.brainstormConfirm).toHaveBeenCalledWith('# Todo');
-    expect(api.startRun).toHaveBeenCalledWith({
-      rfc_path: '/repo/.baton/00_RFC.md',
-      mode: 'overnight',
-      role_providers: { planner: 'claude_sub' },
-    });
-    expect(runId).toBe('run-42');
-  });
-
-  test('a single-CLI host lineup moves every role onto that provider', async () => {
-    const api = fakeApi([]);
-    const codexOnly: RecommendedLineup = {
-      ...LINEUP, roles: { tactical_planner: 'codex_sub', bulk_worker: 'codex_sub' },
-    };
-    await confirmAndStart(api, '# Todo', codexOnly);
-    expect(api.startRun).toHaveBeenCalledWith(expect.objectContaining({
-      role_providers: { tactical_planner: 'codex_sub', bulk_worker: 'codex_sub' },
-    }));
-  });
-
-  test('forwards explicit model_overrides when present on the lineup', async () => {
-    const api = fakeApi([]);
-    const custom: RecommendedLineup = {
-      ...LINEUP,
-      roles: { brainstorm_and_final_gate: 'gemini_sub' },
-      model_overrides: { brainstorm_and_final_gate: 'gemini_sub:gemini-4-carbon@medium' },
-    };
-    await confirmAndStart(api, '# Todo', custom);
-    expect(api.startRun).toHaveBeenCalledWith({
-      rfc_path: '/repo/.baton/00_RFC.md',
-      mode: 'overnight',
-      role_providers: { brainstorm_and_final_gate: 'gemini_sub' },
-      model_overrides: { brainstorm_and_final_gate: 'gemini_sub:gemini-4-carbon@medium' },
-    });
-  });
-
-  test('start is skipped when confirm fails', async () => {
-    const api = fakeApi([]);
-    api.brainstormConfirm.mockRejectedValueOnce(new Error('disk full'));
-    await expect(confirmAndStart(api, '# Todo', LINEUP)).rejects.toThrow('disk full');
-    expect(api.startRun).not.toHaveBeenCalled();
-  });
 });
 
 describe('GuidedBrainstormStep render', () => {
@@ -475,6 +424,15 @@ describe('GuidedBrainstormStep render', () => {
     expect(FEATURED_SCENARIO_IDS.length).toBeLessThanOrEqual(4);
     const en = render('en');
     expect(en).toContain('Tell me in one sentence what you want to make');
+  });
+
+  test('the first screen also takes a pasted RFC, without clicking anything first', () => {
+    const en = render('en');
+    expect(en).toContain(MESSAGES.en.guided.pasteRfc.title);
+    expect(en).toContain('rfc-step__markdown');
+    expect(en).toContain(`placeholder="${MESSAGES.en.guided.pasteRfc.hint}"`);
+    expect(en.indexOf(MESSAGES.en.guided.brainstorm.openTitle)).toBeLessThan(en.indexOf(MESSAGES.en.guided.pasteRfc.title));
+    expect(render('zh')).toContain(MESSAGES.zh.guided.pasteRfc.title);
   });
 
   test('the blueprint shows all five checklist items as not discussed yet', () => {
@@ -655,6 +613,7 @@ test('mounted step preserves, restores, launches once, and replans with failure 
     saveLineupProfile: vi.fn(),
     deleteLineupProfile: vi.fn(),
     saveLastUsedLineup: vi.fn(async () => ({ profiles: [], last_used: null })),
+    getRolesConfig: vi.fn(async () => ({ budget_profile: 'balanced' })),
   };
   const container = document.createElement('div');
   let root = createRoot(container as unknown as HTMLElement);
@@ -717,8 +676,10 @@ test('mounted step preserves, restores, launches once, and replans with failure 
   api.startRun.mockRejectedValueOnce(new ApiError(409, 'Panel unavailable', { code: 'LAUNCH_PREFLIGHT',
     codes: ['synthesizer_credentials_missing'], fallback: { ...recommendation, size: 'large', fallback: true,
       reason_code: 'synthesizer_credentials_missing', explanation_codes: ['synthesizer_credentials_missing'] } }));
+  await act(async () => { (reactProps(byClass('guided-launch-bar__launch')).onClick as () => void)(); });
+  expect(api.startRun).not.toHaveBeenCalled();
   await act(async () => {
-    (reactProps(byClass('guided-launch-bar__launch')).onClick as () => void)();
+    (reactProps(byClass('guided-launch-bar__confirm-start')).onClick as () => void)();
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(container.textContent).toContain(MESSAGES.en.guided.m3.recommendation.reasons.synthesizer_credentials_missing);
@@ -727,15 +688,16 @@ test('mounted step preserves, restores, launches once, and replans with failure 
   api.startRun.mockClear();
   let finish!: (value: { run_id: string }) => void;
   api.startRun.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  await act(async () => { (reactProps(byClass('guided-launch-bar__launch')).onClick as () => void)(); });
   await act(async () => {
-    const click = reactProps(byClass('guided-launch-bar__launch')).onClick as () => void;
+    const click = reactProps(byClass('guided-launch-bar__confirm-start')).onClick as () => void;
     click();
     click();
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(api.startRun).toHaveBeenCalledOnce();
   expect(api.startRun).toHaveBeenCalledWith(expect.objectContaining({ launch_request_id: 'one-launch-id' }));
-  expect(reactProps(byClass('guided-launch-bar__launch')).disabled).toBe(true);
+  expect(reactProps(byClass('guided-launch-bar__confirm-start')).disabled).toBe(true);
   await act(async () => { finish({ run_id: 'run-42' }); });
   expect(onLaunched).toHaveBeenCalledOnce();
   await act(async () => root.unmount());
@@ -768,6 +730,205 @@ test('mounted step preserves, restores, launches once, and replans with failure 
   expect(reactProps(byClass('guided-launch-bar__launch')).disabled).toBe(true);
   expect(container.textContent).toContain('cannot attach the stopped run');
   await act(async () => root.unmount());
+});
+
+describe('paste RFC fast lane', () => {
+  const RFC = '# Health endpoint\n\n## Goals\n- Provide a health endpoint.\n\n## Constraints\n- Keep the server.\n\n'
+    + '## Verification & Acceptance Criteria\n1. The tests pass.\n\n```bash\npython -m unittest\n```\n';
+  const readiness: RfcReadinessResult = {
+    score: 100, safe_for_overnight: true, missing_sections: [], warnings: [], detected_commands: ['python -m unittest'],
+  };
+  const small = { mode: 'overnight' as const, preset: null, size: 'small' as const,
+    lineup: { roles: LINEUP.roles, model_overrides: {}, size: 'small' as const }, reason_code: 'small_eco',
+    explanation_key: 'workflow.small_eco', fallback: false, size_changed: null, explanation_codes: ['size_estimated', 'small_eco'],
+    substitutions: [], flow: 'lean' as const, flow_reason: 'small_rfc_has_verification' };
+  const launchCopy = MESSAGES.en.guided.m3.launch;
+  const pasteCopy = MESSAGES.en.guided.pasteRfc;
+
+  function blankSession(): GuidedSession {
+    return {
+      schema_version: 1, active_stage: 'blueprint', workspace_path: '/repo', active_run_id: null,
+      brainstorm: { messages: [], checklist: [], latest_rfc_draft: '', selected_l0_model: null, has_online_draft: false },
+      workflow: { mode: null, lineup: { roles: {}, model_overrides: {} }, preset: null, panel_enabled: false, launch_request_id: null },
+      open_human_gate: null, open_drawer: null,
+    };
+  }
+
+  async function mount(initial: GuidedSession) {
+    const document = new TestDocument();
+    vi.stubGlobal('document', document);
+    vi.stubGlobal('window', { document, HTMLIFrameElement: class {}, matchMedia: () => ({ matches: true }),
+      localStorage: memoryStorage() });
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('crypto', { randomUUID: () => 'paste-key' });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const state = { session: structuredClone(initial) };
+    const services = {
+      getGuidedSession: vi.fn(async () => structuredClone(state.session)),
+      saveGuidedSession: vi.fn(async (patch: Record<string, unknown>) => {
+        const merge = (base: Record<string, unknown>, next: Record<string, unknown>): Record<string, unknown> =>
+          Object.fromEntries([...new Set([...Object.keys(base), ...Object.keys(next)])].map((key) => {
+            const [left, right] = [base[key], next[key]];
+            const objects = right && typeof right === 'object' && !Array.isArray(right) && left && typeof left === 'object';
+            return [key, key in next ? objects ? merge(left as Record<string, unknown>, right as Record<string, unknown>) : right : left];
+          }));
+        state.session = merge(state.session as unknown as Record<string, unknown>, patch) as unknown as GuidedSession;
+        return structuredClone(state.session);
+      }),
+      resetGuidedSession: vi.fn(),
+      getL0Models: vi.fn(async () => ({ models: [], auto_selected: null })),
+      getModelCatalog: vi.fn(async () => ({ ...BUILTIN_MODEL_CATALOG, cache: {} })),
+      getLineupProfiles: vi.fn(async () => ({ profiles: [], last_used: null })),
+      saveLineupProfile: vi.fn(),
+      deleteLineupProfile: vi.fn(),
+      saveLastUsedLineup: vi.fn(async () => ({ profiles: [], last_used: null })),
+      checkRfc: vi.fn(async () => readiness),
+      recommendBlueprint: vi.fn(async () => ({ recommendation: structuredClone(small), readiness })),
+      getRolesConfig: vi.fn(async () => ({ budget_profile: 'eco' })),
+    };
+    const api = fakeApi([]);
+    const onLaunched = vi.fn();
+    const container = document.createElement('div');
+    const root = createRoot(container as unknown as HTMLElement);
+    const element = () => createElement(GuidedBrainstormStep, {
+      locale: 'en', lineup: LINEUP, onLaunched, api, projectPath: '/repo', services: services as never,
+    });
+    await act(async () => root.render(element()));
+    const find = (name: string) => findNode(container, (_node, props) =>
+      typeof props.className === 'string' && props.className.split(' ').includes(name));
+    const byClass = (name: string) => {
+      const node = find(name);
+      if (!node) throw new Error(`Expected .${name} in: ${container.textContent}`);
+      return node;
+    };
+    const settle = async () => act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    const call = async (name: string, handler: string, event?: unknown) => act(async () => {
+      (reactProps(byClass(name))[handler] as (event?: unknown) => void)(event);
+    });
+    const type = async (value: string) => call('rfc-step__markdown', 'onChange', { currentTarget: { value } });
+    return { container, services, api, onLaunched, state, root, find, byClass, settle, call, type,
+      remount: async () => {
+        await act(async () => root.unmount());
+        const next = createRoot(container as unknown as HTMLElement);
+        await act(async () => next.render(element()));
+        return next;
+      } };
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  test('the first screen takes a pasted or dropped RFC and launches it after one confirmation', async () => {
+    const lane = await mount(blankSession());
+    expect(lane.container.textContent).toContain(pasteCopy.title);
+    expect(lane.container.textContent).toContain(MESSAGES.en.guided.brainstorm.openTitle);
+    const dropped = (file: { name: string; type: string; size: number; text?: () => Promise<string> }) =>
+      lane.call('rfc-step__markdown', 'onDrop', { dataTransfer: { files: [file], types: ['Files'] }, preventDefault() {} });
+    await dropped({ name: 'shot.png', type: 'image/png', size: 10 });
+    expect(lane.container.textContent).toContain(pasteCopy.dropNotText);
+    await dropped({ name: 'plan.md', type: '', size: RFC.length, text: async () => RFC });
+    await lane.settle();
+    await lane.settle();
+    expect(lane.services.checkRfc).toHaveBeenCalledWith(RFC);
+    expect(lane.services.recommendBlueprint).toHaveBeenCalledWith(RFC);
+    expect(lane.find('guided-brainstorm__composer')).toBeUndefined();
+    expect(lane.container.textContent).toContain(launchCopy.flowLean);
+    expect(lane.state.session.brainstorm).toMatchObject({ guided_entry: 'paste', guided_pasted_rfc: RFC });
+
+    await lane.call('guided-launch-bar__launch', 'onClick');
+    expect(lane.api.startRun).not.toHaveBeenCalled();
+    expect(lane.container.textContent).toContain('Health endpoint');
+    expect(lane.container.textContent).toContain(MESSAGES.en.budgetProfile.options.eco.label);
+    await act(async () => {
+      const confirm = reactProps(lane.byClass('guided-launch-bar__confirm-start')).onClick as () => void;
+      confirm();
+      confirm();
+    });
+    await lane.settle();
+    expect(lane.api.startRun).toHaveBeenCalledOnce();
+    expect(lane.api.startRun).toHaveBeenCalledWith({ rfc_markdown: RFC, mode: 'overnight',
+      lineup: { roles: LINEUP.roles, model_overrides: {}, size: 'small' }, preset: null, launch_request_id: 'paste-key' });
+    expect(lane.onLaunched).toHaveBeenCalledWith('run-42');
+    expect(lane.state.session.workflow).toMatchObject({ guided_pending_launch: null, guided_lean_flow: null });
+    // The pasted text is now the blueprint draft, which a later revision or replan starts from.
+    expect(lane.state.session.brainstorm.latest_rfc_draft).toBe(RFC);
+    await act(async () => lane.root.unmount());
+  });
+
+  test('keeps both paths, waits for a fresh recommendation and restores the lean switch after a refresh', async () => {
+    const saved = blankSession();
+    saved.brainstorm.guided_entry = 'paste';
+    saved.brainstorm.guided_pasted_rfc = RFC;
+    saved.workflow = { ...saved.workflow, mode: 'overnight', guided_lean_flow: false,
+      lineup: { roles: LINEUP.roles, model_overrides: {}, size: 'small' } };
+    const lane = await mount(saved);
+    await lane.settle();
+    await lane.settle();
+    expect(lane.services.recommendBlueprint).toHaveBeenCalledOnce();
+    const leanSwitch = () => findNode(lane.byClass('guided-launch-bar__flow'), (node) => node.nodeName === 'INPUT')!;
+    expect(reactProps(leanSwitch()).checked).toBe(false);
+    expect(lane.container.textContent).toContain(launchCopy.flowWhy.lean_flow_off);
+
+    await lane.type(`${RFC}\nMore detail.`);
+    expect(reactProps(lane.byClass('guided-launch-bar__launch')).disabled).toBe(true);
+    expect(lane.container.textContent).toContain(pasteCopy.recommending);
+    await lane.settle();
+    await lane.settle();
+    expect(lane.services.recommendBlueprint).toHaveBeenLastCalledWith(`${RFC}\nMore detail.`);
+    expect(reactProps(lane.byClass('guided-launch-bar__launch')).disabled).toBe(false);
+
+    await lane.call('guided-brainstorm__entry-switch', 'onClick');
+    expect(lane.find('guided-brainstorm__composer')).toBeDefined();
+    expect(reactProps(lane.byClass('rfc-step__markdown')).value).toBe(`${RFC}\nMore detail.`);
+    await lane.settle();
+    expect(lane.state.session.brainstorm.guided_entry).toBe('chat');
+    await lane.type(RFC);
+    expect(lane.find('guided-brainstorm__composer')).toBeUndefined();
+    await lane.settle();
+    await lane.settle();
+
+    const root = await lane.remount();
+    await lane.settle();
+    await lane.settle();
+    expect(reactProps(lane.byClass('rfc-step__markdown')).value).toBe(RFC);
+    expect(reactProps(leanSwitch()).checked).toBe(false);
+    await lane.call('guided-launch-bar__launch', 'onClick');
+    expect(lane.container.textContent).toContain(launchCopy.flowWhy.lean_flow_off);
+    await lane.call('guided-launch-bar__confirm-start', 'onClick');
+    await lane.settle();
+    expect(lane.api.startRun).toHaveBeenCalledWith(expect.objectContaining({ rfc_markdown: RFC, lean_flow: false }));
+    await act(async () => root.unmount());
+  });
+
+  test('an RFC with missing sections still launches once the confirmation lists them; an empty one cannot', async () => {
+    const lane = await mount(blankSession());
+    lane.services.checkRfc.mockResolvedValue({ ...readiness, score: 55, missing_sections: ['constraints', 'acceptance'] });
+    await lane.type('# Quick fix\n\n## Goals\n- Fix the typo.\n');
+    await lane.settle();
+    await lane.settle();
+    expect(reactProps(lane.byClass('guided-launch-bar__launch')).disabled).toBe(false);
+    await lane.call('guided-launch-bar__launch', 'onClick');
+    expect(lane.container.textContent).toContain(
+      'The document is missing these sections: Constraints, Acceptance Criteria. You can still start the build.');
+    await lane.call('guided-launch-bar__confirm-start', 'onClick');
+    await lane.settle();
+    expect(lane.api.startRun).toHaveBeenCalledOnce();
+
+    await lane.type('   ');
+    await lane.settle();
+    expect(lane.find('guided-launch-bar')).toBeUndefined();
+    await act(async () => lane.root.unmount());
+  });
+
+  test('is not offered while a stopped run is being revised', async () => {
+    const revising = blankSession();
+    revising.active_run_id = 'run-1';
+    revising.brainstorm.latest_rfc_draft = '# Prior';
+    revising.brainstorm.replan_contexts = { 'run-1': JSON.stringify({ run_summary: 'Failed', failed_tasks: [], last_errors: {} }) };
+    const lane = await mount(revising);
+    expect(lane.find('rfc-step__markdown')).toBeUndefined();
+    expect(lane.container.textContent).not.toContain(pasteCopy.title);
+    await act(async () => lane.root.unmount());
+  });
 });
 
 /*

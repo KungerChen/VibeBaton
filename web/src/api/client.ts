@@ -18,8 +18,6 @@ import type {
   PricingModelEntry,
   PricingStatusResponse,
   PricingSyncResponse,
-  RfcBrainstormRequest,
-  RfcBrainstormResult,
   RfcReadinessResult,
   RoleConfig,
   RolesConfigResponse,
@@ -28,7 +26,7 @@ import type {
   SimulationResult,
   WorkflowGraph,
 } from '../types/graph';
-import { checkRfcReadiness, generateStructuredRfc } from './offlineRfc';
+import { checkRfcReadiness } from './offlineRfc';
 
 export type ApiMode = 'local' | 'demo';
 
@@ -380,6 +378,15 @@ export interface WorkflowRecommendation {
   missing_panelists?: string[];
   /** Saved team settings whose effort was not offered and was changed. */
   effort_changes?: EffortCorrection[];
+  /** The plan flow for this RFC when launched as recommended with the lean switch on (absent in older sessions). */
+  flow?: 'lean' | 'full';
+  flow_reason?: string;
+}
+
+/** POST /api/guided/recommend: the chat's recommendation, for RFC text the user brought. */
+export interface GuidedRecommendResult {
+  recommendation: WorkflowRecommendation;
+  readiness: RfcReadinessResult;
 }
 
 export type GuidedStage = 'setup' | 'blueprint' | 'build' | 'signoff';
@@ -459,10 +466,13 @@ export type GuidedLaunchRunRequest = Omit<LaunchRunRequest, 'role_providers' | '
   lineup: WorkflowLineup;
   role_providers?: never;
   model_overrides?: never;
+  /** False switches a small run back to the full flow for this run only; absent means on. */
+  lean_flow?: boolean;
 } | {
   lineup?: never;
   role_providers?: Record<string, string>;
   model_overrides?: Record<string, string>;
+  lean_flow?: never;
 }) & {
   launch_request_id?: string;
   preset?: string | null;
@@ -470,12 +480,6 @@ export type GuidedLaunchRunRequest = Omit<LaunchRunRequest, 'role_providers' | '
 export type StartRunResult =
   | { run_id: string; daemon_pid: number; status: 'STARTED'; reused?: false }
   | { run_id: string; daemon_pid: null; status: string; reused: true };
-
-export interface BlueprintConfirmResult {
-  rfc_path: string;
-  readiness: RfcReadinessResult;
-  ready_to_launch: boolean;
-}
 
 export type RunTaskTestStatus = 'passed' | 'failed' | 'not_run' | 'not_configured';
 
@@ -832,11 +836,6 @@ export class BatonApiClient {
     return this.requestJson('/api/rfc/check', { method: 'POST', body: { rfc_markdown: rfcMarkdown } });
   }
 
-  async brainstormRfc(payload: RfcBrainstormRequest): Promise<RfcBrainstormResult> {
-    if (this.mode === 'demo') return generateStructuredRfc(payload);
-    return this.requestJson('/api/rfc/brainstorm', { method: 'POST', body: payload });
-  }
-
   async updateRole(role: string, payload: { provider?: string; model: string }): Promise<RoleConfig> {
     const { role: updated } = await this.requestJson<{ role: WireRoleConfig }>(
       `/api/config/roles/${encodeURIComponent(role)}`,
@@ -901,12 +900,11 @@ export class BatonApiClient {
     return result.bundle;
   }
 
-  startRun(payload: GuidedLaunchRunRequest & ({ launch_request_id: string } | { lineup: WorkflowLineup } | { preset: string }), timeoutMs?: number): Promise<StartRunResult>;
-  startRun(payload: LaunchRunRequest, timeoutMs?: number): Promise<{ run_id: string; daemon_pid: number; status: string }>;
+  /** Every real run starts with a launch request ID, so a retry after an uncertain result finds the same run. */
   async startRun(
-    payload: GuidedLaunchRunRequest,
+    payload: GuidedLaunchRunRequest & { launch_request_id: string },
     timeoutMs = DEFAULT_START_RUN_TIMEOUT_MS,
-  ): Promise<StartRunResult | { run_id: string; daemon_pid: number; status: string }> {
+  ): Promise<StartRunResult> {
     if (this.mode === 'demo') throw new ApiError(0, 'Not available in standalone demo');
     const controller = new AbortController();
     let timedOut = false;
@@ -1056,8 +1054,8 @@ export class BatonApiClient {
     return this.requestJson('/api/guided/l0-models');
   }
 
-  brainstormConfirm(rfcMarkdown: string): Promise<BlueprintConfirmResult> {
-    return this.requestJson('/api/brainstorm/confirm', { method: 'POST', body: { rfc_markdown: rfcMarkdown } });
+  recommendBlueprint(rfcMarkdown: string): Promise<GuidedRecommendResult> {
+    return this.requestJson('/api/guided/recommend', { method: 'POST', body: { rfc_markdown: rfcMarkdown } });
   }
 
   async getDismissedAttention(): Promise<string[]> {

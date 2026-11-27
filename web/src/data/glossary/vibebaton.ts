@@ -214,9 +214,9 @@ export const VIBEBATON_TERMS: GlossaryEntry[] = [
     plainExplain_zh:
       '专业模式不是引导清单，而是完全开放的控制室：所有配方、节点、路由字段、轨迹和诊断信息都同时可见。它面向希望直接检查或修改机制的人，是默认体验；进入引导模式也不会取代它。',
     proExplain_en:
-      'The default Studio mode, kept fully compatible with existing workflows. It exposes the preset library, node palette, graph validation, edge editing, run launch wizard, live DAG, stage timing, model telemetry, battle report, recipe and case import-export, and final-gate controls. The Guided and Pro switcher only changes presentation, not engine behavior.',
+      'The default Studio mode, kept fully compatible with existing workflows. It exposes the preset library, node palette, graph validation, edge editing, live DAG, stage timing, model telemetry, battle report, recipe and case import-export, and final-gate controls. The Guided and Pro switcher only changes presentation, not engine behavior.',
     proExplain_zh:
-      'Studio 的默认模式，与既有工作流完全兼容。它开放配方库、节点面板、图校验、连线编辑、启动向导、实时 DAG、阶段耗时、模型遥测、战报、配方与案例导入导出，以及终审控制。引导与专业的切换只改变呈现方式，不改变引擎行为。',
+      'Studio 的默认模式，与既有工作流完全兼容。它开放配方库、节点面板、图校验、连线编辑、实时 DAG、阶段耗时、模型遥测、战报、配方与案例导入导出，以及终审控制。引导与专业的切换只改变呈现方式，不改变引擎行为。',
     related: ['guided-mode', 'canvas', 'studio', 'preset'],
   },
   {

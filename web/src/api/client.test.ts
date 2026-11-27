@@ -14,14 +14,13 @@ import type {
   PricingModelEntry,
   PricingStatusResponse,
   PricingSyncResponse,
-  RfcBrainstormResult,
+  RfcReadinessResult,
   RunListItem,
   SimulationResult,
 } from '../types/graph';
 import {
   ApiError,
   BatonApiClient,
-  type BlueprintConfirmResult,
   type BrainstormTurnResult,
   type CliDriver,
   type CliInstallRequest,
@@ -516,38 +515,25 @@ test('reads and saves masked credential statuses over HTTP', async () => {
   ]);
 });
 
-test('uses the server to brainstorm and check RFC markdown', async () => {
-  const payload = {
-    goal: 'Ship a deterministic ready-to-run RFC with offline scoring.',
-    constraints: 'Use existing dependencies.',
-    acceptance_cmd: 'python -m unittest',
-    non_goals: 'Build a new UI.',
+test('uses the server to check RFC markdown and to recommend a team for it', async () => {
+  const rfcMarkdown = '# RFC\n\n## Goal\n\nShip it.\n';
+  const readiness: RfcReadinessResult = {
+    score: 100, safe_for_overnight: true, missing_sections: [], warnings: [], detected_commands: ['python -m unittest'],
   };
-  const generated: RfcBrainstormResult = {
-    rfc_markdown: [
-      '# RFC', '',
-      '## Goal', '', payload.goal, '',
-      '## Constraints', '', payload.constraints, '',
-      '## Non-goals', '', payload.non_goals, '',
-      '## Acceptance Criteria', '', '1. The verification command exits successfully.', '',
-      '```bash', payload.acceptance_cmd, '```', '',
-    ].join('\n'),
-    readiness: {
-      score: 100, safe_for_overnight: true, missing_sections: [], warnings: [],
-      detected_commands: ['python -m unittest'],
-    },
-  };
+  const recommendation = { mode: 'overnight', preset: null, lineup: null, size: 'small', reason_code: 'small_eco',
+    explanation_key: 'workflow.small_eco', fallback: false, size_changed: null, explanation_codes: ['size_estimated'],
+    substitutions: [], flow: 'lean', flow_reason: 'small_rfc_has_verification' } satisfies WorkflowRecommendation;
   const fetchImpl = healthyFetch()
-    .mockResolvedValueOnce(Response.json(generated))
-    .mockResolvedValueOnce(Response.json(generated.readiness));
+    .mockResolvedValueOnce(Response.json(readiness))
+    .mockResolvedValueOnce(Response.json({ recommendation, readiness }));
   const client = new BatonApiClient('', fetchImpl);
   await client.init();
 
-  await expect(client.brainstormRfc(payload)).resolves.toEqual(generated);
-  await expect(client.checkRfc(generated.rfc_markdown)).resolves.toEqual(generated.readiness);
+  await expect(client.checkRfc(rfcMarkdown)).resolves.toEqual(readiness);
+  await expect(client.recommendBlueprint(rfcMarkdown)).resolves.toEqual({ recommendation, readiness });
   expect(fetchImpl.mock.calls.slice(1)).toEqual([
-    ['/api/rfc/brainstorm', jsonRequest('POST', payload)],
-    ['/api/rfc/check', jsonRequest('POST', { rfc_markdown: generated.rfc_markdown })],
+    ['/api/rfc/check', jsonRequest('POST', { rfc_markdown: rfcMarkdown })],
+    ['/api/guided/recommend', jsonRequest('POST', { rfc_markdown: rfcMarkdown })],
   ]);
 });
 
@@ -627,25 +613,13 @@ test('masks, merges and clears credentials in demo memory', async () => {
   expect(fetchImpl).not.toHaveBeenCalled();
 });
 
-test('brainstorms and scores a runnable RFC in demo mode without fetching', async () => {
+test('scores RFC markdown in demo mode without fetching', async () => {
   const fetchImpl = vi.fn<typeof fetch>();
   const client = new BatonApiClient('', fetchImpl);
   await expect(client.checkRfc('')).resolves.toEqual({
     score: 0, safe_for_overnight: false,
     missing_sections: ['goal', 'constraints', 'acceptance'], warnings: [], detected_commands: [],
   });
-
-  const { rfc_markdown, readiness } = await client.brainstormRfc({
-    goal: 'Add a deterministic RFC readiness score and a command detection report.',
-    constraints: 'Use the existing frontend runtime.',
-    acceptance_cmd: 'python -m unittest',
-  });
-  expect(rfc_markdown).toContain('```bash\npython -m unittest\n```');
-  expect(readiness).toEqual({
-    score: 100, safe_for_overnight: true, missing_sections: [], warnings: [],
-    detected_commands: ['python -m unittest'],
-  });
-  await expect(client.checkRfc(rfc_markdown)).resolves.toEqual(readiness);
   expect(fetchImpl).not.toHaveBeenCalled();
 });
 
@@ -684,7 +658,8 @@ test('loads run data and submits run commands to the local server', async () => 
   const client = new BatonApiClient('', fetchImpl);
   await client.init();
 
-  const payload = { rfc_markdown: '# RFC', mode: 'interactive', model_overrides: { bulk_worker: 'example' } } as const;
+  const payload = { rfc_markdown: '# RFC', mode: 'interactive', model_overrides: { bulk_worker: 'example' },
+    launch_request_id: 'key-1' } as const;
   await expect(client.listRuns()).resolves.toEqual(runsList);
   await expect(client.getLatestRun()).resolves.toEqual(snapshot);
   await expect(client.getRun(runId)).resolves.toEqual(snapshot);
@@ -711,7 +686,7 @@ test('launches a specialist panel run with mode panel', async () => {
   const client = new BatonApiClient('', fetchImpl);
   await client.init();
 
-  const payload = { rfc_markdown: '# RFC', mode: 'panel' } as const;
+  const payload = { rfc_markdown: '# RFC', mode: 'panel', launch_request_id: 'key-2' } as const;
   await expect(client.startRun(payload)).resolves.toEqual(started);
   expect(fetchImpl.mock.calls[1]).toEqual(
     ['/api/runs/start', { ...jsonRequest('POST', payload), signal: expect.any(AbortSignal) }],
@@ -787,7 +762,7 @@ test('returns empty live data and rejects backend-only run operations in demo mo
   const backendOnly = [
     client.getRun('run-1'),
     client.getRunReport('run-1'),
-    client.startRun({ rfc_path: 'RFC.md' }),
+    client.startRun({ rfc_path: 'RFC.md', launch_request_id: 'key' }),
     client.controlRun('run-1', 'pause'),
     client.resolveRun('run-1', 'approve', 'Reviewed'),
   ];
@@ -810,7 +785,7 @@ test('aborts a hanging startRun request after timeoutMs and rejects with status 
     const client = new BatonApiClient('', fetchImpl);
     await client.init();
 
-    const starting = client.startRun({ rfc_markdown: '# RFC' }, 15000);
+    const starting = client.startRun({ rfc_markdown: '# RFC', launch_request_id: 'key' }, 15000);
     const rejection = expect(starting).rejects.toMatchObject({
       name: 'ApiError',
       status: 408,
@@ -865,11 +840,6 @@ test('calls every Guided Studio endpoint with typed payloads', async () => {
     guide: { question: '', options: [], checklist: [] },
     error: null,
   };
-  const confirmed: BlueprintConfirmResult = {
-    rfc_path: '/repo/.baton/00_RFC.md',
-    readiness: { score: 85, safe_for_overnight: true, missing_sections: [], warnings: [], detected_commands: ['pytest'] },
-    ready_to_launch: true,
-  };
   const detail: RunTaskDetail = {
     run_id: runId, task_id: 'M1/T1', milestone_id: 'M1', title: 'Add API', tier: 'routine', status: 'PASSED',
     summary: 'Passed.', attempts: 1, test_status: 'passed', provider: 'claude_sub', model: 'sonnet',
@@ -885,7 +855,7 @@ test('calls every Guided Studio endpoint with typed payloads', async () => {
     base_branch: 'main', base_head: 'abc123', revisions_path: '/repo/.baton/runs/x/revisions.md',
   };
   const responses = [
-    registry, scan, scan, installed, login, workspace, workspace, initialized, turn, confirmed, detail, resolved,
+    registry, scan, scan, installed, login, workspace, workspace, initialized, turn, detail, resolved,
     finalized, revised,
   ];
   const fetchImpl = healthyFetch();
@@ -903,7 +873,6 @@ test('calls every Guided Studio endpoint with typed payloads', async () => {
   await expect(client.selectWorkspace('/repo')).resolves.toEqual(workspace);
   await expect(client.initGitWorkspace()).resolves.toEqual(initialized);
   await expect(client.brainstormChat({ messages: [...messages], scenario: 'web_app' })).resolves.toEqual(turn);
-  await expect(client.brainstormConfirm('# Todo app\n')).resolves.toEqual(confirmed);
   await expect(client.getRunTaskDetail(runId, 'M1/T1')).resolves.toEqual(detail);
   await expect(client.resolveRunTask(runId, { taskId: 'M1-T2', choice: 'approve' })).resolves.toEqual(resolved);
   await expect(client.finalizeRun(runId, { action: 'approve' })).resolves.toEqual(finalized);
@@ -919,7 +888,6 @@ test('calls every Guided Studio endpoint with typed payloads', async () => {
     ['/api/workspace/select', jsonRequest('POST', { path: '/repo' })],
     ['/api/workspace/init-git', jsonRequest('POST', {})],
     ['/api/brainstorm/chat', jsonRequest('POST', { messages, scenario: 'web_app' })],
-    ['/api/brainstorm/confirm', jsonRequest('POST', { rfc_markdown: '# Todo app\n' })],
     [`/api/runs/${encodedRun}/tasks/M1%2FT1`, { method: 'GET' }],
     [`/api/runs/${encodedRun}/resolve`, jsonRequest('POST', { task_id: 'M1-T2', choice: 'approve', note: '' })],
     [`/api/runs/${encodedRun}/finalize`, jsonRequest('POST', { action: 'approve', note: '' })],
@@ -962,7 +930,7 @@ test('Guided endpoints surface backend errors and stay unavailable in demo mode'
     demo.selectWorkspace('/repo'),
     demo.initGitWorkspace(),
     demo.brainstormChat({ messages: [{ role: 'user', content: 'Hi' }] }),
-    demo.brainstormConfirm('# RFC'),
+    demo.recommendBlueprint('# RFC'),
     demo.getRunTaskDetail('run-1', 'T1'),
     demo.resolveRunTask('run-1', { taskId: 'T1', choice: 'reject', note: 'No' }),
     demo.finalizeRun('run-1', { action: 'rollback' }),

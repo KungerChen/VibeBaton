@@ -6,8 +6,6 @@ import { CanvasWorkspace, updateWorkspaceReadiness } from './components/CanvasWo
 import { GlossaryDrawer, GuidedWorkbench } from './components/guided';
 import { HeaderBar } from './components/HeaderBar';
 import { isLiveSnapshot, RunControlsContext, useRunControls } from './components/inspector/LiveRunPanel';
-import { StartRunModal } from './components/inspector/StartRunModal';
-import { LaunchGraphContext } from './components/inspector/wizard/PreflightStep';
 import { LeftSidebar } from './components/LeftSidebar';
 import { PlaybackBar } from './components/PlaybackBar';
 import { QuickStartModal, type QuickStartStepId } from './components/QuickStartModal';
@@ -235,7 +233,6 @@ function AppContent() {
   const liveRequestSeq = useRef(0);
   const [liveReconnecting, setLiveReconnecting] = useState(false);
   const [liveViewActive, setLiveViewActive] = useState(false);
-  const [startRunOpen, setStartRunOpen] = useState(false);
   const [studioMode, setStudioMode] = useState<StudioMode>(() => loadStudioMode());
   const [hasOpenedGuided, setHasOpenedGuided] = useState(() => studioMode === 'guided');
   const [glossaryOpen, setGlossaryOpen] = useState(false);
@@ -394,7 +391,6 @@ function AppContent() {
       setRunSyncStatus('synced');
       setLiveReconnecting(false);
       setLiveViewActive(false);
-      setStartRunOpen(false);
       latestRunIdRef.current = null;
       latestStatusRef.current = null;
       initialSnapshotHydratedRef.current = false;
@@ -1007,6 +1003,9 @@ function AppContent() {
     saveStudioMode(nextMode);
   }
 
+  // Every real run starts from the workbench launch bar; a run already going is shown there instead.
+  const openLaunchBar = () => onStudioModeChange('guided');
+
   const headerBar = (
     <HeaderBar
       mode={mode ?? 'demo'}
@@ -1015,7 +1014,7 @@ function AppContent() {
       replayActive={replayActive}
       liveViewActive={liveViewActive}
       // Start Run and the Quick Start guide belong to the Pro layout; Guided Mode has its own flow.
-      onOpenStartRun={studioMode === 'pro' && mode === 'local' ? () => setStartRunOpen(true) : undefined}
+      onOpenStartRun={studioMode === 'pro' && mode === 'local' ? openLaunchBar : undefined}
       onOpenGuide={studioMode === 'pro' ? () => setGuideOpen(true) : undefined}
       studioMode={studioMode}
       onStudioModeChange={onStudioModeChange}
@@ -1072,6 +1071,12 @@ function AppContent() {
               void onSelectRunId(followRunId);
             }}
             onResetSession={dismissCurrentAttention}
+            onOpenBudget={() => {
+              // The project budget is changed in the Pro sidebar's budget profile; the first-run guide must not cover it.
+              onStudioModeChange('pro');
+              setPane('sidebar');
+              setGuideOpen(false);
+            }}
           />
         </div>
       )}
@@ -1205,7 +1210,7 @@ function AppContent() {
             liveReconnecting={liveReconnecting}
             onSelectRunId={(id) => void onSelectRunId(id)}
             onRefreshLiveRun={onRefreshLiveRun}
-            onOpenStartRun={mode === 'local' ? () => setStartRunOpen(true) : undefined}
+            onOpenStartRun={mode === 'local' ? openLaunchBar : undefined}
             openBattleReportToken={battleReportToken}
           />
         </RunControlsContext.Provider>
@@ -1246,24 +1251,6 @@ function AppContent() {
         onPreviewInPlayer={handleLoadCase}
         onToast={push}
       />
-      {studioMode === 'pro' && mode === 'local' && startRunOpen && (
-        <LaunchGraphContext.Provider value={graph}>
-          <StartRunModal
-            client={client}
-            onToast={push}
-            onClose={() => setStartRunOpen(false)}
-            onStarted={(newRunId) => {
-              lastLiveCanvasRef.current = null;
-              setLiveViewActive(true);
-              if (newRunId) {
-                void onSelectRunId(newRunId);
-              } else {
-                void onRefreshLiveRun();
-              }
-            }}
-          />
-        </LaunchGraphContext.Provider>
-      )}
       {studioMode === 'pro' && tourState.open && (
         <GuidedTourOverlay
           steps={tourState.steps}

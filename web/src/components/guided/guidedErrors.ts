@@ -20,5 +20,6 @@ export function localizeGuidedError(failure: unknown, locale: Locale): string {
   if (/only an approved \(COMPLETED\) run can be rolled back/i.test(raw)) return copy.rollbackRequiresCompleted;
   if (/has moved past this run's merge/i.test(raw)) return copy.rollbackMovedPastMerge;
   if (/revise requires a non-empty note/i.test(raw)) return copy.emptyReviseNote;
+  if (/^Request timed out$/i.test(raw)) return copy.requestTimedOut;
   return raw;
 }

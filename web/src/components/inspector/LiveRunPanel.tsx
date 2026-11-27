@@ -14,7 +14,6 @@ import { MarkdownView } from '../ui/MarkdownView';
 import { Modal } from '../ui/Modal';
 import { formatTokenCount, formatUsd } from './billingFormat';
 import { PricingModal } from './PricingModal';
-import { StartRunModal } from './StartRunModal';
 
 const eventLimit = 200;
 const emptySnapshot: LiveRunSnapshot = { run: null, milestones: [], tasks: [], events: [], quotas: [], telemetry: null };
@@ -175,7 +174,6 @@ export function LiveRunPanel({
   const hasLiftedState = onSelectRunId !== undefined;
   const [localSnapshot, setLocalSnapshot] = useState<LiveRunSnapshot>(emptySnapshot);
   const [localReconnecting, setLocalReconnecting] = useState(false);
-  const [startOpen, setStartOpen] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
   const [report, setReport] = useState<{ runId: string; lang: Locale; markdown: string } | null>(null);
   const [reportRawMode, setReportRawMode] = useState(false);
@@ -427,14 +425,16 @@ export function LiveRunPanel({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="default"
-          size="sm"
-          onClick={() => (onOpenStartRun ? onOpenStartRun() : setStartOpen(true))}
-          data-tour-id="start-real-run-btn"
-        >
-          {messages.inspector.startRealRun}
-        </Button>
+        {onOpenStartRun && (
+          <Button
+            variant="default"
+            size="sm"
+            onClick={onOpenStartRun}
+            data-tour-id="start-real-run-btn"
+          >
+            {messages.inspector.startRealRun}
+          </Button>
+        )}
         {runId && (
           <Button variant="outline" size="sm" onClick={() => void showReport()} disabled={loadingReport || !isRunSynced}>
             {messages.inspector.battleReport}
@@ -849,14 +849,6 @@ export function LiveRunPanel({
         </Modal>
       )}
       <PricingModal open={visible && pricingOpen} client={client} onClose={() => setPricingOpen(false)} />
-      {startOpen && (
-        <StartRunModal
-          client={client}
-          onToast={onToast}
-          onClose={() => setStartOpen(false)}
-          onStarted={() => void refreshActiveRun()}
-        />
-      )}
     </section>
   );
 }

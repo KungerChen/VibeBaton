@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import type { RfcReadinessResult } from '../types/graph';
-import { checkRfcReadiness, generateStructuredRfc } from './offlineRfc';
+import { checkRfcReadiness } from './offlineRfc';
 
 const goalText = 'Build a deterministic readiness scorer that never performs file or network I/O.';
 const constraintsText = 'Use only the existing runtime.';
@@ -183,38 +183,4 @@ test('ignores numbered lines inside fenced code when scoring acceptance', () => 
   expect(checkRfcReadiness(rfc({ acceptance: `\`\`\`text\n1. ${command}\n\`\`\`` }))).toEqual({
     ...completeReadiness, score: 95, warnings: ['Acceptance criteria are not numbered.'],
   });
-});
-
-test('generates the server Markdown skeleton and its readiness report', () => {
-  const generated = generateStructuredRfc({
-    goal: `  ${goalText}  `, constraints: constraintsText, non_goals: nonGoalsText, acceptance_cmd: ` ${command} `,
-  });
-  const markdown = rfc({ acceptance: `1. The verification command exits successfully.\n\n\`\`\`bash\n${command}\n\`\`\`` });
-  expect(generated).toEqual({ rfc_markdown: markdown, readiness: completeReadiness });
-  expect(checkRfcReadiness(generated.rfc_markdown)).toEqual(generated.readiness);
-});
-
-test.each([
-  ['python scripts/verify.py \\\n  --offline', 'python scripts/verify.py --offline'],
-  ["python -c 'assert len(\"```\") == 3'", "python -c 'assert len(\"```\") == 3'"],
-  ['npm t', 'npm test'],
-])('detects the generated acceptance command %s when rescoring', (acceptance_cmd, detectedCommand) => {
-  const generated = generateStructuredRfc({ goal: goalText, acceptance_cmd });
-  const fence = acceptance_cmd.includes('```') ? '````' : '```';
-  expect(generated.rfc_markdown).toContain(`${fence}bash\n${acceptance_cmd}\n${fence}`);
-  expect(generated.readiness).toEqual({ ...completeReadiness, detected_commands: [detectedCommand] });
-  expect(checkRfcReadiness(generated.rfc_markdown)).toEqual(generated.readiness);
-});
-
-test('generates the TODO acceptance skeleton for a goal-only request', () => {
-  const generated = generateStructuredRfc({ goal: goalText });
-  expect(generated.rfc_markdown).toBe(rfc({
-    constraints: '', nonGoals: '',
-    acceptance: 'TODO: add numbered acceptance criteria and a concrete verification command.',
-  }));
-  expect(generated.readiness).toEqual({
-    ...completeReadiness, score: 70, safe_for_overnight: false, detected_commands: [],
-    warnings: ["Ambiguity marker 'TODO' found.", 'Acceptance criteria are not numbered.'],
-  });
-  expect(checkRfcReadiness(generated.rfc_markdown)).toEqual(generated.readiness);
 });

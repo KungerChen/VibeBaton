@@ -4,13 +4,11 @@ import {
   ApiError,
   BatonApiClient,
   type BlueprintCard,
-  type BlueprintConfirmResult,
   type BrainstormChatRequest,
   type BrainstormMessage,
   type BrainstormTurnResult,
   type ChecklistId,
   type ChecklistItem,
-  type GuidedLaunchRunRequest,
   type GuidedSession,
   type L0ModelsResult,
   type ModelCatalogResponse,
@@ -23,22 +21,22 @@ import {
 } from '../../api/client';
 import { MESSAGES, type Locale } from '../../i18n/messages';
 import { checkRfcReadiness } from '../../api/offlineRfc';
-import type { LaunchRunRequest } from '../../types/graph';
+import type { BudgetProfile } from '../../types/graph';
+import { decideRfcSkip } from '../inspector/launchWizard';
+import { translateRfcSection } from '../inspector/wizard/messages';
+import { RfcStep, useRfcDraft } from '../inspector/wizard/RfcStep';
 import { localizeGuidedError } from './guidedErrors';
 import scenarioList from './brainstormScenarios.json';
 import { MarkdownView } from '../ui/MarkdownView';
-import { GuidedLaunchBar } from './GuidedLaunchBar';
+import { flowLine, GuidedLaunchBar, launchConfirmation, requestFlow } from './GuidedLaunchBar';
 import { BUILTIN_MODEL_CATALOG, matchSavedProfile } from './GuidedSetupStep';
 import { L0ModelSwitcher } from './L0ModelSwitcher';
 import { useGuidedSession, type GuidedSessionApi, type GuidedSessionState } from './useGuidedSession';
 
-/** The three backend calls this step needs; inject a fake in tests or the App's shared client. */
+/** The two backend calls this step needs; inject a fake in tests or the App's shared client. */
 export interface GuidedBrainstormApi {
   brainstormChat(payload: BrainstormChatRequest): Promise<BrainstormTurnResult>;
-  brainstormConfirm(rfcMarkdown: string): Promise<BlueprintConfirmResult>;
-  startRun(payload: LaunchRunRequest & {
-    launch_request_id?: string; lineup?: WorkflowLineup; preset?: string | null;
-  }): Promise<{ run_id: string }>;
+  startRun(payload: LaunchPayload): Promise<{ run_id: string }>;
 }
 
 export interface BrainstormScenario {
@@ -157,27 +155,6 @@ export async function retryBrainstormTurn(
   const transcript = retryTranscript(messages);
   if (!transcript) throw new Error('Nothing to retry.');
   return chat(api, transcript, scenario, locale, lineup, context);
-}
-
-/**
- * Persist the RFC first, then start the run from the written file with the Ready-on-Host
- * lineup, so roles run on the providers that are actually ready; resolves to the run id.
- */
-export async function confirmAndStart(
-  api: Pick<GuidedBrainstormApi, 'brainstormConfirm' | 'startRun'>,
-  rfcMarkdown: string,
-  lineup: RecommendedLineup,
-): Promise<string> {
-  const { rfc_path } = await api.brainstormConfirm(rfcMarkdown);
-  const { run_id } = await api.startRun({
-    rfc_path,
-    mode: 'overnight',
-    role_providers: { ...lineup.roles },
-    ...(lineup.model_overrides && Object.keys(lineup.model_overrides).length > 0
-      ? { model_overrides: { ...lineup.model_overrides } }
-      : {}),
-  });
-  return run_id;
 }
 
 // ---- Opening examples and editing -------------------------------------------------------------
@@ -394,10 +371,13 @@ export interface GuidedBrainstormStepProps {
   onBusyChange?(busy: boolean): void;
   /** The host routes a stopped parent's launch through the lineage revision API. */
   allowReplanLaunch?: boolean;
+  /** Opens the place where the project budget is changed (linked from the launch confirmation). */
+  onOpenBudget?(): void;
 }
 
 export type GuidedBrainstormServices = GuidedSessionApi & Pick<BatonApiClient,
-  'getL0Models' | 'getModelCatalog' | 'getLineupProfiles' | 'saveLineupProfile' | 'deleteLineupProfile' | 'saveLastUsedLineup'>;
+  'getL0Models' | 'getModelCatalog' | 'getLineupProfiles' | 'saveLineupProfile' | 'deleteLineupProfile' | 'saveLastUsedLineup'
+  | 'checkRfc' | 'recommendBlueprint' | 'getRolesConfig'>;
 
 function defaultServices(): GuidedBrainstormServices {
   defaultApi();
@@ -405,7 +385,24 @@ function defaultServices(): GuidedBrainstormServices {
 }
 
 type Catalog = Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers' | 'efforts'>;
-export type LaunchPayload = GuidedLaunchRunRequest & { launch_request_id: string; lineup: WorkflowLineup };
+
+/** What a Guided launch sends besides its request ID; the confirmation is rendered from this same object. */
+export interface LaunchRequest {
+  rfc_markdown: string;
+  mode: WorkflowMode;
+  lineup: WorkflowLineup;
+  preset: string | null;
+  /** Present only when this run would otherwise use the lean flow. */
+  lean_flow?: false;
+}
+export type LaunchPayload = LaunchRequest & { launch_request_id: string };
+
+/** The request for the current choices: `lean_flow: false` only when the switch is off and the run would be lean. */
+export function launchRequest(rfcMarkdown: string, lineup: WorkflowLineup, mode: WorkflowMode, preset: string | null,
+  leanFlow: boolean, recommendation: Pick<WorkflowRecommendation, 'size' | 'flow'> | null): LaunchRequest {
+  const request: LaunchRequest = { rfc_markdown: rfcMarkdown, mode, lineup, preset };
+  return !leanFlow && requestFlow(request, recommendation)?.flow === 'lean' ? { ...request, lean_flow: false } : request;
+}
 
 const PANEL_FAILURE_CODES = new Set([
   'synthesizer_not_configured', 'synthesizer_provider_unavailable',
@@ -528,10 +525,8 @@ export async function startKeyedLaunch(options: {
   session: GuidedSession;
   persistence: Pick<GuidedSessionState, 'save' | 'flush' | 'ensureLaunchRequestId'>;
   pending: LaunchPayload | null;
-  draft: string;
-  lineup: WorkflowLineup;
-  mode: WorkflowMode;
-  preset: string | null;
+  /** Exactly what the confirmation showed; ignored when a pending payload is replayed. */
+  request: LaunchRequest;
   onPrepared(payload: LaunchPayload): void;
 }): Promise<string> {
   const { api, session, persistence } = options;
@@ -541,8 +536,7 @@ export async function startKeyedLaunch(options: {
       persistence.save({ workflow: { launch_request_id: null, guided_launch_parent: session.active_run_id } });
     }
     const requestId = await persistence.ensureLaunchRequestId();
-    payload = { rfc_markdown: options.draft, mode: options.mode, lineup: options.lineup,
-      preset: options.preset, launch_request_id: requestId };
+    payload = { ...options.request, launch_request_id: requestId };
     persistence.save({ workflow: { guided_pending_launch: JSON.stringify(payload), guided_launch_parent: session.active_run_id } });
     await persistence.flush();
     options.onPrepared(payload);
@@ -570,10 +564,11 @@ function GuidedBrainstormWithSession(props: GuidedBrainstormStepProps & { servic
 }
 
 function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, services, guidedSession, onBusyChange,
-  allowReplanLaunch = false }:
+  allowReplanLaunch = false, onOpenBudget }:
   GuidedBrainstormStepProps & { services: GuidedBrainstormServices; guidedSession: GuidedSessionState }) {
   const labels = MESSAGES[locale].guided.brainstorm;
   const m3 = MESSAGES[locale].guided.m3;
+  const paste = MESSAGES[locale].guided.pasteRfc;
   const zh = locale === 'zh';
   const session = guidedSession.session;
   const sessionReady = !!session && (!projectPath || !session.workspace_path || sameWorkspace(projectPath, session.workspace_path));
@@ -615,6 +610,17 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
   const [revisionPending, setRevisionPending] = useState(false);
   const revisionPrior = useRef('');
   const [pendingLaunch, setPendingLaunch] = useState<LaunchPayload | null>(null);
+  // The fast lane: the RFC is pasted instead of drafted in the chat (not offered while revising a run).
+  const [entry, setEntry] = useState<'chat' | 'paste'>('chat');
+  const pasteOffered = !hasReplanParent(session);
+  const pasting = pasteOffered && entry === 'paste';
+  const rfc = useRfcDraft(services, pasting);
+  const [pasted, setPasted] = useState<{ text: string; recommendation: WorkflowRecommendation } | null>(null);
+  const [recommendError, setRecommendError] = useState<string | null>(null);
+  const [recommendAttempt, setRecommendAttempt] = useState(0);
+  const [leanFlow, setLeanFlow] = useState(true);
+  const [confirming, setConfirming] = useState(false);
+  const [budget, setBudget] = useState<BudgetProfile | 'unavailable' | null>(null);
   const launchFlight = useRef(createLaunchFlight());
   const initializedSelection = useRef(false);
   const restoredSession = useRef(false);
@@ -667,6 +673,9 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
     setRevisionPending(needsRevision && !!revisionPrior.current.trim());
     const pending = savedLaunch(session.workflow.guided_pending_launch);
     if (pending) setPendingLaunch(pending);
+    if (typeof draft.guided_pasted_rfc === 'string') rfc.edit(draft.guided_pasted_rfc);
+    if (draft.guided_entry === 'paste') setEntry('paste');
+    setLeanFlow(session.workflow.guided_lean_flow !== false);
     if (restored?.recommendation) {
       const previous = initialWorkflow(restored.recommendation, session, lineup);
       const inherited = allowReplanLaunch && hasReplanParent(session);
@@ -682,6 +691,13 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
       setPreset(session.workflow.preset ?? restored.recommendation.preset);
       const code = panelFailureCode(restored.recommendation);
       if (code) setPanelError(m3.recommendation.reasons[code as keyof typeof m3.recommendation.reasons]);
+      initializedSelection.current = !needsRevision;
+    } else if (draft.guided_entry === 'paste' && Object.keys(session.workflow.lineup.roles).length) {
+      // A pasted draft keeps its team and mode; its recommendation is fetched again and decides readiness.
+      const stored = session.workflow.lineup;
+      setSelectedLineup({ ...lineup, ready: false, roles: stored.roles, model_overrides: stored.model_overrides });
+      setMode(session.workflow.mode ?? 'overnight');
+      setPreset(session.workflow.preset);
       initializedSelection.current = !needsRevision;
     }
   }, [session, sessionReady, projectPath, lineup, m3]);
@@ -715,8 +731,48 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
   const assumptions = checklist.filter((item) => item.status === 'assumed');
   const card = shownTurn?.blueprint ?? null;
   const replanLaunchBlocked = hasReplanParent(session) && !allowReplanLaunch && !pendingLaunch;
-  const launchable = canLaunch(card) && !!recommendation && selectedLineup.ready && !busy && !typing
-    && !revisionPending && !retryError && !replanLaunchBlocked && sessionReady;
+  // A revision keeps its parent's workflow, team and flow setting.
+  const revisionLaunch = allowReplanLaunch && hasReplanParent(session);
+  const activeRecommendation = pasting ? pasted?.recommendation ?? null : recommendation;
+  const pastedCurrent = !!pasted && pasted.text === rfc.markdown;
+  const chosen: WorkflowLineup = {
+    roles: { ...selectedLineup.roles }, model_overrides: { ...(selectedLineup.model_overrides ?? {}) },
+    ...(activeRecommendation?.size ? { size: activeRecommendation.size } : {}),
+  };
+  // The launch sends exactly this request (or the saved pending one), and the card and its confirmation show it.
+  const request = pendingLaunch ?? launchRequest(pasting ? rfc.markdown : turn?.rfc_markdown ?? '', chosen, mode, preset,
+    leanFlow, activeRecommendation);
+  const flow = revisionLaunch ? 'inherited' : requestFlow(request, activeRecommendation);
+  const launchable = (pasting
+    ? !!rfc.markdown.trim() && !!rfc.readiness && pastedCurrent
+    : canLaunch(card) && !!recommendation && !typing && !revisionPending && !retryError && !replanLaunchBlocked)
+    && selectedLineup.ready && !busy && sessionReady && flow !== null;
+  // The fast lane asks for a recommendation once its text is checked; a chat recommendation saved before
+  // flows were reported is asked for again, so a flow on the card is never a guess.
+  const recommendFor = pasting ? (rfc.readiness ? rfc.markdown : null)
+    : !revisionLaunch && recommendation?.size === 'small' && !recommendation.flow ? turn?.rfc_markdown ?? null : null;
+  const recommending = !recommendError && (pasting ? !!rfc.markdown.trim() && !pastedCurrent : recommendFor !== null);
+  const skip = pasting && rfc.readiness ? decideRfcSkip(rfc.readiness) : null;
+  const confirmation = confirming ? launchConfirmation(request, catalog, activeRecommendation, {
+    locale, copy: m3, inherited: revisionLaunch,
+    budget: budget === null ? m3.launch.budgetLoading : budget === 'unavailable' ? m3.launch.budgetUnavailable
+      : MESSAGES[locale].budgetProfile.options[budget].label,
+    missingSections: skip?.kind === 'confirm'
+      ? skip.missingSections.map((section) => translateRfcSection(section, locale, MESSAGES[locale].wizard)) : [],
+  }) : null;
+
+  useEffect(() => {
+    if (recommendFor === null || (pasting && pasted?.text === recommendFor)) return undefined;
+    let active = true;
+    setRecommendError(null);
+    void services.recommendBlueprint(recommendFor).then(({ recommendation: next }) => {
+      if (!active) return;
+      if (pasting) adoptPasted(recommendFor, next);
+      else setRecommendation(next);
+    }, (failure: unknown) => { if (active) setRecommendError(localizeGuidedError(failure, locale)); });
+    return () => { active = false; };
+  }, [recommendFor, pasting, recommendAttempt]);
+
   const lastIndex = messages.length - 1;
   const question = !typing && !busy && messages[lastIndex]?.role === 'assistant' ? turn?.guide?.question ?? '' : '';
   const editPrefixes = CHECKLIST_IDS.map((id) => labels.editPrefill(labels.items[id]));
@@ -755,30 +811,8 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
       setRevisionPending(false);
       revisionPrior.current = '';
       if (result.turn.recommendation) {
-        const next = result.turn.recommendation;
-        setRecommendation(next);
-        const code = panelFailureCode(next);
-        setPanelError(code ? m3.recommendation.reasons[code as keyof typeof m3.recommendation.reasons] : null);
-        if (!initializedSelection.current) {
-          const initial = initialWorkflow(next, session, lineup);
-          const inherited = allowReplanLaunch && hasReplanParent(session) && session
-            ? { ...lineup, ready: true, roles: { ...session.workflow.lineup.roles },
-              model_overrides: { ...session.workflow.lineup.model_overrides } } : null;
-          setSelectedLineup(inherited ?? initial.lineup);
-          setMode(inherited ? session!.workflow.mode ?? 'overnight' : initial.mode);
-          const initialPreset = inherited ? session!.workflow.preset : session?.active_run_id && session.workflow.mode === initial.mode
-            ? session.workflow.preset : next.preset;
-          setPreset(initialPreset);
-          setPreviousSize(initial.previousSize);
-          setShowSwitch(!inherited && initial.showSwitch);
-          initializedSelection.current = true;
-          if (!inherited) saveWorkflow(initial.lineup, initial.mode, initialPreset);
-        } else if (code && mode === 'panel' && !(allowReplanLaunch && hasReplanParent(session))) {
-          setMode('overnight');
-          saveWorkflow(selectedLineup, 'overnight', next.preset);
-          setPreset(next.preset);
-        }
-        if (previousSize && next.size_changed === true && !(allowReplanLaunch && hasReplanParent(session))) setShowSwitch(true);
+        setRecommendation(result.turn.recommendation);
+        adoptRecommendation(result.turn.recommendation);
       }
     }
     if (selected.retryError) { setTyping(null); return; }
@@ -786,6 +820,67 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
     setTyping(typewriterOn && !prefersReducedMotion() && frames.length > 1
       ? { index: result.messages.length - 1, frames, intervalMs, step: 0 }
       : null);
+  }
+
+  /** The first recommendation (chat or pasted) sets the team and mode; later ones only drop an unavailable panel. */
+  function adoptRecommendation(next: WorkflowRecommendation) {
+    const code = panelFailureCode(next);
+    setPanelError(code ? m3.recommendation.reasons[code as keyof typeof m3.recommendation.reasons] : null);
+    if (!initializedSelection.current) {
+      const initial = initialWorkflow(next, session, lineup);
+      const inherited = allowReplanLaunch && hasReplanParent(session) && session
+        ? { ...lineup, ready: true, roles: { ...session.workflow.lineup.roles },
+          model_overrides: { ...session.workflow.lineup.model_overrides } } : null;
+      setSelectedLineup(inherited ?? initial.lineup);
+      setMode(inherited ? session!.workflow.mode ?? 'overnight' : initial.mode);
+      const initialPreset = inherited ? session!.workflow.preset : session?.active_run_id && session.workflow.mode === initial.mode
+        ? session.workflow.preset : next.preset;
+      setPreset(initialPreset);
+      setPreviousSize(initial.previousSize);
+      setShowSwitch(!inherited && initial.showSwitch);
+      initializedSelection.current = true;
+      if (!inherited) saveWorkflow(initial.lineup, initial.mode, initialPreset);
+    } else if (code && mode === 'panel' && !(allowReplanLaunch && hasReplanParent(session))) {
+      setMode('overnight');
+      saveWorkflow(selectedLineup, 'overnight', next.preset);
+      setPreset(next.preset);
+    }
+    if (previousSize && next.size_changed === true && !(allowReplanLaunch && hasReplanParent(session))) setShowSwitch(true);
+  }
+
+  /** A pasted RFC's recommendation also decides whether its team is ready, every time the text changes. */
+  function adoptPasted(text: string, next: WorkflowRecommendation) {
+    setPasted({ text, recommendation: next });
+    adoptRecommendation(next);
+    setSelectedLineup((current) => ({ ...current, ready: !!next.lineup }));
+  }
+
+  function editPasted(text: string) {
+    rfc.edit(text);
+    setEntry('paste');
+    if (sessionReady) guidedSession.save({ brainstorm: { guided_entry: 'paste', guided_pasted_rfc: text } });
+  }
+
+  function changeEntry(next: 'chat' | 'paste') {
+    setEntry(next);
+    setConfirming(false);
+    setRecommendError(null);
+    if (sessionReady) guidedSession.save({ brainstorm: { guided_entry: next } });
+  }
+
+  function changeLeanFlow(next: boolean) {
+    setLeanFlow(next);
+    if (session) {
+      guidedSession.save({ workflow: { guided_lean_flow: next ? null : false } });
+      void guidedSession.flush().catch(() => {});
+    }
+  }
+
+  function openConfirmation() {
+    if (!launchable && !pendingLaunch) return;
+    setConfirming(true);
+    setBudget(null);
+    void services.getRolesConfig().then((config) => setBudget(config.budget_profile), () => setBudget('unavailable'));
   }
 
   function saveWorkflow(nextLineup: RecommendedLineup, nextMode: WorkflowMode, nextPreset: string | null, size?: ProjectSize) {
@@ -937,6 +1032,7 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
     setRetryError(null);
     setRecommendation(null);
     setRevisionPending(false);
+    setConfirming(false);
     revisionPrior.current = '';
     initializedSelection.current = false;
     if (session) {
@@ -951,33 +1047,35 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
   }
 
   function launch() {
-    if (!turn || (!launchable && !pendingLaunch) || !session || !sessionReady) return;
+    if ((!launchable && !pendingLaunch) || !session || !sessionReady) return;
     void launchFlight.current(async () => {
       onBusyChange?.(true);
       setBusyAction('launch');
       setError(null);
       try {
-        const chosen: WorkflowLineup = {
-          roles: { ...selectedLineup.roles }, model_overrides: { ...(selectedLineup.model_overrides ?? {}) },
-          ...(recommendation?.size ? { size: recommendation.size } : {}),
-        };
+        // A pasted RFC becomes this run's blueprint draft, so a later revision or replan starts from it.
+        if (pasting && !pendingLaunch) guidedSession.save({ brainstorm: { latest_rfc_draft: request.rfc_markdown } });
         const runId = await startKeyedLaunch({ api: api ?? defaultApi(), session, persistence: guidedSession,
-          pending: pendingLaunch, draft: turn.rfc_markdown, lineup: chosen, mode, preset, onPrepared: setPendingLaunch });
-        guidedSession.save({ workflow: { guided_pending_launch: null } });
+          pending: pendingLaunch, request, onPrepared: setPendingLaunch });
+        // The lean switch is a choice for this run only.
+        guidedSession.save({ workflow: { guided_pending_launch: null, guided_lean_flow: null } });
         await guidedSession.flush().catch(() => {});
-        const launchedLineup = pendingLaunch?.lineup ?? chosen;
+        const launchedLineup = request.lineup;
         const profile = matchSavedProfile(profiles, { ...selectedLineup, roles: launchedLineup.roles,
           model_overrides: launchedLineup.model_overrides });
         void services.saveLastUsedLineup({ roles: launchedLineup.roles, model_overrides: launchedLineup.model_overrides,
           profile_id: profile?.id ?? null, profile_name: profile?.name ?? null }).catch(() => {});
         setPendingLaunch(null);
+        setLeanFlow(true);
+        setConfirming(false);
         onLaunched(runId);
         return runId;
       } catch (failure) {
         if (failure instanceof ApiError && failure.code === 'LAUNCH_PREFLIGHT') {
           const fallback = failure.data?.fallback;
           if (fallback) {
-            setRecommendation(fallback);
+            if (pasting) setPasted({ text: request.rfc_markdown, recommendation: fallback });
+            else setRecommendation(fallback);
             const code = panelFailureCode(fallback) ?? failure.data?.codes?.find((item) => PANEL_FAILURE_CODES.has(item));
             if (code) setPanelError(m3.recommendation.reasons[code as keyof typeof m3.recommendation.reasons] ?? failure.message);
             if (mode === 'panel' && !(allowReplanLaunch && hasReplanParent(session))) {
@@ -987,6 +1085,7 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
             }
           }
           setPendingLaunch(null);
+          setConfirming(false);
           guidedSession.save({ workflow: { guided_pending_launch: null } });
           void guidedSession.flush().catch(() => {});
           setError(m3.launch.preflightFailed);
@@ -1019,84 +1118,90 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
       {zh ? item.title_zh : item.title_en}
     </button>
   );
+  const shownRecommendation = (pasting ? !!pasted && !!rfc.markdown.trim() : canLaunch(card) && !revisionPending)
+    ? activeRecommendation : null;
 
   return (
     <div className="guided-brainstorm">
       <section className="guided-brainstorm__chat">
-        <div className="guided-brainstorm__toolbar">
-          <fieldset className="guided-brainstorm__model-controls" disabled={busy || !!pendingLaunch || !sessionReady}>
-            <L0ModelSwitcher models={models.models} selected={modelChoice} autoSelected={models.auto_selected}
-              loading={modelsLoading} error={modelError} catalog={catalog} onChange={changeModel} onRetry={() => setModelsAttempt((value) => value + 1)} />
-          </fieldset>
-          <label className="guided-brainstorm__switch">
-            <input type="checkbox" checked={typewriterOn} onChange={toggleTypewriter} />
-            {labels.typewriter}
-          </label>
-          {started ? (
-            <button type="button" className="guided-brainstorm__restart" onClick={restart} disabled={busy || !!pendingLaunch}>
-              {labels.restart}
-            </button>
-          ) : null}
-        </div>
-        {!started ? (
-          <div className="guided-brainstorm__opening">
-            <h3 className="guided-brainstorm__heading">{labels.openTitle}</h3>
-            <p className="guided-brainstorm__input-hint">{labels.openHint}</p>
-          </div>
-        ) : null}
-        {started ? (
-          <ol
-            ref={transcriptRef}
-            className="guided-brainstorm__transcript"
-            aria-live="polite"
-            onClick={() => setTyping(null)}
-          >
-            {messages.map((message, index) => (
-              <BrainstormTurn
-                key={index}
-                message={typing?.index === index ? { ...message, content: typing.frames[typing.step] } : message}
-                modelLabel={m3.brainstorm.respondingModel}
-                respondingModel={respondingModels[index] ?? m3.brainstorm.modelUnknown}
-              />
-            ))}
-            {pendingText !== null ? <BrainstormTurn message={{ role: 'user', content: pendingText }} /> : null}
-          </ol>
-        ) : null}
-        {question ? (
-          <div className="guided-brainstorm__options" role="group" aria-label={question}>
-            {(turn?.guide.options ?? []).map((option) => (
-              <button key={option} type="button" className="guided-brainstorm__option" onClick={() => void sendText(option)}>
-                {option}
-              </button>
-            ))}
-            <button
-              type="button"
-              className="guided-brainstorm__option guided-brainstorm__option--unsure"
-              onClick={() => void sendText(labels.notSure)}
-            >
-              {labels.notSure}
-            </button>
-          </div>
-        ) : null}
-        {busyAction === 'send' ? (
-          <p className="guided-brainstorm__waiting" role="status" aria-live="polite">{waitingText}</p>
-        ) : null}
-        {!typing && retryError && !busy ? (
-          <div className="guided-brainstorm__failure" role="alert">
-            <p>{m3.brainstorm.offlineGuard} {retryError}</p>
-            <button type="button" className="guided-brainstorm__retry" onClick={retry}>{m3.brainstorm.retry}</button>
-          </div>
-        ) : null}
-        {!typing && !retryError && turn?.error && !busy ? (
-          <div className="guided-brainstorm__failure" role="alert">
-            <p>{labels.liveFailed(turn.error)}</p>
-            <button type="button" className="guided-brainstorm__retry" onClick={retry}>{labels.retry}</button>
-          </div>
+        {!pasting ? (
+          <>
+            <div className="guided-brainstorm__toolbar">
+              <fieldset className="guided-brainstorm__model-controls" disabled={busy || !!pendingLaunch || !sessionReady}>
+                <L0ModelSwitcher models={models.models} selected={modelChoice} autoSelected={models.auto_selected}
+                  loading={modelsLoading} error={modelError} catalog={catalog} onChange={changeModel} onRetry={() => setModelsAttempt((value) => value + 1)} />
+              </fieldset>
+              <label className="guided-brainstorm__switch">
+                <input type="checkbox" checked={typewriterOn} onChange={toggleTypewriter} />
+                {labels.typewriter}
+              </label>
+              {started ? (
+                <button type="button" className="guided-brainstorm__restart" onClick={restart} disabled={busy || !!pendingLaunch}>
+                  {labels.restart}
+                </button>
+              ) : null}
+            </div>
+            {!started ? (
+              <div className="guided-brainstorm__opening">
+                <h3 className="guided-brainstorm__heading">{labels.openTitle}</h3>
+                <p className="guided-brainstorm__input-hint">{labels.openHint}</p>
+              </div>
+            ) : null}
+            {started ? (
+              <ol
+                ref={transcriptRef}
+                className="guided-brainstorm__transcript"
+                aria-live="polite"
+                onClick={() => setTyping(null)}
+              >
+                {messages.map((message, index) => (
+                  <BrainstormTurn
+                    key={index}
+                    message={typing?.index === index ? { ...message, content: typing.frames[typing.step] } : message}
+                    modelLabel={m3.brainstorm.respondingModel}
+                    respondingModel={respondingModels[index] ?? m3.brainstorm.modelUnknown}
+                  />
+                ))}
+                {pendingText !== null ? <BrainstormTurn message={{ role: 'user', content: pendingText }} /> : null}
+              </ol>
+            ) : null}
+            {question ? (
+              <div className="guided-brainstorm__options" role="group" aria-label={question}>
+                {(turn?.guide.options ?? []).map((option) => (
+                  <button key={option} type="button" className="guided-brainstorm__option" onClick={() => void sendText(option)}>
+                    {option}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="guided-brainstorm__option guided-brainstorm__option--unsure"
+                  onClick={() => void sendText(labels.notSure)}
+                >
+                  {labels.notSure}
+                </button>
+              </div>
+            ) : null}
+            {busyAction === 'send' ? (
+              <p className="guided-brainstorm__waiting" role="status" aria-live="polite">{waitingText}</p>
+            ) : null}
+            {!typing && retryError && !busy ? (
+              <div className="guided-brainstorm__failure" role="alert">
+                <p>{m3.brainstorm.offlineGuard} {retryError}</p>
+                <button type="button" className="guided-brainstorm__retry" onClick={retry}>{m3.brainstorm.retry}</button>
+              </div>
+            ) : null}
+            {!typing && !retryError && turn?.error && !busy ? (
+              <div className="guided-brainstorm__failure" role="alert">
+                <p>{labels.liveFailed(turn.error)}</p>
+                <button type="button" className="guided-brainstorm__retry" onClick={retry}>{labels.retry}</button>
+              </div>
+            ) : null}
+          </>
         ) : null}
         {error && !busy ? (
           <div className="guided-brainstorm__failure" role="alert">
             <p>{error}</p>
-            {failedText ? (
+            {failedText && !pasting ? (
               <button type="button" className="guided-brainstorm__retry" onClick={retry}>{labels.retry}</button>
             ) : null}
           </div>
@@ -1111,36 +1216,62 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
               onClick={() => { void guidedSession.flush().catch(() => {}); }}>{m3.session.retrySave}</button>
           </div>
         ) : null}
-        <form className="guided-brainstorm__composer" onSubmit={submit}>
-          <textarea
-            ref={inputRef}
-            className="guided-brainstorm__input"
-            value={input}
-            placeholder={labels.inputPlaceholder}
-            aria-label={started ? labels.inputPlaceholder : labels.openTitle}
-            aria-describedby={hintId}
-            rows={started ? 2 : 3}
-            disabled={!!pendingLaunch || !sessionReady}
-            onChange={(event) => {
-              const value = event.target.value;
-              setInput(value);
-              if (sessionReady) guidedSession.save({ brainstorm: { guided_input: value } });
-            }}
-            onKeyDown={onKeyDown}
-          />
-          <button type="submit" className="guided-brainstorm__send" disabled={busy || !!pendingLaunch || !sessionReady || modelsLoading || !input.trim()}>
-            {labels.send}
-          </button>
-        </form>
-        <p id={hintId} className="guided-brainstorm__input-hint">{labels.inputHint}</p>
-        {!started ? (
-          <div className="guided-brainstorm__examples">
-            <p className="guided-brainstorm__label">{labels.examplesTitle}</p>
-            <div className="guided-brainstorm__scenarios">{featured.map(exampleButton)}</div>
-            <details className="guided-brainstorm__more">
-              <summary>{labels.moreExamples}</summary>
-              <div className="guided-brainstorm__scenarios">{others.map(exampleButton)}</div>
-            </details>
+        {!pasting ? (
+          <>
+            <form className="guided-brainstorm__composer" onSubmit={submit}>
+              <textarea
+                ref={inputRef}
+                className="guided-brainstorm__input"
+                value={input}
+                placeholder={labels.inputPlaceholder}
+                aria-label={started ? labels.inputPlaceholder : labels.openTitle}
+                aria-describedby={hintId}
+                rows={started ? 2 : 3}
+                disabled={!!pendingLaunch || !sessionReady}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setInput(value);
+                  if (sessionReady) guidedSession.save({ brainstorm: { guided_input: value } });
+                }}
+                onKeyDown={onKeyDown}
+              />
+              <button type="submit" className="guided-brainstorm__send" disabled={busy || !!pendingLaunch || !sessionReady || modelsLoading || !input.trim()}>
+                {labels.send}
+              </button>
+            </form>
+            <p id={hintId} className="guided-brainstorm__input-hint">{labels.inputHint}</p>
+            {!started ? (
+              <div className="guided-brainstorm__examples">
+                <p className="guided-brainstorm__label">{labels.examplesTitle}</p>
+                <div className="guided-brainstorm__scenarios">{featured.map(exampleButton)}</div>
+                <details className="guided-brainstorm__more">
+                  <summary>{labels.moreExamples}</summary>
+                  <div className="guided-brainstorm__scenarios">{others.map(exampleButton)}</div>
+                </details>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+        {/* The fast lane keeps this slot on the first screen and in the lane, so typing never loses focus. */}
+        {pasteOffered && (pasting || !started) ? (
+          <div className={pasting ? 'guided-brainstorm__paste' : 'guided-brainstorm__paste guided-brainstorm__paste--entry'}>
+            <h3 className="guided-brainstorm__heading">{paste.title}</h3>
+            <RfcStep rfc={rfc} onChange={editPasted} readOnly={!!pendingLaunch || !sessionReady} placeholder={paste.hint} />
+            {pasting ? (
+              <button type="button" className="guided-brainstorm__entry-switch" disabled={busy || !!pendingLaunch}
+                onClick={() => changeEntry('chat')}>{paste.switchToChat}</button>
+            ) : null}
+          </div>
+        ) : pasteOffered ? (
+          <button type="button" className="guided-brainstorm__entry-switch" disabled={busy || !!pendingLaunch}
+            onClick={() => changeEntry('paste')}>{paste.switchToPaste}</button>
+        ) : null}
+        {recommending ? <p className="guided-brainstorm__waiting" role="status">{paste.recommending}</p> : null}
+        {recommendError ? (
+          <div className="guided-brainstorm__failure" role="alert">
+            <p>{paste.recommendFailed} {recommendError}</p>
+            <button type="button" className="guided-brainstorm__retry"
+              onClick={() => { setRecommendError(null); setRecommendAttempt((value) => value + 1); }}>{paste.retry}</button>
           </div>
         ) : null}
         {/* Launch: the recommendation card spans the chat column; the sidebar keeps the blueprint itself. */}
@@ -1152,17 +1283,17 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
             ? '当前启动接口无法连接已停止的上一轮，修订蓝图已保留，暂不能安全启动。'
             : 'The start endpoint cannot attach the stopped run. The revised blueprint is saved until it can be started safely.'}</p>
         ) : null}
-        {canLaunch(card) && recommendation && !revisionPending ? (
-          <GuidedLaunchBar recommendation={recommendation} lineup={selectedLineup} mode={mode}
+        {shownRecommendation ? (
+          <GuidedLaunchBar recommendation={shownRecommendation} lineup={selectedLineup} mode={mode}
             previousSize={previousSize} showSwitch={showSwitch} panelFailure={panelError}
             providers={[...new Set(models.models.map((model) => model.provider))]} catalog={catalog} profiles={profiles}
             pending={busyAction === 'launch'} disabled={!launchable && !pendingLaunch}
             locked={!!pendingLaunch || (allowReplanLaunch && hasReplanParent(session))}
             profileError={profileError} onLineupChange={changeLineup} onModeChange={changeMode}
             onSwitch={() => {
-              setMode(recommendation.mode);
-              saveWorkflow(selectedLineup, recommendation.mode, recommendation.preset, recommendation.size ?? undefined);
-              setPreset(recommendation.preset);
+              setMode(shownRecommendation.mode);
+              saveWorkflow(selectedLineup, shownRecommendation.mode, shownRecommendation.preset, shownRecommendation.size ?? undefined);
+              setPreset(shownRecommendation.preset);
               setShowSwitch(false);
             }}
             onDismissSwitch={() => setShowSwitch(false)}
@@ -1185,73 +1316,89 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
                 setProfileError(localizeGuidedError(failure, locale));
                 throw failure;
               }
-            }} onLaunch={launch} />
+            }} onLaunch={openConfirmation}
+            flow={flowLine(flow, request.lineup.size, m3)}
+            leanFlow={flow !== 'inherited' && flow?.switchable
+              ? { checked: request.lean_flow !== false, onChange: changeLeanFlow } : null}
+            confirmation={confirmation} onConfirm={launch} onCancelConfirm={() => setConfirming(false)}
+            onOpenBudget={onOpenBudget} />
         ) : null}
       </section>
 
-      <aside className="guided-brainstorm__card" aria-label={labels.blueprintTitle}>
-        <h3 className="guided-brainstorm__heading">{labels.blueprintTitle}</h3>
-        {shownTurn?.offline && !shownTurn.error ? (
-          <p className="guided-brainstorm__offline" role="note">{labels.offlineNotice}</p>
-        ) : null}
-        {card?.title ? <p className="guided-brainstorm__title">{card.title}</p> : null}
-        {shownTurn ? (
-          <p className="guided-brainstorm__progress-text">
-            {labels.progress(progress.clear, progress.total)}
-            {progress.assumed > 0 ? labels.progressAssumed(progress.assumed) : ''}
-          </p>
-        ) : (
-          <p className="guided-brainstorm__empty">{labels.emptyCard}</p>
-        )}
-        <ul className="guided-brainstorm__checklist">
-          {checklist.map((item) => (
-            <li key={item.id} className={`guided-brainstorm__item guided-brainstorm__item--${item.status}`}>
-              <div className="guided-brainstorm__item-head">
-                <span className="guided-brainstorm__item-label">{labels.items[item.id]}</span>
-                <span className="guided-brainstorm__item-status">{labels.statuses[item.status]}</span>
-              </div>
-              {item.value ? <p className="guided-brainstorm__item-value">{item.value}</p> : null}
-              {shownTurn ? (
-                <button
-                  type="button"
-                  className="guided-brainstorm__item-edit"
-                  disabled={busy}
-                  onClick={() => editItem(item.id)}
-                >
-                  {labels.editItem}
-                </button>
+      {pasting ? (
+        <aside className="guided-brainstorm__card" aria-label={paste.previewTitle}>
+          <h3 className="guided-brainstorm__heading">{paste.previewTitle}</h3>
+          {rfc.markdown.trim() ? (
+            <div className="guided-brainstorm__rfc"><MarkdownView markdown={rfc.markdown} /></div>
+          ) : (
+            <p className="guided-brainstorm__empty">{paste.previewEmpty}</p>
+          )}
+        </aside>
+      ) : (
+        <aside className="guided-brainstorm__card" aria-label={labels.blueprintTitle}>
+          <h3 className="guided-brainstorm__heading">{labels.blueprintTitle}</h3>
+          {shownTurn?.offline && !shownTurn.error ? (
+            <p className="guided-brainstorm__offline" role="note">{labels.offlineNotice}</p>
+          ) : null}
+          {card?.title ? <p className="guided-brainstorm__title">{card.title}</p> : null}
+          {shownTurn ? (
+            <p className="guided-brainstorm__progress-text">
+              {labels.progress(progress.clear, progress.total)}
+              {progress.assumed > 0 ? labels.progressAssumed(progress.assumed) : ''}
+            </p>
+          ) : (
+            <p className="guided-brainstorm__empty">{labels.emptyCard}</p>
+          )}
+          <ul className="guided-brainstorm__checklist">
+            {checklist.map((item) => (
+              <li key={item.id} className={`guided-brainstorm__item guided-brainstorm__item--${item.status}`}>
+                <div className="guided-brainstorm__item-head">
+                  <span className="guided-brainstorm__item-label">{labels.items[item.id]}</span>
+                  <span className="guided-brainstorm__item-status">{labels.statuses[item.status]}</span>
+                </div>
+                {item.value ? <p className="guided-brainstorm__item-value">{item.value}</p> : null}
+                {shownTurn ? (
+                  <button
+                    type="button"
+                    className="guided-brainstorm__item-edit"
+                    disabled={busy}
+                    onClick={() => editItem(item.id)}
+                  >
+                    {labels.editItem}
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {shownTurn ? (
+            <>
+              <button
+                type="button"
+                className="guided-brainstorm__rfc-toggle"
+                aria-expanded={showRfc}
+                aria-controls={rfcId}
+                onClick={() => setShowRfc((value) => !value)}
+              >
+                {showRfc ? labels.hideRfc : labels.showRfc}
+              </button>
+              {showRfc ? (
+                <div id={rfcId} className="guided-brainstorm__rfc">
+                  <MarkdownView markdown={shownTurn.rfc_markdown} />
+                </div>
               ) : null}
-            </li>
-          ))}
-        </ul>
-        {shownTurn ? (
-          <>
-            <button
-              type="button"
-              className="guided-brainstorm__rfc-toggle"
-              aria-expanded={showRfc}
-              aria-controls={rfcId}
-              onClick={() => setShowRfc((value) => !value)}
-            >
-              {showRfc ? labels.hideRfc : labels.showRfc}
-            </button>
-            {showRfc ? (
-              <div id={rfcId} className="guided-brainstorm__rfc">
-                <MarkdownView markdown={shownTurn.rfc_markdown} />
-              </div>
-            ) : null}
-          </>
-        ) : null}
-        {assumptions.length > 0 ? (
-          <div className="guided-brainstorm__assumptions" role="note">
-            <p>{labels.assumptionsTitle}</p>
-            <ul>
-              {assumptions.map((item) => <li key={item.id}>{labels.items[item.id]}: {item.value}</li>)}
-            </ul>
-          </div>
-        ) : null}
-        {hint && !typing ? <p className="guided-brainstorm__hint">{hint}</p> : null}
-      </aside>
+            </>
+          ) : null}
+          {assumptions.length > 0 ? (
+            <div className="guided-brainstorm__assumptions" role="note">
+              <p>{labels.assumptionsTitle}</p>
+              <ul>
+                {assumptions.map((item) => <li key={item.id}>{labels.items[item.id]}: {item.value}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          {hint && !typing ? <p className="guided-brainstorm__hint">{hint}</p> : null}
+        </aside>
+      )}
     </div>
   );
 }

@@ -192,18 +192,6 @@ export interface RfcReadinessResult {
   detected_commands: string[];
 }
 
-export interface RfcBrainstormRequest {
-  goal: string;
-  constraints?: string;
-  acceptance_cmd?: string;
-  non_goals?: string;
-}
-
-export interface RfcBrainstormResult {
-  rfc_markdown: string;
-  readiness: RfcReadinessResult;
-}
-
 export interface DoctorRoleRequest {
   provider?: string;
   role?: string;

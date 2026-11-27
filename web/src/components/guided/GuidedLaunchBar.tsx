@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import type {
   ModelCatalogResponse, ProjectSize, RecommendedLineup, SavedLineupProfile,
-  WorkflowMode, WorkflowRecommendation,
+  WorkflowLineup, WorkflowMode, WorkflowRecommendation,
 } from '../../api/client';
 import { useI18n } from '../../i18n';
 import type { GuidedM3Messages, Locale } from '../../i18n/messages';
@@ -79,7 +79,7 @@ export function recommendationHeadline(recommendation: WorkflowRecommendation, c
   return fill(copy.headlines[code as Arrangement], { size: sizeWord(recommendation.size, copy) });
 }
 
-/** Up to three plain reasons in backend order (size and its basis, the arrangement, then notes), plus the lean-plan note for small projects. */
+/** Up to three plain reasons in backend order (size and its basis, the arrangement, then notes). */
 export function recommendationReasons(recommendation: WorkflowRecommendation, copy: RecommendationCopy): string[] {
   const codes = recommendation.explanation_codes.length
     ? recommendation.explanation_codes
@@ -92,9 +92,92 @@ export function recommendationReasons(recommendation: WorkflowRecommendation, co
     const template = copy.reasons[code as keyof RecommendationCopy['reasons']];
     return template ? fill(template, values) : null;
   }).filter((text): text is string => !!text);
-  const reasons = [...new Set(texts.length ? texts : [copy.unknownReason])].slice(0, MAX_REASONS);
-  // A small project gets a lean build plan whatever the team, so say so after the backend reasons.
-  return recommendation.size === 'small' ? [...reasons, copy.smallPlan] : reasons;
+  return [...new Set(texts.length ? texts : [copy.unknownReason])].slice(0, MAX_REASONS);
+}
+
+export type FlowReason = 'size_not_small' | 'panel_mode' | 'lean_flow_off' | 'no_verification_command';
+
+export interface LaunchFlow {
+  flow: 'lean' | 'full';
+  /** Why the lean flow is not used; null for a lean run. */
+  reason: FlowReason | null;
+  /** This run may switch between the lean and the full flow. */
+  switchable: boolean;
+}
+
+/** One plain sentence for the flow, and why the lean flow is not used. */
+export interface FlowLine {
+  text: string;
+  reason: string | null;
+}
+
+interface FlowRequest {
+  mode: WorkflowMode;
+  lineup: Pick<WorkflowLineup, 'size'>;
+  lean_flow?: boolean;
+}
+
+/**
+ * The flow the engine picks for this request: the checks of `workflow_recommend.plan_flow`, in its order.
+ * Null while no small recommendation has said whether the RFC has a check the gate can run as written.
+ */
+export function requestFlow(request: FlowRequest,
+  recommendation: Pick<WorkflowRecommendation, 'size' | 'flow'> | null): LaunchFlow | null {
+  if (request.lineup.size !== 'small') return { flow: 'full', reason: 'size_not_small', switchable: false };
+  if (request.mode === 'panel') return { flow: 'full', reason: 'panel_mode', switchable: false };
+  if (request.lean_flow === false) return { flow: 'full', reason: 'lean_flow_off', switchable: true };
+  if (recommendation?.size !== 'small' || !recommendation.flow) return null;
+  return recommendation.flow === 'lean'
+    ? { flow: 'lean', reason: null, switchable: true }
+    : { flow: 'full', reason: 'no_verification_command', switchable: false };
+}
+
+/** A revision keeps its parent's flow setting; an unknown flow says it is still being checked. */
+export function flowLine(flow: LaunchFlow | 'inherited' | null, size: ProjectSize | null | undefined,
+  copy: GuidedM3Messages): FlowLine {
+  if (flow === 'inherited') return { text: copy.launch.flowInherited, reason: null };
+  if (!flow) return { text: copy.launch.flowChecking, reason: null };
+  if (flow.flow === 'lean') return { text: copy.launch.flowLean, reason: null };
+  return {
+    text: size === 'small' ? copy.launch.flowFullSmall : copy.launch.flowFull,
+    reason: flow.reason ? copy.launch.flowWhy[flow.reason] : null,
+  };
+}
+
+/** The RFC title: its first line when that is a `# ` heading. */
+export function rfcTitle(markdown: string): string | null {
+  const first = markdown.split(/\r?\n/).find((line) => line.trim());
+  const match = first ? /^#\s+(.+)$/.exec(first.trim()) : null;
+  return match ? match[1].trim() : null;
+}
+
+export interface LaunchConfirmation {
+  title: string;
+  team: TeamRow[];
+  mode: string;
+  flow: FlowLine;
+  budget: string;
+  missingSections: string | null;
+}
+
+/** What the confirmation lists, rendered from the request the launch sends (or the saved pending one). */
+export function launchConfirmation(
+  request: FlowRequest & { rfc_markdown: string; lineup: Pick<WorkflowLineup, 'roles' | 'model_overrides' | 'size'> },
+  catalog: Catalog,
+  recommendation: Pick<WorkflowRecommendation, 'size' | 'flow'> | null,
+  context: { locale: Locale; copy: GuidedM3Messages; inherited: boolean; budget: string; missingSections: readonly string[] },
+): LaunchConfirmation {
+  const { locale, copy } = context;
+  const separator = locale === 'zh' ? '、' : ', ';
+  return {
+    title: rfcTitle(request.rfc_markdown) ?? copy.launch.untitled,
+    team: mergeTeamRows(teamRows(request.lineup, catalog, locale, copy.lineup.defaultModel), separator),
+    mode: request.mode === 'panel' ? copy.launch.modePanel : copy.recommendation.overnight,
+    flow: flowLine(context.inherited ? 'inherited' : requestFlow(request, recommendation), request.lineup.size, copy),
+    budget: context.budget,
+    missingSections: context.missingSections.length
+      ? fill(copy.launch.missingSections, { sections: context.missingSections.join(separator) }) : null,
+  };
 }
 
 /** Whether the panel switch can be turned on, and the plain reason when it cannot. */
@@ -133,6 +216,16 @@ export interface GuidedLaunchBarProps {
   onSaveProfile(name: string): Promise<void>;
   onDeleteProfile(profileId: string): Promise<void>;
   onLaunch(): void;
+  /** This run's flow in plain words (`requestFlow`, then `flowLine`). */
+  flow?: FlowLine;
+  /** The switch back to the full flow, given only while this run may switch. */
+  leanFlow?: { checked: boolean; onChange(checked: boolean): void } | null;
+  /** When set, the card lists what will take effect and asks to confirm in place of the start button. */
+  confirmation?: LaunchConfirmation | null;
+  onConfirm?(): void;
+  onCancelConfirm?(): void;
+  /** Opens the place where the project budget is changed. */
+  onOpenBudget?(): void;
 }
 
 /** The parent owns API calls, readiness, persisted choices, and launch idempotency. */
@@ -140,6 +233,7 @@ export function GuidedLaunchBar({
   recommendation, lineup, mode, previousSize, showSwitch, panelFailure, providers, catalog,
   profiles, pending, disabled, locked = false, profileError, onLineupChange, onModeChange,
   onSwitch, onDismissSwitch, onSaveProfile, onDeleteProfile, onLaunch,
+  flow, leanFlow, confirmation, onConfirm, onCancelConfirm, onOpenBudget,
 }: GuidedLaunchBarProps) {
   const { locale, messages } = useI18n();
   const copy = messages.guided.m3;
@@ -154,6 +248,7 @@ export function GuidedLaunchBar({
   const rows = mergeTeamRows(teamRows(lineup, catalog, locale, copy.lineup.defaultModel), locale === 'zh' ? '、' : ', ');
   const panel = panelToggleState(panelFailure, controlsDisabled);
   const choices = [...new Set([...providers, ...Object.values(lineup.roles)])];
+  const thisRunOnly = <span className="guided-launch-bar__scope">{copy.launch.thisRunOnly}</span>;
 
   // The card appears once the blueprint is first ready; bring it into view.
   useEffect(() => {
@@ -206,7 +301,7 @@ export function GuidedLaunchBar({
       ) : null}
 
       <details className="guided-launch-bar__drawer">
-        <summary>{copy.lineup.open}</summary>
+        <summary>{copy.lineup.open}{thisRunOnly}</summary>
         <p className="guided-launch-bar__drawer-note">{copy.lineup.description}</p>
         {Object.entries(lineup.roles).map(([role, provider]) => {
           const parsed = parseRoleSpec(lineup.model_overrides?.[role] ?? '', provider);
@@ -294,6 +389,21 @@ export function GuidedLaunchBar({
         {profileError ? <p role="alert" className="guided-launch-bar__panel-hint">{profileError}</p> : null}
       </details>
 
+      {flow ? (
+        <div className="guided-launch-bar__flow">
+          <p className="guided-launch-bar__flow-text">{flow.text}</p>
+          {flow.reason ? <p className="guided-launch-bar__panel-help">{flow.reason}</p> : null}
+          {leanFlow ? (
+            <label className="guided-launch-bar__panel-switch">
+              <input type="checkbox" role="switch" checked={leanFlow.checked} disabled={controlsDisabled}
+                onChange={(event) => leanFlow.onChange(event.currentTarget.checked)} />
+              <span className="guided-launch-bar__panel-title">{copy.launch.leanSwitch}</span>
+              {thisRunOnly}
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="guided-launch-bar__footer">
         <div className="guided-launch-bar__panel">
           <label className="guided-launch-bar__panel-switch">
@@ -301,6 +411,7 @@ export function GuidedLaunchBar({
               aria-describedby={panel.reason ? `${panelHelp} ${panelHint}` : panelHelp}
               onChange={(event) => onModeChange(event.currentTarget.checked ? 'panel' : 'overnight')} />
             <span className="guided-launch-bar__panel-title">{copy.recommendation.panel}</span>
+            {thisRunOnly}
           </label>
           <p id={panelHelp} className="guided-launch-bar__panel-help">{copy.recommendation.panelHelp}</p>
           {panel.reason ? (
@@ -315,10 +426,56 @@ export function GuidedLaunchBar({
             </p>
           ) : null}
         </div>
-        <button type="button" className="guided-launch-bar__launch" disabled={disabled || pending} onClick={onLaunch}>
-          {pending ? copy.launch.launching : copy.launch.action}
-        </button>
+        {confirmation ? null : (
+          <button type="button" className="guided-launch-bar__launch" disabled={disabled || pending} onClick={onLaunch}>
+            {pending ? copy.launch.launching : copy.launch.action}
+          </button>
+        )}
       </div>
+
+      {confirmation ? (
+        <section className="guided-launch-bar__confirm" aria-label={copy.launch.confirmTitle}>
+          <span className="guided-launch-bar__eyebrow">{copy.launch.confirmTitle}</span>
+          <dl className="guided-launch-bar__facts">
+            <dt>{copy.launch.confirmDocument}</dt>
+            <dd>{confirmation.title}</dd>
+            <dt>{copy.launch.confirmTeam}{thisRunOnly}</dt>
+            <dd>
+              <ul className="guided-launch-bar__confirm-team">
+                {confirmation.team.map((row) => (
+                  <li key={row.role}>{row.roleLabel}: {[row.tool, row.model, row.effort || '—'].join(' · ')}</li>
+                ))}
+              </ul>
+            </dd>
+            <dt>{copy.launch.confirmMode}{thisRunOnly}</dt>
+            <dd>{confirmation.mode}</dd>
+            <dt>{copy.launch.confirmFlow}{thisRunOnly}</dt>
+            <dd>
+              <p>{confirmation.flow.text}</p>
+              {confirmation.flow.reason ? <p>{confirmation.flow.reason}</p> : null}
+            </dd>
+            <dt>{copy.launch.confirmBudget}<span className="guided-launch-bar__scope">{copy.launch.projectDefault}</span></dt>
+            <dd>
+              {confirmation.budget}
+              {onOpenBudget ? (
+                <button type="button" className="guided-launch-bar__link" onClick={onOpenBudget}>{copy.launch.changeBudget}</button>
+              ) : null}
+            </dd>
+          </dl>
+          {confirmation.missingSections ? (
+            <p className="guided-launch-bar__confirm-warning" role="alert">{confirmation.missingSections}</p>
+          ) : null}
+          <div className="guided-launch-bar__confirm-actions">
+            <button type="button" className="guided-setup__button" disabled={pending} onClick={onCancelConfirm}>
+              {copy.launch.back}
+            </button>
+            <button type="button" className="guided-launch-bar__confirm-start" autoFocus disabled={disabled || pending}
+              onClick={onConfirm}>
+              {pending ? copy.launch.launching : copy.launch.confirm}
+            </button>
+          </div>
+        </section>
+      ) : null}
     </section>
   );
 }

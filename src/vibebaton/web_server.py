@@ -107,6 +107,7 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("PUT", re.compile(r"/api/guided/session"), "_put_guided_session"),
     ("POST", re.compile(r"/api/guided/session/reset"), "_post_guided_session_reset"),
     ("GET", re.compile(r"/api/guided/l0-models"), "_get_guided_l0_models"),
+    ("POST", re.compile(r"/api/guided/recommend"), "_post_guided_recommend"),
     ("POST", re.compile(r"/api/brainstorm/chat"), "_post_brainstorm_chat"),
     ("POST", re.compile(r"/api/brainstorm/confirm"), "_post_brainstorm_confirm"),
     ("GET", re.compile(r"/api/runs"), "_get_runs"),
@@ -2074,20 +2075,40 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                     )
                 if previous is None:
                     previous = _recommendation_base_lineup(session)
-            size = result.get("guide", {}).get("size")
-            basis = "model"
-            if size not in ("small", "medium", "large"):
-                size = estimate_project_size(result.get("rfc_markdown", ""), repo_is_empty=_repo_is_empty(repo))
-                basis = "estimated"
-            result["recommendation"] = _with_l0_choice(asdict(recommend_workflow(
-                size, readiness, previous_lineup=previous, size_basis=basis,
-            )), session["brainstorm"].get("selected_l0_model"), readiness)
-            recommendation = result["recommendation"]
-            # The flow the engine picks for this RFC when launched as recommended with the lean switch on.
-            recommendation["flow"], recommendation["flow_reason"] = plan_flow(
-                recommendation["size"], recommendation["mode"], result.get("rfc_markdown", ""),
+            result["recommendation"] = self._blueprint_recommendation(
+                repo, readiness, result.get("rfc_markdown", ""), result.get("guide", {}).get("size"),
+                previous, session["brainstorm"].get("selected_l0_model"),
             )
         self._send_json(200, result)
+
+    def _blueprint_recommendation(self, repo: Path, readiness: ReadinessSnapshot, rfc_markdown: str, size: object,
+                                  previous: dict[str, Any] | None, selected_l0: object) -> dict[str, Any]:
+        """The recommendation for a ready blueprint; the chat and the pasted-RFC lane share it."""
+        basis = "model"
+        if size not in ("small", "medium", "large"):
+            size = estimate_project_size(rfc_markdown, repo_is_empty=_repo_is_empty(repo))
+            basis = "estimated"
+        recommendation = _with_l0_choice(asdict(recommend_workflow(
+            size, readiness, previous_lineup=previous, size_basis=basis,
+        )), selected_l0, readiness)
+        # The flow the engine picks for this RFC when launched as recommended with the lean switch on.
+        recommendation["flow"], recommendation["flow_reason"] = plan_flow(
+            recommendation["size"], recommendation["mode"], rfc_markdown,
+        )
+        return recommendation
+
+    def _post_guided_recommend(self) -> None:
+        markdown = _text_field(self._read_json_body(), "rfc_markdown")
+        with self.server.config_lock:
+            repo, config = self.server.repo_path, self.server.loader.current
+        readiness = self._readiness(repo, config)
+        with _session_lock(repo):
+            session = _load_guided_session(repo)
+        recommendation = self._blueprint_recommendation(
+            repo, readiness, markdown, None, _recommendation_base_lineup(session),
+            session["brainstorm"].get("selected_l0_model"),
+        )
+        self._send_json(200, {"recommendation": recommendation, "readiness": check_rfc_readiness(markdown)})
 
     def _post_brainstorm_confirm(self) -> None:
         markdown = _text_field(self._read_json_body(), "rfc_markdown")

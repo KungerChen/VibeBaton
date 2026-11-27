@@ -159,6 +159,7 @@
 .guided-brainstorm__send,
 .guided-brainstorm__launch,
 .guided-brainstorm__rfc-toggle,
+.guided-brainstorm__entry-switch,
 .guided-brainstorm__retry,
 .guided-brainstorm__restart {
   padding: 0.5rem 0.9rem;
@@ -181,14 +182,37 @@
   cursor: not-allowed;
 }
 
-.guided-brainstorm__rfc-toggle {
+.guided-brainstorm__rfc-toggle,
+.guided-brainstorm__entry-switch {
   align-self: flex-start;
   border-color: var(--border);
   background: none;
   color: var(--muted-foreground);
 }
 
+.guided-brainstorm__entry-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.guided-brainstorm__paste {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* On the first screen the fast lane sits under the chat opening as a second way in. */
+.guided-brainstorm__paste--entry {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.guided-brainstorm__paste--entry .rfc-step__markdown {
+  min-height: 4.5rem;
+}
+
 .guided-brainstorm__input:focus-visible,
+.guided-brainstorm__entry-switch:focus-visible,
 .guided-brainstorm__scenario:focus-visible,
 .guided-brainstorm__option:focus-visible,
 .guided-brainstorm__item-edit:focus-visible,

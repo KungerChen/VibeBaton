@@ -84,7 +84,8 @@ test('launch requests accept the panel run mode', () => {
     model_overrides?: Record<string, string>;
     role_providers?: Record<string, string>;
   }>();
-  expectTypeOf<Parameters<BatonApiClient['startRun']>[0]>().toEqualTypeOf<LaunchRunRequest>();
+  // Every real run is a keyed Guided launch, so a retry after an uncertain result finds the same run.
+  expectTypeOf<Parameters<BatonApiClient['startRun']>[0]['launch_request_id']>().toEqualTypeOf<string>();
 });
 
 test('Stage 3 API types match local server payloads', () => {

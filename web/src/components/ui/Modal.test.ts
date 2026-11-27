@@ -30,7 +30,6 @@ describe('App Pro overlay gating', () => {
     expect(appSource).toContain("open={studioMode === 'pro' && transferModal === 'import'}");
     expect(appSource).toContain("open={studioMode === 'pro' && transferModal === 'export-recipe'}");
     expect(appSource).toContain("open={studioMode === 'pro' && transferModal === 'export-case'}");
-    expect(appSource).toContain("{studioMode === 'pro' && mode === 'local' && startRunOpen && (");
     expect(appSource).toContain("{studioMode === 'pro' && tourState.open && (");
   });
 });

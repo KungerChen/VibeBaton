@@ -324,10 +324,13 @@ export interface GuidedWorkbenchProps {
   onFollowRun(runId: string): void;
   /** Dismisses stale app-level alerts when the user starts a fresh guided session. */
   onResetSession?: () => void;
+  /** Opens the place where the project budget is changed (linked from the launch confirmation). */
+  onOpenBudget?: () => void;
 }
 
 /** Guided Mode shell: Workspace → Blueprint → Build (live canvas) → Sign-Off. */
-export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, onFollowRun, onResetSession }: GuidedWorkbenchProps) {
+export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, onFollowRun, onResetSession,
+  onOpenBudget }: GuidedWorkbenchProps) {
   const copy = MESSAGES[locale].guided;
   const [step, setStep] = useState<GuidedStep>('setup');
   const [lineup, setLineup] = useState<RecommendedLineup | null>(null);
@@ -435,7 +438,6 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
         index === payload.messages.length - 1 && message.role === 'user'
           ? { ...message, content: `${message.content}\n\n${failureText}` } : message) });
     },
-    brainstormConfirm: (rfc) => client.brainstormConfirm(rfc),
     startRun: (payload) => {
       if (!replanContext) return client.startRun(payload);
       if (!payload.launch_request_id || !payload.lineup || !payload.rfc_markdown || !payload.mode) {
@@ -780,6 +782,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
               guidedSession={guidedSession}
               onBusyChange={setChildBusy}
               allowReplanLaunch
+              onOpenBudget={onOpenBudget}
               projectPath={workspacePath}
               onLaunched={(launchedRunId) => {
                 setStaleRunId(null);

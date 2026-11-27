@@ -76,10 +76,37 @@ const GUIDED_M3_EN = {
     uncertain: 'The start result is unknown. Retry with the same request to check.',
     preflightFailed: 'The selected team is no longer ready. Review the available options.',
     activeRun: 'A build is already active.',
+    flowLean: 'Lean flow: one model builds it and another reviews it, with no separate planning step. The checks and your final sign-off still run.',
+    flowFull: 'Full flow: the work is planned first, then built and reviewed.',
+    flowFullSmall: 'Full flow: the work is planned first. Small projects are split into fewer tasks and skip the per-task review; the tests and the final check still run.',
+    flowWhy: {
+      size_not_small: 'The lean flow is only for small projects.',
+      panel_mode: 'The lean flow is not used while the specialist panel is on.',
+      no_verification_command: 'The lean flow needs a check command in the document that can run as written.',
+      lean_flow_off: 'You turned the lean flow off for this run.',
+    },
+    flowChecking: 'Checking which flow this run will use...',
+    flowInherited: 'A revision keeps the flow setting of the previous run.',
+    leanSwitch: 'Use the lean flow',
+    thisRunOnly: 'This run only',
+    projectDefault: 'Project default',
+    confirmTitle: 'Check what this run will use',
+    confirmDocument: 'Document',
+    untitled: 'Untitled document',
+    confirmTeam: 'Team',
+    confirmMode: 'How it runs',
+    modePanel: 'Specialist panel first, then automatic build',
+    confirmFlow: 'Flow',
+    confirmBudget: 'Budget',
+    budgetLoading: 'Loading...',
+    budgetUnavailable: 'Could not read the project budget.',
+    changeBudget: 'Change it in Pro mode',
+    missingSections: 'The document is missing these sections: {sections}. You can still start the build.',
+    back: 'Back',
   },
   lineup: {
     title: 'Team lineup',
-    description: 'Pick a tool, model and thinking effort for each role. A team you change here is kept for this project.',
+    description: 'Pick a tool, model and thinking effort for each role. Changes here apply to this run only; save the team below to reuse it.',
     open: 'Change team',
     close: 'Close team lineup',
     role: 'Role',
@@ -112,7 +139,6 @@ const GUIDED_M3_EN = {
     panelHelp: 'Before building, several AI specialists review the plan from different angles. Safer, but slower and uses more credits.',
     panelUnavailable: 'Not available right now: ',
     panelPartial: 'Some specialists are not ready ({names}); the panel would run with the others.',
-    smallPlan: 'Small projects are split into fewer tasks and skip the per-task review; the tests and the final check still run.',
     substitutions: 'Provider substitutions',
     previousTeam: 'Previous team retained',
     sizeChanged: 'Project size changed',
@@ -349,10 +375,37 @@ const GUIDED_M3_ZH: GuidedM3Messages = {
     uncertain: '启动结果尚不确定，请使用同一请求重试以确认。',
     preflightFailed: '所选团队已不再就绪，请检查可用选项。',
     activeRun: '已有施工正在进行。',
+    flowLean: '精简流程：一个模型施工、另一个模型审查，不单独做规划；检查和最后的验收照常进行。',
+    flowFull: '完整流程：先做规划，再施工和审查。',
+    flowFullSmall: '完整流程：先做规划。小项目会少拆任务、省去逐任务审校，测试和最终把关照常进行。',
+    flowWhy: {
+      size_not_small: '精简流程只用于小项目。',
+      panel_mode: '开着专家小组时不用精简流程。',
+      no_verification_command: '精简流程需要文档里有能直接运行的检查命令。',
+      lean_flow_off: '你为本次运行关掉了精简流程。',
+    },
+    flowChecking: '正在确认本次运行用哪种流程……',
+    flowInherited: '修订沿用上一次运行的流程设置。',
+    leanSwitch: '用精简流程',
+    thisRunOnly: '仅本次运行',
+    projectDefault: '项目默认',
+    confirmTitle: '核对本次运行将使用的设置',
+    confirmDocument: '文档',
+    untitled: '未命名文档',
+    confirmTeam: '团队',
+    confirmMode: '执行方式',
+    modePanel: '先专家小组，再自动施工',
+    confirmFlow: '流程',
+    confirmBudget: '预算',
+    budgetLoading: '正在读取……',
+    budgetUnavailable: '读不到项目预算。',
+    changeBudget: '去专业模式修改',
+    missingSections: '文档还缺这些章节：{sections}。仍可以开始施工。',
+    back: '返回',
   },
   lineup: {
     title: '团队阵容',
-    description: '为每个角色选择工具、型号和思考强度。在这里改过的团队会在这个项目里一直保留。',
+    description: '为每个角色选择工具、型号和思考强度。这里的改动只用于本次运行；想以后再用，可以在下面保存团队。',
     open: '调整团队',
     close: '关闭团队阵容',
     role: '角色',
@@ -385,7 +438,6 @@ const GUIDED_M3_ZH: GuidedM3Messages = {
     panelHelp: '开工前先请几位 AI 专家从不同角度审一遍计划，更稳妥，但更慢、更费额度。',
     panelUnavailable: '暂不可用：',
     panelPartial: '有专家还没就绪（{names}），开启后会由其余专家审阅。',
-    smallPlan: '小项目会少拆任务、省去逐任务审校，测试和最终把关照常进行。',
     substitutions: '供应方替换',
     previousTeam: '已保留原团队',
     sizeChanged: '项目规模已变化',
@@ -824,7 +876,6 @@ export interface Messages {
       specialist: string;
       synthesizer: string;
     };
-    modalStartTitle: string;
     modalReportTitle: string;
     reportRendered: string;
     reportRaw: string;
@@ -840,16 +891,10 @@ export interface Messages {
       overnight: string;
       interactive: string;
     };
-    modelOverridesLabel: string;
     cancel: string;
     startRun: string;
-    startingRun: string;
-    startTimeoutError: string;
     errors: {
-      enterRfcMarkdown: string;
       enterRelativePath: string;
-      invalidOverridesJson: string;
-      overridesMustMapStrings: string;
     };
     modalCloseAria: string;
   };
@@ -862,7 +907,6 @@ export interface Messages {
     replayLoaded: string;
     unknownPreset(id: string): string;
     savedRole(role: string, model: string): string;
-    runStarted(runId: string, pid: number): string;
     reportCopied: string;
   };
   quickStart: {
@@ -978,26 +1022,14 @@ export interface Messages {
   credentials: {
     title: string;
     keyLabels: Record<CredentialKey, string>;
-    maskedNote: string;
-    manualLoginNote: string;
     save: string;
     clear: string;
-    copyCommand: string;
-    copyCommandHint: string;
   };
   wizard: {
-    steps: {
-      preflight: string;
-      brainstorm: string;
-      launch: string;
-    };
     fields: {
       goal: string;
       constraints: string;
-      verificationCommand: string;
-      nonGoals: string;
     };
-    generateRfc: string;
     readinessScore(score: number): string;
     warnings: {
       title: string;
@@ -1009,26 +1041,7 @@ export interface Messages {
       shortGoal: string;
       unnumberedAcceptance: string;
     };
-    skipBrainstorm: string;
-    skipWarning: {
-      title: string;
-      body: string;
-      confirm: string;
-      cancel: string;
-    };
-    switchToReadyPreset: string;
     runModes: Record<'overnight' | 'interactive', string>;
-    runModeTitle: string;
-    launchModes: Record<'overnight' | 'panel', { label: string; desc: string }>;
-    startRealRun: string;
-    launchSummary: {
-      title: string;
-      budgetLabel: string;
-      concurrencyLabel(cap: number): string;
-      rolesTitle: string;
-      guardsTitle: string;
-      guards: readonly string[];
-    };
   };
   guided: {
     m3: GuidedM3Messages;
@@ -1158,6 +1171,20 @@ export interface Messages {
       showRfc: string;
       hideRfc: string;
     };
+    /** The Blueprint fast lane for people who already have their RFC written. */
+    pasteRfc: {
+      title: string;
+      hint: string;
+      switchToPaste: string;
+      switchToChat: string;
+      previewTitle: string;
+      previewEmpty: string;
+      recommending: string;
+      recommendFailed: string;
+      retry: string;
+      dropTooLarge: string;
+      dropNotText: string;
+    };
     nodeDetail: {
       title: string;
       summary: string;
@@ -1220,6 +1247,7 @@ export interface Messages {
       rollbackRequiresCompleted: string;
       rollbackMovedPastMerge: string;
       emptyReviseNote: string;
+      requestTimedOut: string;
     };
   };
   glossary: {
@@ -1518,7 +1546,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       taskDetailLastError: 'Latest Gate / Error Note',
       taskDetailEvents: 'Task Audit Events',
       taskDetailNoEvents: 'No task-specific audit events recorded.',
-      startRealRun: '▶ Start Real Run',
+      startRealRun: 'Go to Guided mode to start a run',
       battleReport: 'Battle Report',
       pauseRun: 'Pause',
       resumeRun: 'Resume',
@@ -1570,7 +1598,6 @@ export const MESSAGES: Record<Locale, Messages> = {
         specialist: 'Specialist',
         synthesizer: 'Synthesizer',
       },
-      modalStartTitle: 'Start Real Run',
       modalReportTitle: 'Battle Report',
       reportRendered: 'Rendered',
       reportRaw: 'Raw Markdown',
@@ -1586,16 +1613,10 @@ export const MESSAGES: Record<Locale, Messages> = {
         overnight: 'overnight',
         interactive: 'interactive',
       },
-      modelOverridesLabel: 'Model overrides JSON (optional)',
       cancel: 'Cancel',
       startRun: 'Start Run',
-      startingRun: 'Starting…',
-      startTimeoutError: 'Start request timed out — close this dialog and check the Live Run panel to see if the run started.',
       errors: {
-        enterRfcMarkdown: 'Enter RFC markdown.',
         enterRelativePath: 'Enter a path relative to the repository.',
-        invalidOverridesJson: 'Enter valid JSON for model overrides.',
-        overridesMustMapStrings: 'Model overrides must map role names to model strings.',
       },
       modalCloseAria: 'Close dialog',
     },
@@ -1608,7 +1629,6 @@ export const MESSAGES: Record<Locale, Messages> = {
       replayLoaded: 'Stage 1 Real Run (v0.2.0 · 107m @ 60×) loaded',
       unknownPreset: (id) => `Unknown preset '${id}'`,
       savedRole: (role, model) => `Saved ${role} -> ${model} (hot-reloaded)`,
-      runStarted: (runId, pid) => `Run ${runId} started (pid ${pid})`,
       reportCopied: 'Battle report copied to clipboard',
     },
     quickStart: {
@@ -1642,8 +1662,8 @@ export const MESSAGES: Record<Locale, Messages> = {
           summary: 'Go from an idea to verified code cleanly from either the Studio UI or Windows PowerShell.',
           points: [
             'Step 1 — Pick a Budget & Preset: Choose Eco, Balanced, or Max Quality and select a green "Ready on Host" workflow on the left.',
-            'Step 2 — Click "Start Real Run": Check local CLI tools and API keys in Step 1, then run interactive Brainstorm/RFC checks in Step 2.',
-            'Step 3 — Confirm Division & Guards: Review each role model and built-in safety guards in Step 3 before launching.',
+            'Step 2 — Click "Go to Guided mode to start a run": Guided mode checks the workspace and your local tools, then you describe the project in a chat or paste a finished RFC.',
+            'Step 3 — Confirm Team, Flow & Budget: The launch card lists the document, each role\'s tool and model, the flow and the project budget; check them, then confirm to start.',
             'Step 4 — Watch Live Canvas Sync: Click the top-left "Live Run Workflow" card to see live tasks glow in real time.',
             'Step 5 — Inspect Battle Report & Sign Off: Check Stage Timing, Model Runtime, and approve L0 merge only when tests pass.',
           ],
@@ -1724,9 +1744,9 @@ export const MESSAGES: Record<Locale, Messages> = {
           hint: 'Open the highlighted tab to view the trace.',
         },
         'start-real-run-btn': {
-          title: 'Start Real Run',
-          description: 'The launch wizard checks local readiness and guides you through the RFC and run settings.',
-          hint: 'Click Start Real Run to open the wizard.',
+          title: 'Start a Run',
+          description: 'Runs start in Guided mode, which shows the team, flow and budget for you to confirm before anything starts.',
+          hint: 'Click the button to go to Guided mode.',
         },
         'header-controls': {
           title: 'Studio Controls',
@@ -1739,7 +1759,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       relayCaption: 'The four-tier relay from planning to final approval.',
       relayAria: 'The user sets the goal, the planner defines tasks, DSH workers implement them, and mechanical checks and code review precede final user approval.',
       guidedFlowCaption: 'From budget and recipe selection to the run report.',
-      guidedFlowAria: 'Choose a budget and recipe, complete the guarded launch wizard, follow the live run on the canvas, and review the bilingual report before final approval.',
+      guidedFlowAria: 'Choose a budget and recipe, start the run from Guided mode after checking its team and flow, follow the live run on the canvas, and review the bilingual report before final approval.',
       sandboxCaption: 'Parallel worktrees and path whitelist checks protect the main branch.',
       sandboxAria: 'Workers edit in isolated Git worktrees. The path whitelist guard reverts out-of-scope changes, and merges to the main branch require final approval.',
       l0User: 'L0 (User)',
@@ -1749,7 +1769,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       l2Reviewer: 'L2 Reviewer',
       finalMerge: 'L0 Final Merge',
       budgetRecipe: 'Budget + Recipe',
-      wizardGuards: '3-Step Wizard + Guards',
+      wizardGuards: 'Guided Launch + Confirm',
       liveSync: 'Live Run + Canvas Sync',
       bilingualReport: 'Bilingual Report + L0 Sign-Off',
       worktrees: 'Isolated Git Worktrees',
@@ -1833,26 +1853,14 @@ export const MESSAGES: Record<Locale, Messages> = {
         OPENCODE_API_KEY: 'DSH Gateway Key',
         ANTHROPIC_API_KEY: 'Anthropic API Key',
       },
-      maskedNote: 'Saved keys stay on this host outside the repository. Configured keys appear masked.',
-      manualLoginNote: 'Sign in to Claude, Codex, and other subscription CLIs manually in your terminal.',
       save: 'Save',
       clear: 'Clear',
-      copyCommand: 'Copy Command',
-      copyCommandHint: 'Copy this command and run it in your terminal.',
     },
     wizard: {
-      steps: {
-        preflight: 'Preflight & Credentials',
-        brainstorm: 'Brainstorm / RFC',
-        launch: 'Launch',
-      },
       fields: {
         goal: 'Goal',
         constraints: 'Constraints',
-        verificationCommand: 'Verification Command',
-        nonGoals: 'Non-goals',
       },
-      generateRfc: 'Generate RFC',
       readinessScore: (score) => `Readiness Score · ${score}/100`,
       warnings: {
         title: 'Warnings',
@@ -1864,39 +1872,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         shortGoal: 'Write a goal of at least 40 characters.',
         unnumberedAcceptance: 'Number the acceptance criteria.',
       },
-      skipBrainstorm: 'Skip Brainstorm',
-      skipWarning: {
-        title: 'Skip Brainstorm with an incomplete RFC?',
-        body: 'The RFC is missing required sections. Continuing may leave tasks without clear instructions or verification steps.',
-        confirm: 'Skip Anyway',
-        cancel: 'Cancel',
-      },
-      switchToReadyPreset: 'Switch to a Ready Preset',
       runModes: { overnight: 'Overnight', interactive: 'Interactive' },
-      runModeTitle: 'Run Mode',
-      launchModes: {
-        overnight: {
-          label: 'Overnight Pipeline',
-          desc: 'Plan, execute, and review the RFC unattended.',
-        },
-        panel: {
-          label: 'Specialist Panel + Execute',
-          desc: 'Specialists review the RFC in parallel and a synthesizer merges a master spec before the pipeline runs.',
-        },
-      },
-      startRealRun: 'Start Real Run',
-      launchSummary: {
-        title: 'Role Division & Safety Guards',
-        budgetLabel: 'Active Budget Profile',
-        concurrencyLabel: (cap) => `max ${cap} parallel`,
-        rolesTitle: 'Active Role Dispatch',
-        guardsTitle: 'Built-In Runtime Guards',
-        guards: [
-          'Quota Cooldown: 429 limits isolate only the throttled provider and keep sibling workers moving.',
-          'Path Whitelist Guard: Changes outside allowed_files inside Git worktrees revert automatically.',
-          'Human Final Gate: Completed milestones wait on dev for L0 approval before touching main.',
-        ],
-      },
     },
     guided: {
       m3: GUIDED_M3_EN,
@@ -2037,6 +2013,19 @@ export const MESSAGES: Record<Locale, Messages> = {
         showRfc: 'Show technical document',
         hideRfc: 'Hide technical document',
       },
+      pasteRfc: {
+        title: 'Already have a written plan (an RFC)? Paste it here',
+        hint: 'Paste or type the whole document, or drop a .md or .txt file onto the box. It is checked as you go; no chat needed.',
+        switchToPaste: 'Paste an RFC instead',
+        switchToChat: 'Describe it in a chat instead',
+        previewTitle: 'Preview',
+        previewEmpty: 'Your document shows here as you paste or type it.',
+        recommending: 'Working out the team for this document...',
+        recommendFailed: 'Could not work out the team for this document.',
+        retry: 'Try again',
+        dropTooLarge: 'This file is too large. Drop a text file under 256 KB.',
+        dropNotText: 'Only text files (.md or .txt) can be dropped here.',
+      },
       nodeDetail: {
         title: 'Task Details',
         summary: 'What happened',
@@ -2119,6 +2108,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         rollbackRequiresCompleted: 'Rollback is available only right after a merge approval.',
         rollbackMovedPastMerge: 'Your main branch already has newer commits after this merge, so automatic rollback stopped safely.',
         emptyReviseNote: 'Please write a short note telling the team what to change.',
+        requestTimedOut: 'The request got no answer in time.',
       },
     },
     glossary: {
@@ -2415,7 +2405,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       taskDetailLastError: '最近门禁 / 异常记录',
       taskDetailEvents: '该任务审计事件',
       taskDetailNoEvents: '暂无该任务的专项审计事件。',
-      startRealRun: '▶ 启动真实运行',
+      startRealRun: '去引导模式开始运行',
       battleReport: '战报',
       pauseRun: '暂停',
       resumeRun: '恢复',
@@ -2467,7 +2457,6 @@ export const MESSAGES: Record<Locale, Messages> = {
         specialist: '会诊专家',
         synthesizer: '综合裁决',
       },
-      modalStartTitle: '启动真实运行',
       modalReportTitle: '战报详情',
       reportRendered: '渲染视图',
       reportRaw: '原始 Markdown',
@@ -2483,16 +2472,10 @@ export const MESSAGES: Record<Locale, Messages> = {
         overnight: '通宵无人值守',
         interactive: '交互式',
       },
-      modelOverridesLabel: '模型覆盖 JSON（可选）',
       cancel: '取消',
       startRun: '立即启动',
-      startingRun: '启动中…',
-      startTimeoutError: '启动请求超时 —— 请关闭弹窗并在右侧「实时运行」中确认是否已创建运行。',
       errors: {
-        enterRfcMarkdown: '请输入 RFC Markdown 内容。',
         enterRelativePath: '请输入相对于仓库根目录的路径。',
-        invalidOverridesJson: '请输入有效的 JSON 模型覆盖配置。',
-        overridesMustMapStrings: '模型覆盖配置必须为“角色名: 模型名”的字符串映射。',
       },
       modalCloseAria: '关闭弹窗',
     },
@@ -2505,7 +2488,6 @@ export const MESSAGES: Record<Locale, Messages> = {
       replayLoaded: '已加载一期真实自举回放（v0.2.0 · 107 分钟 @ 60×）',
       unknownPreset: (id) => `未知预置工作流 '${id}'`,
       savedRole: (role, model) => `已保存 ${role} → ${model}（热重载生效）`,
-      runStarted: (runId, pid) => `运行 ${runId} 已启动（进程 ${pid}）`,
       reportCopied: '已复制战报 Markdown 到剪贴板',
     },
     quickStart: {
@@ -2536,11 +2518,11 @@ export const MESSAGES: Record<Locale, Messages> = {
         },
         {
           title: '2. 五步跑通首次真实任务',
-          summary: '无需记忆复杂命令，跟随侧边栏和向导弹窗五步就能启动一个安全的通宵或交互任务。',
+          summary: '无需记忆复杂命令，跟随侧边栏和引导模式五步就能启动一个安全的通宵或交互任务。',
           points: [
             '第 1 步（选预算与绿色预设）：左侧选择「节省 / 均衡 / 质量优先」预算档位，挑一个显示绿色「本机就绪」的工作流。',
-            '第 2 步（点开「启动真实运行」）：第 1 页核对本机 CLI 与 API 密钥是否就绪；第 2 页用结构化表单一键生成并体检 RFC 需求文档。',
-            '第 3 步（核对分工与安全护栏）：第 3 页确认各个角色对应的模型与并发上限、429 冷却保护与路径白名单守卫后再发车。',
+            '第 2 步（点「去引导模式开始运行」）：引导模式先核对工作区和本机工具是否就绪，然后用对话说清需求，或者直接粘贴写好的 RFC。',
+            '第 3 步（核对团队、流程和预算）：发车卡会列出文档、每个角色用的工具和型号、本次流程和项目预算，核对无误后再确认启动。',
             '第 4 步（画布实时同步看板）：发车或已有运行后，点击左上角「实时运行工作流」卡片，中间画布会实时亮起每个里程碑和任务节点。',
             '第 5 步（查看战报与 L0 终审合入）：任务收官后可点开中文战报、阶段耗时、模型耗时与单任务审计详情，确认无误后再合并主分支。',
           ],
@@ -2621,9 +2603,9 @@ export const MESSAGES: Record<Locale, Messages> = {
           hint: '打开高亮标签页查看轨迹。',
         },
         'start-real-run-btn': {
-          title: '启动真实运行',
-          description: '启动向导检查本机就绪状态，并引导你确认 RFC 和运行设置。',
-          hint: '点击「启动真实运行」打开向导。',
+          title: '开始运行',
+          description: '运行都从引导模式开始，开工前会列出团队、流程和预算让你确认。',
+          hint: '点击这个按钮前往引导模式。',
         },
         'header-controls': {
           title: '工作台控件',
@@ -2636,7 +2618,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       relayCaption: '从任务规划到人工终审的四层协作流程。',
       relayAria: '用户确定目标，规划师拆分任务，DSH 执行节点实现需求，机械门禁和代码审校通过后由用户终审合并。',
       guidedFlowCaption: '从选择预算和工作流到查看战报。',
-      guidedFlowAria: '选择预算和工作流，完成带护栏的启动向导，在画布上跟踪实时运行，最后查看双语战报并签字。',
+      guidedFlowAria: '选择预算和工作流，在引导模式里核对团队和流程后发车，在画布上跟踪实时运行，最后查看双语战报并签字。',
       sandboxCaption: '并行工作树与路径白名单保护主分支。',
       sandboxAria: '执行节点在隔离的 Git 工作树中修改代码，路径白名单回退越界改动，合入主分支前须通过人工终审。',
       l0User: 'L0 用户',
@@ -2646,7 +2628,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       l2Reviewer: 'L2 审校',
       finalMerge: 'L0 终审合并',
       budgetRecipe: '预算与工作流',
-      wizardGuards: '三步向导与护栏',
+      wizardGuards: '引导发车与确认',
       liveSync: '实时运行与画布同步',
       bilingualReport: '双语战报与 L0 签字',
       worktrees: '隔离的 Git 工作树',
@@ -2730,26 +2712,14 @@ export const MESSAGES: Record<Locale, Messages> = {
         OPENCODE_API_KEY: 'DSH 网关密钥',
         ANTHROPIC_API_KEY: 'Anthropic API 密钥',
       },
-      maskedNote: '密钥保存在本机的用户目录中。已配置的密钥会脱敏显示。',
-      manualLoginNote: 'Claude 和 Codex 等订阅命令行工具需在终端中手动登录。',
       save: '保存',
       clear: '清除',
-      copyCommand: '复制命令',
-      copyCommandHint: '复制此命令并在终端中执行。',
     },
     wizard: {
-      steps: {
-        preflight: '运行前检查与凭据',
-        brainstorm: '头脑风暴与 RFC',
-        launch: '启动',
-      },
       fields: {
         goal: '目标',
         constraints: '约束',
-        verificationCommand: '验证命令',
-        nonGoals: '非目标',
       },
-      generateRfc: '生成 RFC',
       readinessScore: (score) => `就绪评分 · ${score}/100`,
       warnings: {
         title: '警告',
@@ -2761,39 +2731,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         shortGoal: '请将目标扩写至至少 40 个字符。',
         unnumberedAcceptance: '请为每条验收标准编号。',
       },
-      skipBrainstorm: '跳过头脑风暴',
-      skipWarning: {
-        title: 'RFC 尚未完整，仍要跳过头脑风暴？',
-        body: '此 RFC 缺少必需章节。继续执行时，任务要求或验证步骤可能不够明确。',
-        confirm: '仍然跳过',
-        cancel: '取消',
-      },
-      switchToReadyPreset: '切换到已就绪的预设',
       runModes: { overnight: '通宵无人值守', interactive: '交互式' },
-      runModeTitle: '运行模式',
-      launchModes: {
-        overnight: {
-          label: '通宵流水线',
-          desc: '无人值守地完成 RFC 的规划、执行与评审。',
-        },
-        panel: {
-          label: '专家会诊 + 执行',
-          desc: '多位专家并行审阅 RFC，由综合裁决者汇总成主规格后再进入执行流水线。',
-        },
-      },
-      startRealRun: '启动真实运行',
-      launchSummary: {
-        title: '模型分工与安全护栏',
-        budgetLabel: '当前预算档位',
-        concurrencyLabel: (cap) => `最大并发 ${cap}`,
-        rolesTitle: '当前角色分工',
-        guardsTitle: '内置安全与自愈机制',
-        guards: [
-          '配额防线：触发 429 限流仅冷却对应供应方并支持回退接力，不拖垮全局。',
-          '路径白名单物理守卫：Git Worktree 中越界改动在合入前自动拦截回滚。',
-          '人类 L0 终审门禁：全部里程碑仅先合入 dev，待人工终审确认后再合并主干。',
-        ],
-      },
     },
     guided: {
       m3: GUIDED_M3_ZH,
@@ -2934,6 +2872,19 @@ export const MESSAGES: Record<Locale, Messages> = {
         showRfc: '查看技术文档',
         hideRfc: '收起技术文档',
       },
+      pasteRfc: {
+        title: '已经写好方案（RFC）了？直接粘贴在这里',
+        hint: '粘贴或直接输入完整文档，也可以把 .md 或 .txt 文件拖进框里。边输入边检查，不用对话。',
+        switchToPaste: '改为粘贴 RFC',
+        switchToChat: '改为对话描述',
+        previewTitle: '预览',
+        previewEmpty: '粘贴或输入后，文档会显示在这里。',
+        recommending: '正在为这份文档安排团队……',
+        recommendFailed: '没能为这份文档安排团队。',
+        retry: '重试',
+        dropTooLarge: '文件太大了，请拖入 256 KB 以内的文本文件。',
+        dropNotText: '这里只能拖入文本文件（.md 或 .txt）。',
+      },
       nodeDetail: {
         title: '任务详情',
         summary: '发生了什么',
@@ -3016,6 +2967,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         rollbackRequiresCompleted: '只有在刚批准并合并后才能执行回滚。',
         rollbackMovedPastMerge: '主分支在本次合并后已有新提交，为保护后续改动，系统已停止自动回滚。',
         emptyReviseNote: '请先填写需要团队修改的内容。',
+        requestTimedOut: '请求超时，没有等到回应。',
       },
     },
     glossary: {

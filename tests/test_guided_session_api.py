@@ -646,6 +646,70 @@ class TestGuidedSessionApi(GuidedApiTestCase):
                 other = recommend(self.LEAN_RFC, size)
                 self.assertEqual((other["flow"], other["flow_reason"]), ("full", "size_not_small"))
 
+    def test_pasted_rfc_gets_the_same_recommendation_as_the_chat(self) -> None:
+        def chat(rfc: str) -> dict:
+            guide = {"question": "", "options": [], "checklist": []}  # no size from the model
+            reply = "Ready.\n```guide\n" + json.dumps(guide) + "\n```\n````rfc\n" + rfc + "````\n"
+            with patch.object(brainstorm, "_provider_dispatch",
+                              return_value=lambda _: ("codex_sub", "gpt-6.2-astra@high", reply)):
+                status, body = self._post("/api/brainstorm/chat", {"messages": self.MESSAGE})
+            self.assertEqual(status, 200, body)
+            return body["recommendation"]
+
+        def recommend(rfc: str) -> dict:
+            status, body = self._post("/api/guided/recommend", {"rfc_markdown": rfc})
+            self.assertEqual(status, 200, body)
+            self.assertEqual(body["readiness"], web_server.check_rfc_readiness(rfc))
+            return body["recommendation"]
+
+        (self.repo / "app.py").write_text("print('hi')\n", encoding="utf-8")  # an existing project
+        lean = recommend(self.LEAN_RFC)
+        self.assertEqual(lean["explanation_codes"][:2], ["size_estimated", "small_eco"])
+        self.assertEqual((lean["flow"], lean["flow_reason"]), ("lean", "small_rfc_has_verification"))
+        self.assertEqual(lean, chat(self.LEAN_RFC))
+        prose = recommend(self.RFC)  # the check is only named in prose
+        self.assertEqual((prose["flow"], prose["flow_reason"]), ("full", "no_verification_command"))
+        large = self.LEAN_RFC.replace("- Provide a health endpoint.\n", "".join(f"- Goal {n}.\n" for n in range(6)))
+        bigger = recommend(large)
+        self.assertEqual((bigger["size"], bigger["flow"], bigger["flow_reason"]), ("large", "full", "size_not_small"))
+        self.assertEqual(bigger, chat(large))
+        # The L0 pick and a hand-edited team go through the same path as the chat.
+        self.put_session({"brainstorm": {"selected_l0_model": "codex_sub:gpt-6.2-astra@high"}})
+        picked = recommend(self.LEAN_RFC)["lineup"]["model_overrides"]["brainstorm_and_final_gate"]
+        self.assertEqual(picked, "codex_sub:gpt-6.2-astra@high")
+        custom = {**self.lineup(), "customized": True}
+        self.put_session({"workflow": {"lineup": custom}})
+        kept = recommend(self.LEAN_RFC)
+        self.assertEqual(kept["reason_code"], "custom_lineup_kept")
+        self.assertEqual(kept["lineup"]["model_overrides"], custom["model_overrides"])
+
+    def test_pasted_rfc_recommendation_needs_text_and_changes_nothing(self) -> None:
+        before = self.get_session()
+        for payload in ({}, {"rfc_markdown": "   "}, {"rfc_markdown": 42}, {"rfc_markdown": None}):
+            with self.subTest(payload=payload):
+                status, body = self._post("/api/guided/recommend", payload)
+                self.assertEqual(status, 400, body)
+        status, body = self._post("/api/guided/recommend", {"rfc_markdown": self.RFC})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.get_session(), before)
+        self.assertEqual((self.store.list_runs(), self.spawn_calls), ([], []))
+        with patch("vibebaton.cli_registry.scan_host_clis", side_effect=OSError("scan failed")):
+            status, body = self._post("/api/guided/recommend", {"rfc_markdown": self.RFC})
+        self.assertEqual((status, body["code"]), (500, "READINESS_UNAVAILABLE"))
+
+    def test_fast_lane_choices_are_kept_in_the_session(self) -> None:
+        status, body = self.put_session({
+            "brainstorm": {"guided_entry": "paste", "guided_pasted_rfc": self.RFC},
+            "workflow": {"guided_lean_flow": False},
+        })
+        self.assertEqual(status, 200, body)
+        self.server.shutdown()
+        self.base = self.start_server(self._create_server())
+        session = self.get_session()
+        self.assertEqual((session["brainstorm"]["guided_entry"], session["brainstorm"]["guided_pasted_rfc"]),
+                         ("paste", self.RFC))
+        self.assertIs(session["workflow"]["guided_lean_flow"], False)
+
     def test_duplicate_key_recovers_one_run_and_one_session_across_servers(self) -> None:
         other = self.start_server(self._create_server())
         payload = {"rfc_markdown": self.RFC, "launch_request_id": "same-key", "lineup": self.lineup()}

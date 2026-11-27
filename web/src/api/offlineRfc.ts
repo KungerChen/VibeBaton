@@ -1,4 +1,4 @@
-import type { RfcBrainstormRequest, RfcBrainstormResult, RfcReadinessResult } from '../types/graph';
+import type { RfcReadinessResult } from '../types/graph';
 
 // Keep the scoring, section aliases, and command families aligned with rfc_checker.py.
 const SECTIONS = [
@@ -224,31 +224,4 @@ export function checkRfcReadiness(rfcMarkdown: string): RfcReadinessResult {
     warnings,
     detected_commands: detectedCommands,
   };
-}
-
-export function generateStructuredRfc({
-  goal,
-  constraints = '',
-  acceptance_cmd = '',
-  non_goals = '',
-}: RfcBrainstormRequest): RfcBrainstormResult {
-  const command = acceptance_cmd.trim();
-  let acceptance = 'TODO: add numbered acceptance criteria and a concrete verification command.';
-  if (command) {
-    let fenceLength = 3;
-    for (const [backticks] of command.matchAll(/`{3,}/g)) {
-      fenceLength = Math.max(fenceLength, backticks.length + 1);
-    }
-    const fence = '`'.repeat(fenceLength);
-    acceptance = `1. The verification command exits successfully.\n\n${fence}bash\n${command}\n${fence}`;
-  }
-  const rfc_markdown = [
-    '# RFC', '',
-    '## Goal', '', goal.trim(), '',
-    '## Constraints', '', constraints.trim(), '',
-    '## Non-goals', '', non_goals.trim(), '',
-    '## Acceptance Criteria', '', acceptance, '',
-  ].join('\n');
-
-  return { rfc_markdown, readiness: checkRfcReadiness(rfc_markdown) };
 }

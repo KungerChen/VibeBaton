@@ -170,6 +170,7 @@ const recommendation = { mode: 'overnight' as const, preset: null, size: 'medium
   lineup: { roles: lineup.roles, model_overrides: {}, size: 'medium' as const },
   reason_code: 'medium_relay', explanation_key: 'workflow.medium_relay', fallback: false,
   size_changed: null, explanation_codes: ['medium_relay'], substitutions: [] };
+const pastedReadiness = { score: 100, safe_for_overnight: true, missing_sections: [], warnings: [], detected_commands: ['npm test'] };
 function turn(draft: string): BrainstormTurnResult {
   return { reply: 'Blueprint ready', rfc_markdown: draft, provider_used: 'codex', offline: false, error: null,
     blueprint: { title: 'Project', summary: 'Summary', deliverables: [], touched_areas: [], verification_plan: [],
@@ -209,7 +210,11 @@ function fakeServer(initial: GuidedSession) {
     getModelCatalog: vi.fn(async () => { throw new Error('use built-in catalog'); }),
     getLineupProfiles: vi.fn(async () => ({ profiles: [], last_used: null })),
     saveLastUsedLineup: vi.fn(async () => ({ profiles: [], last_used: null })),
-    saveLineupProfile: vi.fn(), deleteLineupProfile: vi.fn(), brainstormConfirm: vi.fn(),
+    saveLineupProfile: vi.fn(), deleteLineupProfile: vi.fn(),
+    getRolesConfig: vi.fn(async () => ({ budget_profile: 'balanced' })),
+    checkRfc: vi.fn(async () => pastedReadiness),
+    recommendBlueprint: vi.fn(async () => ({ recommendation: { ...recommendation, flow: 'full', flow_reason: 'size_not_small' },
+      readiness: pastedReadiness })),
     brainstormChat: vi.fn(async (payload: { messages: { role: string; content: string }[] }) => {
       const result = turn('# Revised blueprint');
       saved.brainstorm = { ...saved.brainstorm, messages: [...payload.messages, { role: 'assistant', content: result.reply }] as GuidedSession['brainstorm']['messages'],
@@ -300,6 +305,11 @@ describe('mounted four-stage loop', () => {
     expect(propsOf(node).disabled).not.toBe(true);
     await act(async () => { (propsOf(node).onClick as () => void)(); });
   }
+  /** Starting a build is two clicks: the start button, then the confirmation. */
+  async function launchAndConfirm() {
+    await click(byClass('guided-launch-bar__launch'));
+    await click(byClass('guided-launch-bar__confirm-start'));
+  }
   async function submitRevision(text: string) {
     const input = byClass('guided-brainstorm__input');
     await act(async () => { (propsOf(input).onChange as (event: unknown) => void)({ target: { value: text }, currentTarget: { value: text } }); });
@@ -340,8 +350,10 @@ describe('mounted four-stage loop', () => {
     await mount();
     const launch = byClass('guided-launch-bar__launch');
     expect(propsOf(launch).disabled).toBe(false);
+    await click(launch);
+    expect(server.calls.startRun).not.toHaveBeenCalled();
     await act(async () => {
-      const onClick = propsOf(launch).onClick as () => void; onClick(); onClick();
+      const onClick = propsOf(byClass('guided-launch-bar__confirm-start')).onClick as () => void; onClick(); onClick();
     });
     expect(server.calls.startRun).toHaveBeenCalledOnce();
     expect(server.saved().active_run_id).toBe('run-1');
@@ -364,13 +376,52 @@ describe('mounted four-stage loop', () => {
       server.setSaved(latest);
       return { run_id: 'run-1', daemon_pid: 1, status: 'STARTED' };
     });
-    await mount(); await click(byClass('guided-launch-bar__launch'));
+    await mount(); await launchAndConfirm();
     expect(server.saved().active_run_id).toBeNull();
     expect(server.saved().workflow.guided_pending_launch).toBeTruthy();
     await unmount(); await mount();
-    await click(byClass('guided-launch-bar__launch'));
+    await launchAndConfirm();
     const keys = server.calls.startRun.mock.calls.map(([payload]) => payload.launch_request_id);
     expect(keys).toEqual(['launch-key', 'launch-key']);
+    expect(server.runs.size).toBe(1);
+    expect(propsOf(byClass('guided-workbench__body'))['data-step']).toBe('live');
+    await act(async () => { finishFirst({ run_id: 'run-1', daemon_pid: 1, status: 'STARTED' }); });
+  });
+
+  test('a pasted RFC survives an unanswered start and a refresh, and the retry sends the saved request once more', async () => {
+    const pasted = '# Health endpoint\n\n## Goals\n- Add a health endpoint.\n';
+    const wait = async () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 450)); });
+    server = fakeServer(session('blueprint'));
+    let finishFirst!: (result: { run_id: string; daemon_pid: number; status: string }) => void;
+    server.calls.startRun.mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }));
+    server.calls.startRun.mockImplementationOnce(async () => {
+      server.runs.set('run-1', snap({ id: 'run-1', status: 'RUNNING', parent_run_id: null,
+        base_ref: 'main', start_sha: shaA, result_sha: shaB }));
+      const latest = server.saved(); latest.active_stage = 'build'; latest.active_run_id = 'run-1';
+      server.setSaved(latest);
+      return { run_id: 'run-1', daemon_pid: 1, status: 'STARTED' };
+    });
+    await mount();
+    await act(async () => {
+      (propsOf(byClass('rfc-step__markdown')).onChange as (event: unknown) => void)({ currentTarget: { value: pasted } });
+    });
+    await wait();
+    expect(server.calls.recommendBlueprint).toHaveBeenCalledWith(pasted);
+    await launchAndConfirm();
+    expect(server.saved().workflow.guided_pending_launch).toBeTruthy();
+    expect(server.saved().active_run_id).toBeNull();
+
+    await unmount(); await mount();
+    await wait();
+    expect(propsOf(byClass('rfc-step__markdown')).value).toBe(pasted);
+    expect(propsOf(byClass('rfc-step__markdown')).readOnly).toBe(true);
+    await click(byClass('guided-launch-bar__launch'));
+    expect(container.textContent).toContain('Health endpoint');
+    await click(byClass('guided-launch-bar__confirm-start'));
+    const payloads = server.calls.startRun.mock.calls.map(([payload]) => payload);
+    expect(payloads.map((payload) => payload.launch_request_id)).toEqual(['launch-key', 'launch-key']);
+    expect(payloads[1]).toEqual(payloads[0]);
+    expect(payloads[0]).toMatchObject({ rfc_markdown: pasted, mode: 'overnight' });
     expect(server.runs.size).toBe(1);
     expect(propsOf(byClass('guided-workbench__body'))['data-step']).toBe('live');
     await act(async () => { finishFirst({ run_id: 'run-1', daemon_pid: 1, status: 'STARTED' }); });
@@ -398,7 +449,7 @@ describe('mounted four-stage loop', () => {
       failure_context: expect.stringContaining('failed check'),
     }));
     const launch = byClass('guided-launch-bar__launch'); expect(propsOf(launch).disabled).toBe(false);
-    await click(launch);
+    await launchAndConfirm();
     expect(server.calls.requestChanges).toHaveBeenCalledWith('run-1', expect.stringContaining('# Revised blueprint'));
     expect(server.calls.startRun).not.toHaveBeenCalled();
     expect(server.saved().active_run_id).toBe('run-2');
@@ -425,7 +476,7 @@ describe('mounted four-stage loop', () => {
     expect(propsOf(byClass('guided-brainstorm__input')).value).toBe('Add coverage');
     await submitRevision('Add coverage');
     expect(server.calls.brainstormChat.mock.calls.at(-1)?.[0]).not.toHaveProperty('failure_context');
-    await click(byClass('guided-launch-bar__launch'));
+    await launchAndConfirm();
     expect(server.calls.requestChanges).toHaveBeenCalledWith('run-1', expect.stringContaining('Add coverage'));
     const child = server.runs.get('run-2')!;
     expect(child.run).toMatchObject({ parent_run_id: 'run-1', start_sha: shaB, result_sha: shaC });
