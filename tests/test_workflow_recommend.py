@@ -32,6 +32,7 @@ from vibebaton.workflow_recommend import (
     ProviderReadiness,
     ReadinessSnapshot,
     build_readiness_snapshot,
+    plan_flow,
     recommend_workflow,
     validate_launch_selection,
 )
@@ -357,6 +358,25 @@ class SnapshotAndLaunchTests(unittest.TestCase):
         with self.assertRaises(LaunchSelectionError) as caught:
             validate_launch_selection("panel", snapshot, lineup=malformed)
         self.assertEqual(caught.exception.codes, ("lineup_unavailable",))
+
+
+class PlanFlowTests(unittest.TestCase):
+    def test_only_a_small_non_panel_run_with_a_runnable_check_is_lean(self) -> None:
+        runnable = "# Tiny\n\n## Verification & Acceptance Criteria\n\n1. Tests pass.\n\n```bash\npytest -q\n```\n"
+        prose = "# Tiny\n\n## Verification & Acceptance Criteria\n\n1. `pytest -q` passes.\n"
+        for args, switch, expected in (
+            (("small", "overnight", runnable), {}, ("lean", "small_rfc_has_verification")),
+            (("small", "interactive", runnable), {"lean_flow": True}, ("lean", "small_rfc_has_verification")),
+            (("small", "panel", runnable), {}, ("full", "panel_mode")),
+            (("small", "panel", runnable), {"lean_flow": False}, ("full", "panel_mode")),
+            (("small", "overnight", runnable), {"lean_flow": False}, ("full", "lean_flow_off")),
+            (("small", "overnight", prose), {}, ("full", "no_verification_command")),
+            (("medium", "overnight", runnable), {}, ("full", "size_not_small")),
+            (("large", "panel", runnable), {}, ("full", "size_not_small")),
+            ((None, "overnight", runnable), {"lean_flow": True}, ("full", "size_not_small")),
+        ):
+            with self.subTest(size=args[0], mode=args[1], **switch):
+                self.assertEqual(plan_flow(*args, **switch), expected)
 
 
 if __name__ == "__main__":

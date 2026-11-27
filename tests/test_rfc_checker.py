@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from vibebaton.rfc_checker import check_rfc_readiness, generate_structured_rfc
+from vibebaton.brainstorm import _offline_rfc
+from vibebaton.rfc_checker import check_rfc_readiness, extract_verification_commands, generate_structured_rfc
 
 _LONG_GOAL = "Build a deterministic readiness scorer that never performs file or network I/O."
 _READINESS_KEYS = {
@@ -415,6 +416,119 @@ class TestStructuredRFCGeneration(unittest.TestCase):
         self.assertEqual(generated["readiness"]["detected_commands"], [])
         self.assertEqual(generated["readiness"]["missing_sections"], [])
         self.assertIn("TODO", " ".join(generated["readiness"]["warnings"]))
+
+
+class TestVerificationCommandExtraction(unittest.TestCase):
+    """The milestone gate of a lean run takes these command lines verbatim, so nothing is guessed."""
+
+    def test_guided_blueprint_blocks_yield_their_command_lines_verbatim(self) -> None:
+        live = _rfc(acceptance="1. The checks pass.\n\n```bash\npython -m unittest discover -s tests\nnpm --prefix web test\n```")
+        self.assertEqual(extract_verification_commands(live),
+                         ["python -m unittest discover -s tests", "npm --prefix web test"])
+        offline = _offline_rfc([{"role": "user", "content": "Add a greeting. Check it with `pytest -q tests`."}])
+        self.assertIn("````bash\npytest -q tests\n````", offline)
+        self.assertEqual(extract_verification_commands(offline), ["pytest -q tests"])
+        for command, expected in (
+            ("""python -c 'assert len("```") == 3'""", """python -c 'assert len("```") == 3'"""),
+            ("python scripts/verify.py \\\n  --offline", "python scripts/verify.py --offline"),
+        ):
+            with self.subTest(command=command):
+                generated = generate_structured_rfc(goal=_LONG_GOAL, acceptance_cmd=command)["rfc_markdown"]
+                self.assertEqual(extract_verification_commands(generated), [expected])
+
+    def test_repository_rfc_shape_yields_its_three_commands(self) -> None:
+        # Mirrors .baton/00_RFC.md: numbered criteria, the bash block, then a roadmap table section.
+        text = "\n".join((
+            "# VibeBaton Studio Workbench, Phase 1",
+            "## Goals",
+            "1. **Lean small-task flow (engine)**: skip the L1 planning call for small runs.",
+            "## Constraints",
+            "- Keep `tests/test_stdlib_only.py` green.",
+            "## Verification & Acceptance Criteria",
+            "",
+            "1. A Guided run launched as `small` makes no planning call.",
+            "8. All Python tests and all Studio tests pass, and the production build succeeds.",
+            "",
+            "```bash",
+            "python -m unittest discover -s tests",
+            "npm --prefix web test",
+            "npm --prefix web run build",
+            "```",
+            "",
+            "## Roadmap After This RFC (information only)",
+            "",
+            "| Phase | Deliverables | Release gate | Must be settled first |",
+            "| --- | --- | --- | --- |",
+            "| 2 - Build | Add `artifact_key` to the `role_invoked` payload | Journey 1 passes; run `npm test` | - |",
+            "",
+            "Dropped for good: pre-launch cost forecasts.",
+        ))
+        self.assertEqual(extract_verification_commands(text), [
+            "python -m unittest discover -s tests", "npm --prefix web test", "npm --prefix web run build",
+        ])
+
+    def test_commands_named_only_in_prose_or_outside_runnable_blocks_are_not_taken(self) -> None:
+        cases = {
+            "prose": _rfc(),
+            "block under constraints": _rfc(constraints="```bash\npytest -q\n```", acceptance="1. Tests pass."),
+            "python block": _rfc(acceptance="1. Tests pass.\n\n```python\nimport unittest\nunittest.main()\n```"),
+            "text block": _rfc(acceptance="1. Tests pass.\n\n```text\npytest -q\n```"),
+            "json block": _rfc(acceptance='1. Tests pass.\n\n```\n{"runner": "pytest", "status": "ok"}\n```'),
+            "console transcript": _rfc(acceptance="1. Tests pass.\n\n```console\npytest -q\n3 passed\n```"),
+            "unclosed fence": _rfc(acceptance="1. Tests pass.\n\n```bash\npytest -q"),
+        }
+        for label, text in cases.items():
+            with self.subTest(case=label):
+                self.assertEqual(extract_verification_commands(text), [])
+        # Readiness still counts the prose command; only a gate needs the line as written.
+        self.assertEqual(check_rfc_readiness(cases["prose"])["detected_commands"], ["pytest"])
+
+    def test_blank_lines_and_comments_are_skipped_and_repeats_dropped_in_order(self) -> None:
+        text = _rfc(acceptance="\n".join((
+            "1. Both suites pass.",
+            "",
+            "```sh",
+            "#!/bin/sh",
+            "# unit tests first",
+            "",
+            "pytest -q",
+            "npm test",
+            "```",
+            "",
+            "~~~cmd",
+            "REM the same on Windows",
+            ":: no other checks",
+            "pytest -q",
+            "~~~",
+        )))
+        self.assertEqual(extract_verification_commands(text), ["pytest -q", "npm test"])
+
+    def test_unlabelled_blocks_follow_the_readiness_rule(self) -> None:
+        for block, expected in (
+            ("ruff check .", ["ruff check ."]),  # the block's only line
+            ("ruff check .\nmypy src", []),  # unknown multi-line commands are not guessed
+            ("ruff check .\npytest -q", ["pytest -q"]),  # only the recognised test command
+        ):
+            with self.subTest(block=block):
+                text = _rfc(acceptance=f"1. Checks pass.\n\n```\n{block}\n```")
+                self.assertEqual(extract_verification_commands(text), expected)
+
+    def test_blocks_whose_lines_cannot_run_one_by_one_are_skipped(self) -> None:
+        for language, block in (
+            ("bash", "cd web\nnpm test"),
+            ("bash", "export CI=1\npytest -q"),
+            ("bash", "set -e\npytest -q"),
+            ("bash", "source .venv/bin/activate\npytest -q"),
+            ("bash", "PYTHONPATH=src\npytest -q"),
+            ("cmd", "set CI=1\npytest -q"),
+            ("powershell", "$env:CI = '1'\npytest -q"),
+            ("bash", "$ pytest -q"),  # a terminal transcript, not a script
+        ):
+            with self.subTest(language=language, block=block):
+                text = _rfc(acceptance=f"1. Checks pass.\n\n```{language}\n{block}\n```")
+                self.assertEqual(extract_verification_commands(text), [])
+        chained = _rfc(acceptance="1. Checks pass.\n\n```bash\ncd web && npm test\nPYTHONPATH=src pytest -q\n```")
+        self.assertEqual(extract_verification_commands(chained), ["cd web && npm test", "PYTHONPATH=src pytest -q"])
 
 
 if __name__ == "__main__":

@@ -64,7 +64,7 @@ from .rfc_checker import check_rfc_readiness, generate_structured_rfc
 from .schemas import RunStatus
 from .workflow_recommend import (
     LaunchSelectionError, ReadinessSnapshot, build_readiness_snapshot, estimate_project_size, normalize_lineup,
-    recommend_workflow, validate_launch_selection,
+    plan_flow, recommend_workflow, validate_launch_selection,
 )
 
 # Capture groups are passed to the handler as positional arguments. The full
@@ -2082,6 +2082,11 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             result["recommendation"] = _with_l0_choice(asdict(recommend_workflow(
                 size, readiness, previous_lineup=previous, size_basis=basis,
             )), session["brainstorm"].get("selected_l0_model"), readiness)
+            recommendation = result["recommendation"]
+            # The flow the engine picks for this RFC when launched as recommended with the lean switch on.
+            recommendation["flow"], recommendation["flow_reason"] = plan_flow(
+                recommendation["size"], recommendation["mode"], result.get("rfc_markdown", ""),
+            )
         self._send_json(200, result)
 
     def _post_brainstorm_confirm(self) -> None:
@@ -2321,12 +2326,15 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                 details["suggested_lineup"] = exc.suggested_lineup
             raise _LineageError("LAUNCH_PREFLIGHT", str(exc), **details) from exc
 
-    def _run_selection(self, run: dict[str, Any]) -> tuple[dict[str, Any], bool, str | None]:
+    def _run_selection(self, run: dict[str, Any]) -> tuple[dict[str, Any], bool, str | None, bool | None]:
+        """``(lineup, managed, preset, lean_flow)``; ``lean_flow`` is None unless the launch chose it."""
         for event in reversed(self.server.store.get_events(run["id"], limit=-1)):
             if event["kind"] == "guided_launch_selection":
                 payload = _json_object(event["payload_json"])
                 if isinstance(payload.get("lineup"), dict):
-                    return payload["lineup"], True, payload.get("preset")
+                    lean_flow = payload.get("lean_flow")
+                    return (payload["lineup"], True, payload.get("preset"),
+                            lean_flow if isinstance(lean_flow, bool) else None)
         try:
             overrides = json.loads(run["model_overrides_json"] or "{}")
             if not isinstance(overrides, dict) or any(
@@ -2335,7 +2343,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                 raise ValueError("Run model overrides are not a string mapping")
         except (TypeError, ValueError) as exc:
             raise _LineageError("RUN_STALE", f"Run model overrides are invalid: {exc}") from exc
-        return self._effective_lineup(overrides), bool(overrides), None
+        return self._effective_lineup(overrides), bool(overrides), None, None
 
     def _record_session_run(self, run: dict[str, Any], lineup: dict[str, Any], preset: str | None,
                             *, only_if_current: bool = False, stage: str = "build") -> None:
@@ -2390,7 +2398,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         return run
 
     def _send_existing_launch(self, run: dict[str, Any]) -> None:
-        lineup, _, preset = self._run_selection(run)
+        lineup, _, preset, _ = self._run_selection(run)
         self._record_session_run(run, lineup, preset, only_if_current=True)
         self._send_json(200, {"run_id": run["id"], "daemon_pid": None,
                               "status": run["status"], "reused": True})
@@ -2421,6 +2429,11 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         preset = payload.get("preset")
         if preset is not None and not isinstance(preset, str):
             raise _BadRequest("preset must be a string or null")
+        if "lean_flow" in payload:
+            if not isinstance(payload["lean_flow"], bool):
+                raise _BadRequest("lean_flow must be a boolean")
+            if selected_lineup is None:
+                raise _BadRequest("lean_flow requires a lineup")
         overrides = selected_lineup["model_overrides"] if selected_lineup is not None else self._lineup_overrides(payload)
         self._preflight(mode, selected_lineup)
         markdown = payload.get("rfc_markdown", "")
@@ -2480,7 +2493,10 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         run = store.get_run(run_id)
         effective_lineup = selected_lineup or self._effective_lineup(overrides)
         if selected_lineup is not None:
-            store.log_event(run_id, "guided_launch_selection", payload={"lineup": effective_lineup, "preset": preset})
+            selection = {"lineup": effective_lineup, "preset": preset}
+            if "lean_flow" in payload:
+                selection["lean_flow"] = payload["lean_flow"]
+            store.log_event(run_id, "guided_launch_selection", payload=selection)
         pid = self._spawn_run_daemon(run_id, RunStatus.FAILED)
         if pid is not None:
             store.log_event(run_id, "daemon_spawned", message=f"Detached daemon started (pid={pid})")
@@ -2662,7 +2678,7 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         self._lineage_chain(run)
         if not run["result_sha"]:
             raise _LineageError("RUN_STALE", "A revision requires a recorded result commit")
-        lineup, managed, preset = self._run_selection(run)
+        lineup, managed, preset, lean_flow = self._run_selection(run)
         self._preflight(run["mode"], lineup if managed else None)
         source = Path(run["rfc_snapshot_path"] or run["rfc_path"])
         try:
@@ -2700,7 +2716,10 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             store.log_event(run_id, "revision_requested", actor="human", message=note,
                             payload={"revision_run_id": child})
             if managed:
-                store.log_event(child, "guided_launch_selection", payload={"lineup": lineup, "preset": preset})
+                selection = {"lineup": lineup, "preset": preset}
+                if lean_flow is not None:
+                    selection["lean_flow"] = lean_flow  # the revision keeps the parent's choice
+                store.log_event(child, "guided_launch_selection", payload=selection)
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise _LineageError("REVISION_FAILED", f"Could not create revision: {exc}") from exc
         except ValueError as exc:

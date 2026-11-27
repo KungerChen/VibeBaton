@@ -42,6 +42,8 @@ class TestGuidedSessionApi(GuidedApiTestCase):
 ## Verification & Acceptance Criteria
 - Run `python -m unittest`.
 """
+    # The same blueprint with a check the milestone gate can run as written.
+    LEAN_RFC = RFC.replace("- Run `python -m unittest`.\n", "1. The tests pass.\n\n```bash\npython -m unittest\n```\n")
     MESSAGE = [{"role": "user", "content": "Add a health endpoint."}]
 
     def setUp(self) -> None:
@@ -568,6 +570,81 @@ class TestGuidedSessionApi(GuidedApiTestCase):
         self.assertEqual(status, 201, body)
         engine = OrchestrationEngine(self.repo, HotReloadConfig(self.server.loader.path), self.store)
         self.assertEqual(engine._guided_project_size(body["run_id"]), "small")
+
+    def selections(self, run_id: str) -> list[dict]:
+        return [json.loads(event["payload_json"]) for event in self.store.get_events(run_id, limit=-1)
+                if event["kind"] == "guided_launch_selection"]
+
+    def test_launch_records_the_per_run_lean_flow_choice(self) -> None:
+        from vibebaton.config import HotReloadConfig
+        from vibebaton.engine import OrchestrationEngine
+
+        lineup = {**self.lineup(), "size": "small"}
+        for extra in ({"lineup": lineup, "lean_flow": "off"}, {"lineup": lineup, "lean_flow": None},
+                      {"lineup": lineup, "lean_flow": 0}, {"lean_flow": True}):
+            with self.subTest(extra=extra):
+                status, body = self._post("/api/runs/start", {"rfc_markdown": self.LEAN_RFC, **extra})
+                self.assertEqual(status, 400, body)
+        self.assertEqual((self.store.list_runs(), self.spawn_calls), ([], []))
+
+        status, body = self._post("/api/runs/start", {
+            "rfc_markdown": self.LEAN_RFC, "lineup": lineup, "lean_flow": False, "launch_request_id": "lean-off",
+        })
+        self.assertEqual(status, 201, body)
+        run_id = body["run_id"]
+        (selection,) = self.selections(run_id)
+        self.assertIs(selection["lean_flow"], False)
+        self.assertEqual(selection["lineup"]["size"], "small")
+        self.assertNotIn("lean_flow", selection["lineup"])
+        engine = OrchestrationEngine(self.repo, HotReloadConfig(self.server.loader.path), self.store)
+        self.assertIs(engine._guided_launch_selection(run_id)["lean_flow"], False)
+        # A replay of the same request returns the same run and records nothing new, whatever it says.
+        status, replay = self._post("/api/runs/start", {"launch_request_id": "lean-off", "lean_flow": True})
+        self.assertEqual((status, replay["run_id"], replay["reused"]), (200, run_id, True))
+        self.assertEqual(len(self.selections(run_id)), 1)
+        self.assertEqual(len(self.spawn_calls), 1)
+
+        # Without the field, the launch selection is exactly what it was before the switch existed.
+        self.store.update_run_status(run_id, RunStatus.FAILED)
+        status, body = self._post("/api/runs/start", {"rfc_markdown": self.LEAN_RFC, "lineup": lineup})
+        self.assertEqual(status, 201, body)
+        self.assertEqual([set(selection) for selection in self.selections(body["run_id"])], [{"lineup", "preset"}])
+
+    def test_revision_child_inherits_the_lean_flow_choice(self) -> None:
+        lineup = {**self.lineup(), "size": "small"}
+        for key, extra in (("lean-off", {"lean_flow": False}), ("lean-default", {})):
+            with self.subTest(**extra):
+                status, body = self._post("/api/runs/start", {
+                    "rfc_markdown": self.LEAN_RFC, "lineup": lineup, "launch_request_id": key, **extra,
+                })
+                self.assertEqual(status, 201, body)
+                parent = body["run_id"]
+                self.settle(parent)
+                status, body = self._post(f"/api/runs/{parent}/finalize", {"action": "revise", "note": "Fix it"})
+                self.assertEqual(status, 200, body)
+                child = body["revision_run_id"]
+                self.assertEqual(self.selections(child), self.selections(parent))
+                self.store.update_run_status(child, RunStatus.FAILED)  # free the repository for the next case
+
+    def test_recommendation_reports_the_flow_the_launch_will_use(self) -> None:
+        def recommend(rfc: str, size: str) -> dict:
+            guide = {"question": "", "options": [], "checklist": [], "size": size}
+            reply = "Ready.\n```guide\n" + json.dumps(guide) + "\n```\n````rfc\n" + rfc + "````\n"
+            with patch.object(brainstorm, "_provider_dispatch",
+                              return_value=lambda _: ("codex_sub", "gpt-6.2-astra@high", reply)):
+                status, body = self._post("/api/brainstorm/chat", {"messages": self.MESSAGE})
+            self.assertEqual(status, 200, body)
+            return body["recommendation"]
+
+        lean = recommend(self.LEAN_RFC, "small")
+        self.assertEqual((lean["flow"], lean["flow_reason"]), ("lean", "small_rfc_has_verification"))
+        self.assertEqual((lean["reason_code"], lean["size"]), ("small_eco", "small"))  # existing fields stay
+        prose = recommend(self.RFC, "small")  # the check is only named in prose
+        self.assertEqual((prose["flow"], prose["flow_reason"]), ("full", "no_verification_command"))
+        for size in ("medium", "large"):
+            with self.subTest(size=size):
+                other = recommend(self.LEAN_RFC, size)
+                self.assertEqual((other["flow"], other["flow_reason"]), ("full", "size_not_small"))
 
     def test_duplicate_key_recovers_one_run_and_one_session_across_servers(self) -> None:
         other = self.start_server(self._create_server())

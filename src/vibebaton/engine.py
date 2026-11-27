@@ -52,6 +52,7 @@ from .git_ops import (
 )
 from .notifier import AttentionEvent, AttentionNotifier, ChannelResult, should_notify
 from .panel import STAGE_PANEL, build_default_panel_settings, run_panel_phase
+from .rfc_checker import extract_verification_commands
 from .schemas import (
     PlanDAG,
     ReviewVerdict,
@@ -63,6 +64,7 @@ from .schemas import (
     VerdictKind,
     extract_json_object,
 )
+from .workflow_recommend import plan_flow
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,6 +78,51 @@ _SMALL_PROJECT_PLAN_RULES = (
     "`gate_commands`, the milestone review and the final gate check the work.\n"
     "- The milestone `gate_commands` must include the RFC's verification command(s).\n\n"
 )
+
+# Event message for each flow a small Guided run can get (``plan_flow`` reason codes).
+_PLAN_FLOW_MESSAGES = {
+    "small_rfc_has_verification": (
+        "Lean flow: no planning call. critical_executor builds one task; the milestone gate runs the RFC's "
+        "verification commands, then the milestone review and the final gate check the work."
+    ),
+    "panel_mode": "Full flow: a panel run is always planned.",
+    "lean_flow_off": "Full flow: the lean flow is switched off for this run.",
+    "no_verification_command": "Full flow: the RFC has no verification command the gate can run as written.",
+}
+
+
+def _lean_flow_plan(rfc_text: str) -> PlanDAG:
+    """The plan of a lean small run, built from its RFC without a model call.
+
+    One milestone gated by the RFC's own verification commands, holding one task that
+    critical_executor builds with no per-task review. The task prompt is built from the plan
+    alone, so the description carries the whole RFC.
+    """
+    commands = extract_verification_commands(rfc_text)
+    # The RFC's title line, as the Guided blueprint card reads it.
+    title = next((line[2:].strip() for line in rfc_text.splitlines() if line.startswith("# ")), "")
+    title = title or "Implement the RFC"
+    return PlanDAG.from_dict({
+        "complexity_tier": "S",
+        "summary": title,
+        "milestones": [{
+            "id": "M1", "title": title, "reviewer_role": "milestone_reviewer", "gate_commands": commands,
+            "tasks": [{
+                "id": "T1", "title": title, "tier": "critical",
+                "assignee_role": "critical_executor", "reviewer_role": None,
+                "depends_on": [], "allowed_paths": [], "verify_cmd": None,
+                "description": (
+                    "Implement everything the Master RFC below asks for in this one task. Afterwards the "
+                    "milestone gate runs the verification commands listed under Acceptance Criteria.\n\n"
+                    f"# Master RFC\n\n{rfc_text}"
+                ),
+                "acceptance_criteria": [
+                    "Every goal and acceptance criterion of the Master RFC is met.",
+                    *(f"`{command}` succeeds." for command in commands),
+                ],
+            }],
+        }],
+    })
 
 
 class StopRunTimeoutError(TimeoutError):
@@ -897,22 +944,26 @@ class OrchestrationEngine:
             raise RuntimeError(f"No configured provider for panel call {artifact_key} ({provider}/{model})")
         return res
 
-    def _guided_project_size(self, run_id: str) -> str | None:
-        """Project size the Guided page launched this run with, from its ``guided_launch_selection`` event.
-
-        CLI, Pro-mode and older runs have no such event (or no size in it) and plan exactly as before.
-        """
+    def _guided_launch_selection(self, run_id: str) -> dict[str, Any]:
+        """Payload of the run's latest ``guided_launch_selection`` event; {} when absent or unreadable."""
         for event in reversed(self.store.get_events(run_id, limit=-1)):
             if event["kind"] != "guided_launch_selection":
                 continue
             try:
                 payload = json.loads(event.get("payload_json") or "{}")
             except (TypeError, ValueError):
-                return None
-            lineup = payload.get("lineup") if isinstance(payload, dict) else None
-            size = lineup.get("size") if isinstance(lineup, dict) else None
-            return size if size in ("small", "medium", "large") else None
-        return None
+                return {}
+            return payload if isinstance(payload, dict) else {}
+        return {}
+
+    def _guided_project_size(self, run_id: str) -> str | None:
+        """Project size the Guided page launched this run with, from its ``guided_launch_selection`` event.
+
+        CLI, Pro-mode and older runs have no such event (or no size in it) and plan exactly as before.
+        """
+        lineup = self._guided_launch_selection(run_id).get("lineup")
+        size = lineup.get("size") if isinstance(lineup, dict) else None
+        return size if size in ("small", "medium", "large") else None
 
     def _lean_small_plan(self, run_id: str, plan: PlanDAG, actor: str) -> None:
         """Small projects skip per-task review; the plan is otherwise run exactly as the planner wrote it."""
@@ -947,6 +998,21 @@ class OrchestrationEngine:
         plan_out = self._runtime_dir(run_id) / "01_PLAN.dag.json"
 
         size = self._guided_project_size(run_id)
+        if size == "small":
+            # The per-run switch is on unless the launch turned it off.
+            lean_flow = self._guided_launch_selection(run_id).get("lean_flow") is not False
+            flow, reason = plan_flow(size, run["mode"], rfc_text, lean_flow=lean_flow)
+            self.store.log_event(run_id, "plan_flow_selected", message=_PLAN_FLOW_MESSAGES[reason],
+                                 payload={"flow": flow, "reason": reason})
+            if flow == "lean":
+                plan = _lean_flow_plan(rfc_text)
+                plan_out.write_text(json.dumps(plan.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+                current = self.store.get_run(run_id)["status"]
+                status = RunStatus.PAUSED if current == RunStatus.PAUSED else RunStatus.RUNNING
+                self.store.update_run_status(run_id, status, plan_path=str(plan_out))
+                self.store.register_plan(run_id, plan)
+                self.store.log_event(run_id, "plan_generated", message=f"Plan saved to {plan_out}")
+                return plan
         prompt = (
             "Convert the following Master RFC into a strict executable PlanDAG JSON.\n"
             "Write ONLY valid JSON (or save it to VIBEBATON_OUTPUT_FILE) matching keys:\n"

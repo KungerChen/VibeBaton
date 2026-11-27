@@ -65,7 +65,9 @@ class ProjectSizePlanningTests(unittest.IsolatedAsyncioTestCase):
         run_id = self.engine.create_run(self.rfc)
         if size is not None:
             lineup = {"roles": {}, "model_overrides": {}, "size": size}
-            self.store.log_event(run_id, "guided_launch_selection", payload={"lineup": lineup, "preset": None})
+            # These cases cover the full small flow; the lean flow is tested in test_engine_lean_flow.py.
+            switch = {"lean_flow": False} if size == "small" else {}
+            self.store.log_event(run_id, "guided_launch_selection", payload={"lineup": lineup, "preset": None, **switch})
         return run_id
 
     async def invoke(self, **kwargs: object) -> tuple[CLIResult, str]:

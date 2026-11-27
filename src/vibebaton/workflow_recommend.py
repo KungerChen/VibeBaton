@@ -30,10 +30,12 @@ from urllib.parse import urlsplit
 from . import cli_registry, credentials, model_catalog
 from .config import BatonConfig, ProviderConfig
 from .panel import build_default_panel_settings
+from .rfc_checker import extract_verification_commands
 
 ProjectSize = Literal["small", "medium", "large"]
 WorkflowMode = Literal["interactive", "overnight", "panel"]
 ProviderKind = Literal["cli", "http"]
+PlanFlow = Literal["lean", "full"]
 
 
 class WorkflowLineup(TypedDict):
@@ -439,6 +441,25 @@ def recommend_workflow(
         size_changed=size_changed, explanation_codes=reasons, substitutions=tuple(substitutions),
         missing_panelists=missing, effort_changes=effort_changes,
     )
+
+
+def plan_flow(size: str | None, mode: str, rfc_markdown: str, *, lean_flow: bool = True) -> tuple[PlanFlow, str]:
+    """The plan flow a run uses and why; the engine and the recommendation both decide with this.
+
+    Only a small run whose RFC has a verification command the milestone gate can run as written
+    skips planning ("lean": one task for critical_executor, those commands as the milestone gate).
+    Runs that are not small, panel runs, runs with the lean flow switched off and RFCs without
+    such a command use the full flow.
+    """
+    if size != "small":
+        return "full", "size_not_small"
+    if mode == "panel":
+        return "full", "panel_mode"
+    if not lean_flow:
+        return "full", "lean_flow_off"
+    if not extract_verification_commands(rfc_markdown):
+        return "full", "no_verification_command"
+    return "lean", "small_rfc_has_verification"
 
 
 def _http_configured(provider: ProviderConfig) -> bool:

@@ -62,6 +62,14 @@ _SHELL_LANGUAGES = frozenset({
 _DATA_LANGUAGES = frozenset({"json", "json5", "jsonc", "jsonl", "ndjson"})
 _PLAIN_LANGUAGES = frozenset({"", "output", "plaintext", "text", "txt"})
 
+_COMMENT_LINE = re.compile(r"^(?:#|::|rem(?:\s|$))", re.IGNORECASE)
+# A shell prompt (the block is a terminal transcript) or a step that only changes the directory or
+# environment for the lines after it: such a block's lines cannot run one by one as written.
+_SCRIPT_STEP = re.compile(
+    r"^(?:\$\s|\$[\w:]+\s*=|(?:cd|pushd|popd|export|set|setlocal|source|unset|\.)(?:\s[^&|;]*)?$|[A-Za-z_]\w*=\S*$)",
+    re.IGNORECASE,
+)
+
 
 class RFCReadiness(TypedDict):
     score: int
@@ -219,10 +227,13 @@ def _commands_in_block(language: str, block: list[str], *, allow_custom: bool) -
     return commands
 
 
-def _parse_document(text: str) -> tuple[dict[str, list[str]], list[str], list[str]]:
+def _parse_document(
+    text: str,
+) -> tuple[dict[str, list[str]], list[str], list[str], list[tuple[str, list[str]]]]:
     sections: dict[str, list[str]] = {}
     headings: list[str] = []
     commands: list[str] = []
+    acceptance_blocks: list[tuple[str, list[str]]] = []
     section: str | None = None
     fence: tuple[str, int, str] | None = None
     block: list[str] = []
@@ -233,6 +244,8 @@ def _parse_document(text: str) -> tuple[dict[str, list[str]], list[str], list[st
                 commands.extend(_commands_in_block(
                     fence[2], block, allow_custom=section == "acceptance",
                 ))
+                if section == "acceptance":
+                    acceptance_blocks.append((fence[2], block))
                 fence = None
             else:
                 block.append(line)
@@ -255,12 +268,12 @@ def _parse_document(text: str) -> tuple[dict[str, list[str]], list[str], list[st
 
     if fence is not None:
         commands.extend(_commands_in_block(fence[2], block, allow_custom=False))
-    return sections, headings, list(dict.fromkeys(commands))
+    return sections, headings, list(dict.fromkeys(commands)), acceptance_blocks
 
 
 def check_rfc_readiness(rfc_text: str) -> RFCReadiness:
     """Score required sections and verification commands found throughout the RFC."""
-    sections, headings, detected_commands = _parse_document(rfc_text)
+    sections, headings, detected_commands, _ = _parse_document(rfc_text)
     missing_sections = [section for section in _SECTION_ORDER if section not in sections]
 
     warnings: list[str] = []
@@ -292,6 +305,31 @@ def check_rfc_readiness(rfc_text: str) -> RFCReadiness:
         "warnings": warnings,
         "detected_commands": detected_commands,
     }
+
+
+def extract_verification_commands(rfc_text: str) -> list[str]:
+    """Verification command lines exactly as the RFC writes them, for a milestone gate to run as-is.
+
+    Unlike ``detected_commands`` (pattern names), these are whole lines. Only closed fenced blocks
+    under an acceptance/verification heading count: every logical line of a shell block (``console``
+    transcripts excluded), and in an unlabelled block the lines readiness counts as commands. Blank
+    and comment lines are skipped; a block with a shell prompt or a directory/environment step is
+    skipped whole, since its lines cannot run one by one. Other languages, data blocks and commands
+    named only in prose are never taken. Order is kept and repeats are dropped.
+    """
+    commands: list[str] = []
+    for language, block in _parse_document(rfc_text)[3]:
+        if language in _SHELL_LANGUAGES and language != "console":
+            lines = _logical_commands(block)
+        elif language == "" and not _is_data_block(language, block):
+            stripped = [line.strip() for line in block if line.strip()]
+            lines = [line for line in stripped if _detect_commands(line) or len(stripped) == 1]
+        else:
+            continue
+        lines = [line for line in lines if not _COMMENT_LINE.match(line)]
+        if not any(_SCRIPT_STEP.match(line) for line in lines):
+            commands.extend(lines)
+    return list(dict.fromkeys(commands))
 
 
 def generate_structured_rfc(
