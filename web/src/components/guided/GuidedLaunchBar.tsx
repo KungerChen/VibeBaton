@@ -65,7 +65,7 @@ export function recommendationHeadline(recommendation: WorkflowRecommendation, c
   return fill(copy.headlines[code as Arrangement], { size: sizeWord(recommendation.size, copy) });
 }
 
-/** Up to three plain reasons in backend order: size and its basis, the arrangement, then notes. */
+/** Up to three plain reasons in backend order (size and its basis, the arrangement, then notes), plus the lean-plan note for small projects. */
 export function recommendationReasons(recommendation: WorkflowRecommendation, copy: RecommendationCopy): string[] {
   const codes = recommendation.explanation_codes.length
     ? recommendation.explanation_codes
@@ -78,7 +78,9 @@ export function recommendationReasons(recommendation: WorkflowRecommendation, co
     const template = copy.reasons[code as keyof RecommendationCopy['reasons']];
     return template ? fill(template, values) : null;
   }).filter((text): text is string => !!text);
-  return [...new Set(texts.length ? texts : [copy.unknownReason])].slice(0, MAX_REASONS);
+  const reasons = [...new Set(texts.length ? texts : [copy.unknownReason])].slice(0, MAX_REASONS);
+  // A small project gets a lean build plan whatever the team, so say so after the backend reasons.
+  return recommendation.size === 'small' ? [...reasons, copy.smallPlan] : reasons;
 }
 
 /** Whether the panel switch can be turned on, and the plain reason when it cannot. */

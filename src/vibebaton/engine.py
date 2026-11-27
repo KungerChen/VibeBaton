@@ -67,6 +67,16 @@ from .schemas import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Planner hint for runs the Guided page launched as a small project (medium/large add nothing).
+_SMALL_PROJECT_MAX_TASKS = 4
+_SMALL_PROJECT_PLAN_RULES = (
+    "## Project Size: small\n"
+    f"- Use exactly 1 milestone and at most {_SMALL_PROJECT_MAX_TASKS} tasks; merge closely related work.\n"
+    "- Set every task's `reviewer_role` to null: there is no per-task review. The milestone "
+    "`gate_commands`, the milestone review and the final gate check the work.\n"
+    "- The milestone `gate_commands` must include the RFC's verification command(s).\n\n"
+)
+
 
 class StopRunTimeoutError(TimeoutError):
     """The stop remains requested because the executor has not settled."""
@@ -887,6 +897,36 @@ class OrchestrationEngine:
             raise RuntimeError(f"No configured provider for panel call {artifact_key} ({provider}/{model})")
         return res
 
+    def _guided_project_size(self, run_id: str) -> str | None:
+        """Project size the Guided page launched this run with, from its ``guided_launch_selection`` event.
+
+        CLI, Pro-mode and older runs have no such event (or no size in it) and plan exactly as before.
+        """
+        for event in reversed(self.store.get_events(run_id, limit=-1)):
+            if event["kind"] != "guided_launch_selection":
+                continue
+            try:
+                payload = json.loads(event.get("payload_json") or "{}")
+            except (TypeError, ValueError):
+                return None
+            lineup = payload.get("lineup") if isinstance(payload, dict) else None
+            size = lineup.get("size") if isinstance(lineup, dict) else None
+            return size if size in ("small", "medium", "large") else None
+        return None
+
+    def _lean_small_plan(self, run_id: str, plan: PlanDAG, actor: str) -> None:
+        """Small projects skip per-task review; the plan is otherwise run exactly as the planner wrote it."""
+        for milestone in plan.milestones:
+            for task in milestone.tasks:
+                task.reviewer_role = None
+        task_count = sum(len(milestone.tasks) for milestone in plan.milestones)
+        if len(plan.milestones) > 1 or task_count > _SMALL_PROJECT_MAX_TASKS:
+            self.store.log_event(
+                run_id, "plan_size_exceeded", actor=actor,
+                message=(f"Small-project plan is larger than suggested: {len(plan.milestones)} milestones, "
+                         f"{task_count} tasks (suggested 1 milestone, at most {_SMALL_PROJECT_MAX_TASKS} tasks)."),
+            )
+
     async def _ensure_plan(
         self,
         run_id: str,
@@ -906,11 +946,13 @@ class OrchestrationEngine:
         self.store.update_run_status(run_id, RunStatus.PLANNING)
         plan_out = self._runtime_dir(run_id) / "01_PLAN.dag.json"
 
+        size = self._guided_project_size(run_id)
         prompt = (
             "Convert the following Master RFC into a strict executable PlanDAG JSON.\n"
             "Write ONLY valid JSON (or save it to VIBEBATON_OUTPUT_FILE) matching keys:\n"
             "`rfc_version`, `complexity_tier`, `summary`, `milestones[{id, title, reviewer_role, gate_commands, tasks[{id, title, description, tier, assignee_role, reviewer_role, depends_on, allowed_paths, golden_example, acceptance_criteria, verify_cmd}]}]`.\n\n"
-            f"# Master RFC\n\n{rfc_text}"
+            + (_SMALL_PROJECT_PLAN_RULES if size == "small" else "")
+            + f"# Master RFC\n\n{rfc_text}"
         )
 
         last_err = ""
@@ -932,6 +974,8 @@ class OrchestrationEngine:
                 try:
                     parsed = extract_json_object(res.text)
                     plan = PlanDAG.from_dict(parsed)
+                    if size == "small":
+                        self._lean_small_plan(run_id, plan, actor)
                     plan_out.write_text(json.dumps(plan.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
                     current = self.store.get_run(run_id)["status"]
                     status = RunStatus.PAUSED if current == RunStatus.PAUSED else RunStatus.RUNNING

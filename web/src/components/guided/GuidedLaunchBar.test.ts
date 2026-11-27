@@ -116,6 +116,20 @@ describe('recommendation display helpers', () => {
     expect(recommendationHeadline({ ...recommendation, lineup: null }, copy)).toBe(copy.headlines.no_lineup);
   });
 
+  test('a small project also says the plan is lean, after the three backend reasons', () => {
+    const small = { ...recommendation, size: 'small' as const, reason_code: 'small_eco',
+      explanation_codes: ['size_estimated', 'small_eco', 'provider_substituted', 'eco_model_unavailable'] };
+    const reasons = recommendationReasons(small, copy);
+    expect(reasons).toHaveLength(4);
+    expect(reasons[3]).toBe(copy.smallPlan);
+    expect(recommendationReasons({ ...small, reason_code: 'custom_lineup_kept',
+      explanation_codes: ['size_from_model', 'custom_lineup_kept'] }, copy)).toContain(copy.smallPlan);
+    for (const size of ['medium', 'large'] as const) {
+      expect(recommendationReasons({ ...recommendation, size }, copy)).not.toContain(copy.smallPlan);
+    }
+    expect(MESSAGES.zh.guided.m3.recommendation.smallPlan).toContain('逐任务审校');
+  });
+
   test('the panel switch is disabled with a reason only when the panel cannot run', () => {
     expect(panelToggleState('Needs a key.', false)).toEqual({ disabled: true, reason: 'Needs a key.' });
     expect(panelToggleState(null, false)).toEqual({ disabled: false, reason: null });

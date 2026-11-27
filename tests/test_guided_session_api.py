@@ -498,6 +498,18 @@ class TestGuidedSessionApi(GuidedApiTestCase):
         self.assertEqual(status, 200, body)
         self.assertTrue(all(model["provider"] != "claude_sub" for model in body["models"]))
 
+    def test_guided_launch_hands_the_project_size_to_the_planner(self) -> None:
+        from vibebaton.config import HotReloadConfig
+        from vibebaton.engine import OrchestrationEngine
+
+        lineup = {**self.lineup(), "size": "small"}
+        status, body = self._post("/api/runs/start", {
+            "rfc_markdown": self.RFC, "mode": "overnight", "lineup": lineup, "launch_request_id": "sized",
+        })
+        self.assertEqual(status, 201, body)
+        engine = OrchestrationEngine(self.repo, HotReloadConfig(self.server.loader.path), self.store)
+        self.assertEqual(engine._guided_project_size(body["run_id"]), "small")
+
     def test_duplicate_key_recovers_one_run_and_one_session_across_servers(self) -> None:
         other = self.start_server(self._create_server())
         payload = {"rfc_markdown": self.RFC, "launch_request_id": "same-key", "lineup": self.lineup()}
