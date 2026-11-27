@@ -336,3 +336,33 @@ is pre-task commit `53299ce`; no new commit has been made. The whitelist exclude
 - 验证：前端 vitest 874 项、`tsc --noEmit`、`npm run build` 通过；`tests.test_web_server tests.test_guided_api tests.test_stdlib_only` 162 项通过。新增断言：显示名映射、未知 id 原样、文案替换不误伤 `claude_sub_x`/路径；挂载测试确认卡片位于 `guided-brainstorm__chat` 内。浏览器实测（离线模式、临时演示仓库、中文界面）：1280 宽卡片在对话列下方，表格四列逐行对齐，专家小组与开始按钮同一行、按钮靠右，抽屉三个选择器成列；800 宽变为单栏，卡片在对话下方、蓝图在其后，表格仍四列，无横向滚动、无元素溢出；两种宽度下卡片与工作台文本中无内部 id。截图：`C:\Users\A\AppData\Local\Temp\claude\20073fcf147e5bbc\89b7d710-5c3f-42cd-b438-08dbbe0462af\scratchpad\launch-card-1280.jpg`、`C:\Users\A\AppData\Local\Temp\claude\20073fcf147e5bbc\89b7d710-5c3f-42cd-b438-08dbbe0462af\scratchpad\launch-card-800.jpg`。
 - 未验证：第一步底部团队说明的显示名只在单测中验证，浏览器里没有回到第一步看；英文界面只在组件测试中覆盖；24rem 以下（约 680px 以下窗口）的堆叠布局只按 CSS 规则推断，未截图。
 - 状态：已自测待用户验收。提交：`0e4c997`。README 未修改。
+
+## 20261126-233025-studio-master-plan
+
+- 时间：2026-11-26 23:30（本机时间）。目的：把 Studio 下一步要执行的全部内容写成一份自包含的文本，供用户和其他 AI 读取；本轮只写文档，不改代码。分支 `main`，基线 `1a135ea`。
+- 改动：新增 `docs/STUDIO_MASTER_PLAN.md`，内容为三方（Gemini 4 Carbon、Claude Fable 5.2、GPT-6.2 Astra）两轮协商的终局裁决、执行总顺序、M3 手动验收步骤、目标架构（三幕工作台 + 演练场 Lab）、术语透视镜、界面精简规范、创新特性取舍、Phase 1–4 交付与放行标准、未验证假设和待定事项。
+- 决策（用户 2026-11-26 拍板，三项均选 A）：
+  - 画布如实更名为演练场 Lab，定位为模拟与配方工具；放弃「另立 RFC 让引擎消费工作流图」，因为引擎从未执行过画布拓扑，改名零后端改动。
+  - 先验收 M3，再以该方案为蓝本立新 RFC，然后才动结构；放弃「直接立新 RFC 并入 M3 验收」，避免在未验收的改动上叠加新改动。
+  - P0 证据矩阵不改 `schemas.py`，按「有门禁回执 / 仅有改动文件 / 未关联」如实展示；验收项 ID 与门禁外键留到 P1 前单独走 SPEC 讨论，放弃「先改数据模型」，避免 Phase 2 被后端阻塞。
+- 为什么放在 `docs/` 而不是只留在线文档：同内容的在线文档是私有的 Claude Docs，其他 AI 工具读不到。
+- 验证：未运行应用、测试或构建。文档里的前端行号来自第一轮评审对 `ea85dc3` 的静态阅读，未在 `1a135ea` 上复核；M3 验收步骤中的启动参数经 `python -m vibebaton ui --help` 核对，按钮文案取自 `messages.ts`，未在界面上逐一核对。八条未验证假设列在文档 12.3 节。
+- 状态：文档已写，待用户审阅。无提交。README、SPEC（`.baton/00_RFC.md`）和 AGENTS.md 未修改。
+
+## 20261127-0940-small-project-lean-plan
+
+- 时间：2026-11-27（本机时间）。目标及授权：用户确认的"第一档"，让施工规划知道项目规模，小项目少拆任务、不做逐任务审校；分支 `feat/small-project-lean-plan`，基线 `main` 的 `dc2ea0f`。
+- 改动：`src/vibebaton/engine.py` 新增 `_guided_project_size`（从 run 的 `guided_launch_selection` 事件读取 `lineup.size`）、`_lean_small_plan`（size=small 时把所有任务的 `reviewer_role` 置为 None；超过 1 个里程碑或 4 个任务时只记 `plan_size_exceeded` 事件，不合并、不删任务）；`_ensure_plan` 仅在 small 时于 RFC 前追加 `## Project Size: small` 约束段（1 个里程碑、至多 4 个任务、`reviewer_role` 为 null、`gate_commands` 含 RFC 验证命令）。`web/src/components/guided/GuidedLaunchBar.tsx` 与 `messages.ts`：small 时在推荐理由后追加一句精简规划说明（`recommendation.smallPlan`，中英文）。
+- 决策：规模通道选已有的 `guided_launch_selection` 事件，它在 daemon 启动前写入、修订子 run 也会继承，不改 DB 结构、PlanDAG 结构和引擎流程分支；无该事件的 CLI、专业模式、旧 run 的规划指令逐字不变。说明句放在 `recommendation` 层而不是 `reasons`，因为 `reasons` 需与服务端代码一一对应；small 时不论团队安排都显示，因为精简规划只取决于规模。
+- 验证：新增 `tests/test_engine_project_size.py`（指令仅 small 变化、其余逐字相同；small 全流程两个任务通过且未调用 `micro_orchestrator`、里程碑评审仍执行；无规模时逐任务审校照旧；超规模计划照常执行并记事件）与一项 HTTP 测试（引导页启动的规模能被引擎读到），先失败后通过；Python 全量 968 项通过、2 项跳过；前端 vitest 875 项、tsc、build 通过；现有测试未修改。复核会话在合并前于包含 `f336592` 的状态重跑 Python 全量 969 项通过。
+- 未验证：真实模型是否遵守规模约束；推荐卡片新增文案未在浏览器实看；修订子 run 继承规模没有单独的端到端测试。
+- 状态：已自测待用户验收。提交 `e8d3d13`，已随 `f336592` 合并进 `main` / `dev` 并推送。README 未修改。本条在合并后补记（当时 `LOG.md` 有别处的未提交改动）。
+
+## 20261127-1300-effort-source-of-truth
+
+- 时间：2026-11-27（本机时间）。目标及授权：用户确认的方案，让"工具+型号+思考强度"的可选范围来自实际读到的数据，读不到才用默认，并在所有出口统一校验；分支 `fix/effort-source-of-truth`，基线 `main` 的 `f336592`。起因：用户在推荐团队里看到 `deepseek-v4.1-flash@medium`（该型号没有 medium），排查发现 74 个目录模型中 54 个的档位从未按工具核实，另有 24 处推荐、默认值、预设与保存数据不匹配或无法校验。
+- 改动：`model_catalog.py` 按"工具逐模型清单（Codex 缓存、agy models、DSH 配置文件）→ 工具声明（claude --help 的 --effort；Gemini CLI 无强度）→ feed 推理标记（HTTP 与 dsh_deepseek）→ 默认 low/medium/high"给每个模型每个工具写入 `provider_efforts`、`effort_sources`、`provider_defaults`；新增 `normalize_spec` 作为唯一校验，Claude 别名仅用于校验与显示；缓存新增可选键 `cli_declared`、`feed_efforts`，缺这两个键的旧缓存视为过期并立即重新同步；对外的档位推荐新增 `efforts_by_provider`；修正档位推荐（Gemini CLI 不列 Gemini 4、agy 下 hydrogen 改 xhigh、dsh_deepseek 用 v4-flash 等）和越界的默认档位，去掉手写的 DeepSeek 档位。`workflow_recommend.py`：快照带目录；新增 `normalize_lineup`，推荐时校正沿用的团队并给出 `effort_adjusted`，启动校验对不合法档位报 `effort_not_allowed` 并附建议值。`web_server.py`：读取团队档案时自动校正并写回、返回 `corrections`；保存档案时校正；L0 选项和自动选择使用合法默认；同步时探测 Claude 声明的档位。`cli_runner.py`：`dsh_effort_error`，命令加载仓库自带 DSH 配置文件而强度不在该型号档位表里时直接报错、不启动子进程。`specialist_panel` 预设与 `baton.example.toml` 的 `gemini-4-neon-high` 改为 `gemini-4-neon@high`。前端只用后端给的允许档位，工具不支持强度时显示提示，默认来源标"未经核实"，第一步显示一次"已自动改正"。另一提交：小项目团队用两个型号（规划/把关共用 L1 推荐，执行共用 standard 档、强度不高于 high），尊重用户的 L0 选择；团队表合并相同的相邻行。
+- 决策：不合法强度取最接近的合法档，等距取较低一档（不擅自加价）；只有强度不在已知顺序里或未写时才退回该工具的合法默认。DSH 配置文件属于仓库数据，在构建目录时直接解析，避免关闭同步时退回默认档。feed 不写值为 false 的标记，缺 `supports_reasoning` 视为不支持强度，避免给 gpt-4o 一类模型发 reasoning_effort。不在 `resolve_role` 校验：config 层无目录，且会让引擎依赖可变的用户缓存；改为在 guided 启动与推荐时校验，专业模式与命令行启动只有 DSH 一道仓库内数据的保护。
+- 验证：新增 `tests/test_effort_invariants.py`（档位推荐、默认档位、全部角色 × 全部工具组合、普通与精简团队、所有预设与示例配置；数据齐全、完全无数据、仅 Codex 数据三组夹具），注入旧错误推荐时报错；接口测试覆盖档案校正与一次性提示、启动拒绝与建议值、沿用团队的校正、旧缓存判为过期、小项目沿用 L0 选择。Python 全量 1001 项通过、6 项跳过；前端 vitest 879、tsc、build 通过（执行会话与复核会话各跑一遍）。本机实测：agy 11、codex 10、dsh_opencode 2 来自工具清单，gemini_sub 3 来自工具声明；`flash@medium` → `@low`，`agy_sub:gemini-4-hydrogen@max` → `@xhigh`，`gemini_sub:gemini-2.5-pro@high` → 去掉强度；对外推荐表越界 0 条。
+- 未验证：各工具对不合法强度的运行时表现；Claude Code 逐型号差异（`--effort` 帮助文本只到工具级）；前端"未经核实""不支持强度""已自动改正"提示未在浏览器实看；小项目两型号团队的实际运行效果。
+- 状态：已自测待用户验收。提交：`ac0196c`、`edb67ac`、`bb6e504`、`d9d5691`、`5025c57`，已合并进 `main` / `dev` 并推送。README 未修改。后续：小任务"一个模型做、一个模型审"的两角色流程需改引擎流程，用户决定留给下一份 RFC。

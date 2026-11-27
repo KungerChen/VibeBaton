@@ -23,3 +23,6 @@ ID | 日期 | 摘要 | 日志路径与锚点 | 状态
 20261126-183037-m3-t6-guided-loop | 2026-11-26 | M3 Guided 四阶段闭环与会话恢复 | [LOG.md](LOG.md#20261126-183037-m3-t6-guided-loop) | 已自测待用户验收
 20261126-211349-workflow-recommendation | 2026-11-26 | 推荐工作流按规模分档、保留定制团队、panel 全员就绪才推荐；推荐卡片重排 | [LOG.md](LOG.md#20261126-211349-workflow-recommendation) | 已自测待用户验收
 20261126-221815-provider-names-launch-card | 2026-11-26 | 工具显示名统一；推荐卡片移到对话区下方横向展开 | [LOG.md](LOG.md#20261126-221815-provider-names-launch-card) | 已自测待用户验收
+20261126-233025-studio-master-plan | 2026-11-26 | Studio 总体执行方案书（三幕工作台 + Lab）与三项已拍板决策，仅文档 | [LOG.md](LOG.md#20261126-233025-studio-master-plan) | 文档已写，待用户审阅
+20261127-0940-small-project-lean-plan | 2026-11-27 | 小项目规划精简：规模传到规划指令、去掉逐任务审校 | [LOG.md](LOG.md#20261127-0940-small-project-lean-plan) | 已自测待用户验收
+20261127-1300-effort-source-of-truth | 2026-11-27 | 思考强度来自工具/声明/feed 数据，所有出口统一校验；小项目团队两种型号 | [LOG.md](LOG.md#20261127-1300-effort-source-of-truth) | 已自测待用户验收
