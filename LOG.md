@@ -419,3 +419,48 @@ is pre-task commit `53299ce`; no new commit has been made. The whitelist exclude
 - 未验证：真实模型能否在单个任务里做完一份 small RFC；RFC 里的命令在 Windows 门禁（cmd.exe）下是否可执行，例如 `PYTHONPATH=src pytest` 会被原样接受但在 cmd.exe 下会失败；前端还没有开关（里程碑 2 才加），在那之前引导页发出的 small 运行只要 RFC 验收章节有可执行命令块就走精简流程，只能通过接口传 `lean_flow: false` 退出。
 - 途中发现、未处理（均与本轮改动无关）：引导页发车的运行 ID 是 `run-request-` 加 64 位哈希，终审合并用的工作树名因此长达 94 个字符；仓库路径较深时（实测 104 和 117 个字符失败、38 个字符通过）`git worktree add` 以 `'$GIT_DIR' too big` 失败，运行在里程碑评审之后变成 `FAILED`。`tests/test_guided_api.py` 开头文档字符串里的 `/api/runs/start` 契约已过时。案例导出总会画一个 Planner 节点，精简运行也一样。
 - 状态：自检通过，已交付。代码提交 `075be81`；回退标签 `pre-p1-m1-20261127` 指向 `539adcd`；随本条所在提交快进合并到 `main`，`dev` 指到同一提交，重建前端并更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签。README 未修改（留到 Phase 1 收尾）。
+
+## 20261127-p1-m2-one-launch-path
+
+- 时间：2026-11-27（本机时间）。目标及授权：现行 RFC 里程碑 2（发车合一，前端），对应验收标准 3、4。授权与分工同上一条：Opus 5.5（effort=max）子代理施工，本会话（Fable 5.2）复核、浏览器实测和交付。分支 `feat/p1-m2-one-launch-path`，基线 `9d611f9`。
+- 改动：
+  - 后端 `src/vibebaton/web_server.py`：新增只读接口 `POST /api/guided/recommend`（入参 `rfc_markdown`，返回 `recommendation` 和 `readiness`，不写会话、不建运行）；把对话接口里算推荐的那段代码原样提成 `_blueprint_recommendation`，对话和快车道共用。`tests/test_guided_session_api.py` 加 3 项。
+  - 蓝图快车道（`GuidedBrainstormStep.tsx`、`inspector/wizard/RfcStep.tsx`、新增 `RfcStep.css`）：蓝图第一屏在示例下方直接有粘贴框，不用先点任何东西；可以粘贴、输入，或拖入 .md/.txt 文件（上限 256 KB，其他类型给出提示）。就绪评分、缺章节和警告沿用 `useRfcDraft` 的防抖检查和原文案。开始输入后对话区隐藏、右栏变成预览，两条路径可以来回切换且不丢内容，修订期间不出现快车道。会话新增三个扩展键：`brainstorm.guided_entry`、`brainstorm.guided_pasted_rfc`、`workflow.guided_lean_flow`，会话版本和已校验字段不变。
+  - 发车卡与确认（`GuidedLaunchBar.tsx`）：卡片上新增流程说明和原因、精简流程开关（只在本次本可走精简流程时出现）；调整团队、专家小组、精简开关三处标"仅本次运行"。点"开始施工"后在卡片内展开确认，列出文档标题、团队（角色、工具、型号、思考强度）、执行方式、流程及原因、项目预算（标"项目默认"，带去专业模式侧栏修改的链接），再点"确认并启动"才发请求。确认内容由将要发送的请求对象渲染，超时后由已保存的待定请求渲染。
+  - 删除 `StartRunModal.tsx`、`StartRunModal.css`、`StartRunModal.test.ts`、`wizard/PreflightStep.tsx`、`wizard/CredentialSetup.tsx`，以及因此无人使用的代码和文案键：`launchWizard.ts` 只留 `decideRfcSkip`；`client.brainstormRfc`、`generateStructuredRfc`、`RfcBrainstormRequest`、`RfcBrainstormResult`；"由一句话生成 RFC"表单和"跳过头脑风暴"确认卡；对应的 i18n 键中英文同时删除。
+  - 三处"启动真实运行"按钮（`HeaderBar`、`RightInspector`、`LiveRunPanel`）统一调用 `App.tsx` 的 `openLaunchBar`，点了就切到工作台，文案改为"去引导模式开始运行"；`LiveRunPanel` 不再自带弹窗。
+  - `client.startRun` 的入参必须带 `launch_request_id`；删除不带请求 ID 的发车代码 `confirmAndStart` 和 `client.brainstormConfirm`。
+  - 复核和浏览器实测中由本会话补的改动：预算链接跳到专业模式时关掉首次导览弹窗（否则弹窗盖住预算档位）；快车道发车时把粘贴的 RFC 写进 `brainstorm.latest_rfc_draft`（原因见"决策"）；超时提示接入本地化（新增 `guided.errors.requestTimedOut`）；第一屏的粘贴框把说明文字放进占位提示并把最小高度从 6rem 降到 4.5rem；专业模式快速入门教程和术语表里描述旧三步向导的文案改成现在的入口。
+- 决策：
+  - 流程判断只有一个来源。RFC 里有没有能原样运行的检查命令由服务端 `plan_flow` 判断，新接口把结果带回来；前端的 `requestFlow` 只按引擎的顺序（规模、专家小组、开关、检查命令）决定显示哪句话。放弃在前端重新解析 RFC。
+  - `lean_flow: false` 只在开关关着、且本次本来会走精简流程时才发送，这样确认里写的原因和引擎事件 `plan_flow_selected` 里的原因一致。
+  - 确认放在卡片内展开，没有用 `Modal`：改动更小，组件测试的宿主也不支持 `showModal`。
+  - 旧弹窗的三个字段都有去处：`rfc_markdown` 对应粘贴框，`mode` 对应专家小组开关，`model_overrides` 对应调整团队里的角色表单，所以手写 JSON 输入框直接删除，没有保留高级导入。旧弹窗的"由一句话生成 RFC"表单没有迁移：起草走对话，快车道只接收写好的文档。缺章节不拦发车，但确认里会列出所缺章节，和旧弹窗"仍然跳过"的行为一致。
+  - 删除 `confirmAndStart` 和 `brainstormConfirm`：它们在改动前就没有界面调用，但属于不带 `launch_request_id` 的发车代码，留着就不能把 `startRun` 的类型收紧，也不符合"每次真实运行都带请求 ID"。后端的 `/api/brainstorm/confirm` 和 `/api/rfc/brainstorm` 没动，现在没有前端调用者。
+  - 快车道发车时把粘贴的 RFC 记为本次运行的蓝图草稿（`latest_rfc_draft`）。浏览器实测发现：不这样做，从快车道发出的运行在验收页"要求修改"是灰的，提示"需要原蓝图"，失败后返回蓝图修订时也拿不到原文。验收修订、停止重规划、修订对话都读这个字段，所以只在写入处补一行，没有去改各个读取处。
+  - 团队抽屉的说明从"在这个项目里一直保留"改为"只用于本次运行，想以后再用可以保存团队"。发车带的团队只作用于这次运行，不改项目配置；实测发车后演示仓库的 `baton.toml` 没有变化。手改过的团队仍会留在本次会话里，供同一份蓝图的后续推荐和修订沿用，"上次使用的团队"也照旧在第一步提供。
+  - 旧会话里没有 `flow` 的推荐：规模不是 small 时按引擎第一条规则直接显示完整流程；只有 small 才向新接口重取一次，流程确定之前不能发车。
+  - 截图放在仓库外的 `D:\Projects\VibeBaton-evidence\phase1\m2\`，不提交：截图里有本机路径，而仓库是公开的；会话临时目录重启后可能被清掉。
+  - 浏览器实测方法：本机 Chrome（无头，临时 profile）经 DevTools 协议由脚本操作，用真实的鼠标点击、文本输入和文件拖放事件；后面是真实服务端和真实守护进程，模型 CLI 换成同名替身。服务端用显式的 `credentials_path` 启动，把"已保存团队 / 上次使用的团队"这类用户级数据放进临时目录。
+- 验证（已验证）：
+  - Python 全量（`PYTHONPATH` 指向工作树的 `src`，`VIBEBATON_DISABLE_MODEL_SYNC=1`）：1020 项通过、跳过 6 项，无失败；施工会话跑了一遍，本会话在施工方交付的工作树和最终工作树上各跑一遍，结果一致。基线 1017 项，本轮新增 3 项。
+  - 前端：vitest 72 个文件、867 项通过（基线 879 项；随被删代码删除 33 项，新增 21 项），`npx tsc --noEmit` 和 `npm --prefix web run build` 通过。先失败后通过：施工会话记录了各组新测试在实现前的失败数；本会话补的 `latest_rfc_draft` 断言在去掉那一行实现时失败，恢复后通过。
+  - 验收标准 4：源码树里检索不到 `StartRunModal`（`launchEntries.test.ts` 也断言这一点）。浏览器里专业模式的三处按钮（顶栏、右栏 Inspector 页、Trace & Live Run 页的 Live Run 区）逐个点击，都进入工作台，没有弹窗出现。
+  - 验收标准 3，英文界面、精简流程（演示仓库 `j2d`）：蓝图第一屏有粘贴框；输入第一个字符后焦点仍在框内；评分 100/100 后出现发车卡，写明精简流程并带开关；"开始施工"加"确认并启动"两次点击发车，只发出 1 个启动请求。确认列出的是：文档 Hello script；团队为 L0 与两个 L1 角色 Claude Code · Claude Opus 5.5 · Medium，L2 与 L3 角色 OpenAI Codex · GPT-6.2 Sol · High；自动施工；精简流程；预算 Balanced（项目默认）。运行数据库里 `guided_launch_selection` 的团队与之逐项相同，`plan_flow_selected` 为 `lean` / `small_rfc_has_verification`，角色调用只有 `critical_executor:gpt-6.2-sol@high` 和 `milestone_reviewer:claude-opus-5-5@medium`。预算链接跳到专业模式侧栏，导览弹窗没有盖住；返回工作台后确认仍开着。
+  - 验收标准 3，中文界面、调整模型加超时重试（演示仓库 `j2e`）：拖入 .png 被拒并给出提示，拖入 .md 载入全文；在调整团队里把 L2 核心执行的思考强度从 High 改为 Low，关掉精简流程开关；刷新后原文、团队和开关都还在。确认列出改过的团队、"完整流程"及原因"你为本次运行关掉了精简流程"、预算"均衡"。第一次启动请求到达服务端但页面收不到回应（脚本拦住回应），15 秒后页面提示"请求超时，没有等到回应。启动结果尚不确定，请使用同一请求重试以确认。"，此时卡片锁定、服务端已有 1 个运行。再点一次"确认并启动"，两次请求内容完全相同（同一个 `launch_request_id`），服务端第二次返回 `reused: true` 和同一个运行 ID，运行列表里只有 1 个运行。数据库里 `guided_launch_selection` 带 `lean_flow: false` 和 `critical_executor: codex_sub:gpt-6.2-sol@low`，`plan_flow_selected` 为 `full` / `lean_flow_off`，角色调用依次是规划、`critical_executor:gpt-6.2-sol@low`、里程碑评审，与确认一致。运行到达待终审后，验收页"要求修改"可点。
+  - 截图 19 张，在 `D:\Projects\VibeBaton-evidence\phase1\m2\`：`01-pro-entries-header-and-inspector.png`、`02-pro-entry-live-run-panel.png`、`03-entry-lands-in-workbench.png`、`04-blueprint-first-screen.png`、`05-pasted-rfc-scored.png`、`06-launch-card-lean-flow.png`、`07-confirmation-lean.png`、`08-budget-link-pro-sidebar.png`、`09-build-stage-after-launch.png`、`10-zh-blueprint-first-screen.png`、`11-zh-drop-image-refused.png`、`12-zh-dropped-rfc-scored.png`、`13-zh-team-drawer-changed.png`、`14-zh-card-after-refresh.png`、`15-zh-confirmation-overrides.png`、`16-zh-start-result-unknown.png`、`17-zh-retry-confirmation.png`、`18-zh-after-retry-one-run.png`、`19-zh-signoff-request-changes-available.png`。
+- 未验证：
+  - 验收标准 3 里的"第一屏"目前指蓝图阶段的第一屏。本里程碑交付后工作台仍先停在第 1 步（工作区），每次会话要点一次"进入下一步"才到蓝图；直接落在蓝图属于里程碑 3，届时重走一遍旅程 2。
+  - 1280×800 下第一屏能看到快车道的标题，粘贴框从纵向 825 像素处开始，要向下滚一点才完整露出；留给里程碑 3 调整外壳时一并解决。
+  - 只在 1280×800、深色主题下实测，更窄的窗口和浅色主题没有看。
+  - 打开专家小组后流程说明的变化、旧会话重取推荐、发车预检失败后的快车道，只有组件测试覆盖，没有在浏览器里走。
+  - 文件拖放是用 DevTools 协议派发的拖放事件加真实文件验证的，没有用实体鼠标拖。
+  - 真实模型没有参与，运行全部由替身 CLI 完成。
+- 途中发现、未处理：
+  - 实测对用户数据的一次影响：第一次浏览器发车时服务端还在用默认的用户目录，前端按原有逻辑保存了"上次使用的团队"，本机 `~/.vibebaton/lineup_profiles.json` 里 `last_used.updated_at` 被刷新为当时的时间。团队内容与原来相同（当时用的就是从这份记录里带出来的团队），界面不显示这个时间。之后的实测都改用隔离目录，这个文件的修改时间没有再变。
+  - 第一步会把"上次使用的团队"带出来并记为 `customized`，随后的推荐卡因此显示"你亲手调整过团队，所以原样保留"，即使这次会话里没有改过团队。这是原有行为。
+  - 运行摘要是引擎生成的英文句子，中文界面顶部的待终审提示里照原文显示。
+  - 用 `rfc_markdown` 发车会在工作区留下未跟踪的 `.baton/ui_rfcs/` 目录（原有行为）。
+  - `docs/TUTORIAL.md` 第 64 行和第 264 行附近仍在描述旧的三段式发车向导，留到 Phase 1 收尾和 README 一起改。
+  - 改动前就没人读的文案键没有清理，例如 `inspector.rfcSourceLegend`、`inspector.runModeLabel`、`credentials.title`、`wizard.runModes`、`m3.launch.retry`、`guided.brainstorm.confirmLaunch`；`client.startGuidedRun` 只有测试在用，现在与 `startRun` 等价。
+- 状态：自检通过，已交付。代码提交 `48446af`；回退标签 `pre-p1-m2-20261127` 指向 `9d611f9`；随本条所在提交快进合并到 `main`，`dev` 指到同一提交，重建前端并更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签。README 未修改（留到 Phase 1 收尾）。
