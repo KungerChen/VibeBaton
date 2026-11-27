@@ -197,7 +197,7 @@ describe('summarizeDetail', () => {
     expect(summarizeDetail(detail, 'en')).toEqual({
       status: 'PASSED',
       summary: detail.summary,
-      model: 'claude_sub / sonnet',
+      model: 'Claude Code / sonnet',
       elapsed: '1m 30s',
       cost: '$0.04',
       tests: 'passed',
@@ -290,7 +290,7 @@ describe('NodeDetailDrawer', () => {
     expect(container.text).toContain('Add task detail endpoint');
     expect(container.text).toContain(TASK_ID);
     expect(field(container, 'status')).toBe('PASSED');
-    expect(field(container, 'model')).toBe('claude_sub / sonnet');
+    expect(field(container, 'model')).toBe('Claude Code / sonnet');
     expect(field(container, 'elapsed')).toBe('1m 30s');
     expect(field(container, 'cost')).toBe('$0.04');
     expect(field(container, 'tests')).toBe('passed');

@@ -1143,6 +1143,50 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
             </details>
           </div>
         ) : null}
+        {/* Launch: the recommendation card spans the chat column; the sidebar keeps the blueprint itself. */}
+        {hasReplanParent(session) && allowReplanLaunch ? (
+          <p className="guided-brainstorm__hint" role="note">{m3.revision.inheritedWorkflow}</p>
+        ) : null}
+        {canLaunch(card) && recommendation && !revisionPending && replanLaunchBlocked ? (
+          <p className="guided-brainstorm__hint" role="note">{zh
+            ? '当前启动接口无法连接已停止的上一轮，修订蓝图已保留，暂不能安全启动。'
+            : 'The start endpoint cannot attach the stopped run. The revised blueprint is saved until it can be started safely.'}</p>
+        ) : null}
+        {canLaunch(card) && recommendation && !revisionPending ? (
+          <GuidedLaunchBar recommendation={recommendation} lineup={selectedLineup} mode={mode}
+            previousSize={previousSize} showSwitch={showSwitch} panelFailure={panelError}
+            providers={[...new Set(models.models.map((model) => model.provider))]} catalog={catalog} profiles={profiles}
+            pending={busyAction === 'launch'} disabled={!launchable && !pendingLaunch}
+            locked={!!pendingLaunch || (allowReplanLaunch && hasReplanParent(session))}
+            profileError={profileError} onLineupChange={changeLineup} onModeChange={changeMode}
+            onSwitch={() => {
+              setMode(recommendation.mode);
+              saveWorkflow(selectedLineup, recommendation.mode, recommendation.preset, recommendation.size ?? undefined);
+              setPreset(recommendation.preset);
+              setShowSwitch(false);
+            }}
+            onDismissSwitch={() => setShowSwitch(false)}
+            onSaveProfile={async (name) => {
+              setProfileError(null);
+              try {
+                const result = await services.saveLineupProfile({ name, roles: selectedLineup.roles,
+                  model_overrides: selectedLineup.model_overrides ?? {} });
+                setProfiles(result.profiles);
+              } catch (failure) {
+                setProfileError(localizeGuidedError(failure, locale));
+                throw failure;
+              }
+            }} onDeleteProfile={async (profileId) => {
+              setProfileError(null);
+              try {
+                const result = await services.deleteLineupProfile(profileId);
+                setProfiles(result.profiles);
+              } catch (failure) {
+                setProfileError(localizeGuidedError(failure, locale));
+                throw failure;
+              }
+            }} onLaunch={launch} />
+        ) : null}
       </section>
 
       <aside className="guided-brainstorm__card" aria-label={labels.blueprintTitle}>
@@ -1207,49 +1251,6 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
           </div>
         ) : null}
         {hint && !typing ? <p className="guided-brainstorm__hint">{hint}</p> : null}
-        {hasReplanParent(session) && allowReplanLaunch ? (
-          <p className="guided-brainstorm__hint" role="note">{m3.revision.inheritedWorkflow}</p>
-        ) : null}
-        {canLaunch(card) && recommendation && !revisionPending && replanLaunchBlocked ? (
-          <p className="guided-brainstorm__hint" role="note">{zh
-            ? '当前启动接口无法连接已停止的上一轮，修订蓝图已保留，暂不能安全启动。'
-            : 'The start endpoint cannot attach the stopped run. The revised blueprint is saved until it can be started safely.'}</p>
-        ) : null}
-        {canLaunch(card) && recommendation && !revisionPending ? (
-          <GuidedLaunchBar recommendation={recommendation} lineup={selectedLineup} mode={mode}
-            previousSize={previousSize} showSwitch={showSwitch} panelFailure={panelError}
-            providers={[...new Set(models.models.map((model) => model.provider))]} catalog={catalog} profiles={profiles}
-            pending={busyAction === 'launch'} disabled={!launchable && !pendingLaunch}
-            locked={!!pendingLaunch || (allowReplanLaunch && hasReplanParent(session))}
-            profileError={profileError} onLineupChange={changeLineup} onModeChange={changeMode}
-            onSwitch={() => {
-              setMode(recommendation.mode);
-              saveWorkflow(selectedLineup, recommendation.mode, recommendation.preset, recommendation.size ?? undefined);
-              setPreset(recommendation.preset);
-              setShowSwitch(false);
-            }}
-            onDismissSwitch={() => setShowSwitch(false)}
-            onSaveProfile={async (name) => {
-              setProfileError(null);
-              try {
-                const result = await services.saveLineupProfile({ name, roles: selectedLineup.roles,
-                  model_overrides: selectedLineup.model_overrides ?? {} });
-                setProfiles(result.profiles);
-              } catch (failure) {
-                setProfileError(localizeGuidedError(failure, locale));
-                throw failure;
-              }
-            }} onDeleteProfile={async (profileId) => {
-              setProfileError(null);
-              try {
-                const result = await services.deleteLineupProfile(profileId);
-                setProfiles(result.profiles);
-              } catch (failure) {
-                setProfileError(localizeGuidedError(failure, locale));
-                throw failure;
-              }
-            }} onLaunch={launch} />
-        ) : null}
       </aside>
     </div>
   );

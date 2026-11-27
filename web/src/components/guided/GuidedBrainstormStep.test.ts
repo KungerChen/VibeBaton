@@ -702,6 +702,12 @@ test('mounted step preserves, restores, launches once, and replans with failure 
   expect(container.textContent).toContain('second-model');
   expect(reactProps(byClass('l0-model-switcher__select')).value).toBe('two:second@high');
   expect(container.textContent).toContain('Recommended plan');
+  // The recommendation card sits under the chat, not in the narrow blueprint sidebar.
+  let cardParent = byClass('guided-launch-bar').parentNode;
+  while (cardParent && !String(reactProps(cardParent).className ?? '').startsWith('guided-brainstorm__')) {
+    cardParent = cardParent.parentNode;
+  }
+  expect(reactProps(cardParent!).className).toBe('guided-brainstorm__chat');
 
   await act(async () => {
     const toggle = findNode(container, (node, props) => node.nodeName === 'INPUT'

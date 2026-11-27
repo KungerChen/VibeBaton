@@ -6,7 +6,7 @@ import { EMBEDDED_PRESETS, flagship_4tier } from '../data/presets';
 import { STAGE1_REPLAY_TRACE, STAGE1_REPLAY_TRACE_ZH } from '../data/stage1Replay';
 import { readStoredLocale } from './index';
 import { MESSAGES } from './messages';
-import { EN_TO_ZH_PRESET_TEXT, formatProviderDisplay, translateHandle, translatePresetText, translateRole } from './presets';
+import { EN_TO_ZH_PRESET_TEXT, formatProviderDisplay, formatProviderIdsInText, translateHandle, translatePresetText, translateRole } from './presets';
 
 const CJK_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const HAN_PATTERN = /\p{Script=Han}/u;
@@ -140,7 +140,17 @@ describe('i18n guarantees', () => {
   test('uses DSH in UI labels while preserving the stored provider ID', () => {
     expect(formatProviderDisplay('dsh_opencode')).toBe('DSH');
     expect(formatProviderDisplay('dsh_deepseek')).toBe('DSH');
-    expect(formatProviderDisplay('claude_sub')).toBe('claude_sub');
+    // Built-in providers show the same names as the Workspace tool list; HTTP ones say "API".
+    expect(formatProviderDisplay('claude_sub')).toBe('Claude Code');
+    expect(formatProviderDisplay('codex_sub')).toBe('OpenAI Codex');
+    expect(formatProviderDisplay('gemini_sub')).toBe('Gemini CLI');
+    expect(formatProviderDisplay('agy_sub')).toBe('Antigravity CLI');
+    expect(formatProviderDisplay('openai_http')).toBe('OpenAI API');
+    expect(formatProviderDisplay('gemini_http')).toBe('Gemini API');
+    expect(formatProviderDisplay('my_custom_cli')).toBe('my_custom_cli');
+    expect(formatProviderIdsInText('所有角色均已分配到可用的提供方：agy_sub, claude_sub, dsh_opencode。'))
+      .toBe('所有角色均已分配到可用的提供方：Antigravity CLI, Claude Code, DSH。');
+    expect(formatProviderIdsInText('path/claude_sub_x and claude_subtle stay')).toBe('path/claude_sub_x and claude_subtle stay');
 
     for (const [en, zh] of Object.entries(EN_TO_ZH_PRESET_TEXT)) {
       expect(en.trim()).not.toBe('');

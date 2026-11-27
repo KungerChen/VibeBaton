@@ -76,7 +76,7 @@ describe('GuidedLaunchBar', () => {
   test('a partly ready panel stays available and names the missing specialists', () => {
     const partial = { ...recommendation, missing_panelists: ['codex_sub', 'dsh_opencode'] };
     const html = renderToStaticMarkup(createElement(GuidedLaunchBar, props({ recommendation: partial, panelFailure: null })));
-    expect(html).toContain('Some specialists are not ready (codex_sub, DSH)');
+    expect(html).toContain('Some specialists are not ready (OpenAI Codex, DSH)');
     expect(html).not.toMatch(/role="switch"[^>]*disabled=""/);
   });
 
@@ -98,7 +98,7 @@ describe('recommendation display helpers', () => {
     const [row] = teamRows(lineup, BUILTIN_MODEL_CATALOG, 'en', 'Tool default');
     const model = BUILTIN_MODEL_CATALOG.models.find((entry) => entry.id === 'gpt-6.2-sol')!;
     const effort = BUILTIN_MODEL_CATALOG.efforts.find((entry) => entry.id === 'high')!;
-    expect(row).toEqual({ role: 'planner', roleLabel: 'planner', tool: 'codex_sub', model: model.label, effort: effort.label });
+    expect(row).toEqual({ role: 'planner', roleLabel: 'planner', tool: 'OpenAI Codex', model: model.label, effort: effort.label });
     expect(teamRows({ roles: { bulk_worker: 'dsh_opencode' }, model_overrides: {} }, BUILTIN_MODEL_CATALOG, 'zh', '工具默认')[0])
       .toMatchObject({ tool: 'DSH', model: '工具默认', effort: '' });
   });
@@ -107,7 +107,7 @@ describe('recommendation display helpers', () => {
     const many = { ...recommendation, explanation_codes: ['size_from_model', 'large_relay', 'panelist_not_ready', 'provider_substituted'],
       missing_panelists: ['codex_sub'] };
     expect(recommendationReasons(many, copy)).toEqual([
-      'The AI partner judged this a large project.', copy.reasons.large_relay, 'Some panel specialists are not ready: codex_sub.',
+      'The AI partner judged this a large project.', copy.reasons.large_relay, 'Some panel specialists are not ready: OpenAI Codex.',
     ]);
     expect(recommendationReasons({ ...recommendation, explanation_codes: ['mystery'] }, copy)).toEqual([copy.unknownReason]);
     const zh = MESSAGES.zh.guided.m3.recommendation;

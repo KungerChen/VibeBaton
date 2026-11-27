@@ -76,7 +76,8 @@ describe('lineupSummary', () => {
   test('lists roles with display provider names and never leaks dsh_opencode', () => {
     const en = lineupSummary(lineup(true), 'en');
     expect(en).toContain('DSH');
-    expect(en).toContain('claude_sub');
+    expect(en).toContain('Claude Code');
+    expect(en).not.toContain('claude_sub');
     expect(en).not.toMatch(/opencode/i);
     expect(lineupSummary(lineup(true), 'zh')).toContain('，');
   });

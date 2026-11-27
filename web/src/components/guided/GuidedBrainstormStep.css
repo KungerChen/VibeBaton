@@ -5,7 +5,8 @@
   align-items: start;
 }
 
-@media (max-width: 760px) {
+/* The step list takes ~15rem, so below ~960px the two columns get too narrow. */
+@media (max-width: 960px) {
   .guided-brainstorm {
     grid-template-columns: minmax(0, 1fr);
   }

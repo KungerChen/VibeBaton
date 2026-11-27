@@ -135,8 +135,33 @@ export function translateRole(role: string, locale: Locale): string {
   return ROLE_LABELS_ZH[role] ?? role;
 }
 
+/**
+ * Display names for the built-in provider IDs, matching the CLI registry driver names shown in
+ * Guided Workspace (src/vibebaton/cli_registry). HTTP providers say "API" to tell them apart from
+ * the subscription CLIs. Stored and submitted values stay the provider IDs.
+ */
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  claude_sub: 'Claude Code',
+  codex_sub: 'OpenAI Codex',
+  gemini_sub: 'Gemini CLI',
+  agy_sub: 'Antigravity CLI',
+  dsh_opencode: 'DSH',
+  dsh_deepseek: 'DSH',
+  openai_http: 'OpenAI API',
+  gemini_http: 'Gemini API',
+};
+
 export function formatProviderDisplay(provider: string): string {
-  return provider === 'dsh_opencode' || provider === 'dsh_deepseek' ? 'DSH' : provider;
+  return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
+}
+
+const PROVIDER_ID_IN_TEXT = new RegExp(
+  `(?<![\\w./\\\\-])(?:${Object.keys(PROVIDER_DISPLAY_NAMES).join('|')})(?![\\w-])`, 'g',
+);
+
+/** Replace whole built-in provider IDs inside server text (e.g. lineup notes) with display names. */
+export function formatProviderIdsInText(text: string): string {
+  return text.replace(PROVIDER_ID_IN_TEXT, (provider) => formatProviderDisplay(provider));
 }
 
 export function translateHandle(handle: string, locale: Locale): string {

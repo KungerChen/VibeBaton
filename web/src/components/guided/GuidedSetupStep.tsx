@@ -15,7 +15,7 @@ import {
   type WorkspaceInfo,
 } from '../../api/client';
 import { MESSAGES, type Locale } from '../../i18n/messages';
-import { formatProviderDisplay, translateRole } from '../../i18n/presets';
+import { formatProviderDisplay, formatProviderIdsInText, translateRole } from '../../i18n/presets';
 import type { CredentialStatus } from '../../types/graph';
 import { localizeGuidedError } from './guidedErrors';
 import { CliSummaryBar } from './CliSummaryBar';
@@ -462,7 +462,7 @@ export function lineupSummary(
 }
 
 function lineupNotes(lineup: RecommendedLineup, locale: Locale): string {
-  return (locale === 'zh' ? lineup.notes_zh : lineup.notes_en).replace(DSH_TEXT_RE, 'DSH');
+  return formatProviderIdsInText(locale === 'zh' ? lineup.notes_zh : lineup.notes_en);
 }
 
 /** An install may run only for a missing CLI after explicit confirmation. */

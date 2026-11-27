@@ -189,27 +189,6 @@ export function GuidedLaunchBar({
           onSwitch={onSwitch} onDismiss={onDismissSwitch} />
       ) : null}
 
-      <div className="guided-launch-bar__panel">
-        <label className="guided-launch-bar__panel-switch">
-          <input type="checkbox" role="switch" checked={mode === 'panel'} disabled={panel.disabled}
-            aria-describedby={panel.reason ? `${panelHelp} ${panelHint}` : panelHelp}
-            onChange={(event) => onModeChange(event.currentTarget.checked ? 'panel' : 'overnight')} />
-          <span className="guided-launch-bar__panel-title">{copy.recommendation.panel}</span>
-        </label>
-        <p id={panelHelp} className="guided-launch-bar__panel-help">{copy.recommendation.panelHelp}</p>
-        {panel.reason ? (
-          <p id={panelHint} className="guided-launch-bar__panel-hint">
-            {copy.recommendation.panelUnavailable}{panel.reason}
-          </p>
-        ) : recommendation.missing_panelists?.length ? (
-          <p className="guided-launch-bar__panel-hint">
-            {fill(copy.recommendation.panelPartial, {
-              names: recommendation.missing_panelists.map(formatProviderDisplay).join(', '),
-            })}
-          </p>
-        ) : null}
-      </div>
-
       <details className="guided-launch-bar__drawer">
         <summary>{copy.lineup.open}</summary>
         <p className="guided-launch-bar__drawer-note">{copy.lineup.description}</p>
@@ -219,8 +198,9 @@ export function GuidedLaunchBar({
           const selectedModel = models.find((model) => model.id === parsed.model);
           const efforts = effortOptionsFor(selectedModel, provider, catalog.efforts);
           return (
-            <fieldset key={role} disabled={controlsDisabled} className="guided-launch-bar__role">
-              <legend>{translateRole(role, locale)}</legend>
+            <fieldset key={role} disabled={controlsDisabled} className="guided-launch-bar__role"
+              aria-label={translateRole(role, locale)}>
+              <span className="guided-launch-bar__role-name">{translateRole(role, locale)}</span>
               <label>{copy.lineup.provider}
                 <select className="guided-setup__input" value={provider}
                   onChange={(event) => onLineupChange(assignRoleProvider(lineup, role, event.currentTarget.value, catalog))}>
@@ -282,9 +262,31 @@ export function GuidedLaunchBar({
         {profileError ? <p role="alert" className="guided-launch-bar__panel-hint">{profileError}</p> : null}
       </details>
 
-      <button type="button" className="guided-launch-bar__launch" disabled={disabled || pending} onClick={onLaunch}>
-        {pending ? copy.launch.launching : copy.launch.action}
-      </button>
+      <div className="guided-launch-bar__footer">
+        <div className="guided-launch-bar__panel">
+          <label className="guided-launch-bar__panel-switch">
+            <input type="checkbox" role="switch" checked={mode === 'panel'} disabled={panel.disabled}
+              aria-describedby={panel.reason ? `${panelHelp} ${panelHint}` : panelHelp}
+              onChange={(event) => onModeChange(event.currentTarget.checked ? 'panel' : 'overnight')} />
+            <span className="guided-launch-bar__panel-title">{copy.recommendation.panel}</span>
+          </label>
+          <p id={panelHelp} className="guided-launch-bar__panel-help">{copy.recommendation.panelHelp}</p>
+          {panel.reason ? (
+            <p id={panelHint} className="guided-launch-bar__panel-hint">
+              {copy.recommendation.panelUnavailable}{panel.reason}
+            </p>
+          ) : recommendation.missing_panelists?.length ? (
+            <p className="guided-launch-bar__panel-hint">
+              {fill(copy.recommendation.panelPartial, {
+                names: recommendation.missing_panelists.map(formatProviderDisplay).join(', '),
+              })}
+            </p>
+          ) : null}
+        </div>
+        <button type="button" className="guided-launch-bar__launch" disabled={disabled || pending} onClick={onLaunch}>
+          {pending ? copy.launch.launching : copy.launch.action}
+        </button>
+      </div>
     </section>
   );
 }
