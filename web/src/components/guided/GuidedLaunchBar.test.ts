@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from 'vitest';
 import type { GuidedSession, ModelCatalogEntry, RecommendedLineup, WorkflowRecommendation } from '../../api/client';
 import { MESSAGES } from '../../i18n/messages';
 import {
-  GuidedLaunchBar, panelToggleState, recommendationHeadline, recommendationReasons, teamRows,
+  GuidedLaunchBar, mergeTeamRows, panelToggleState, recommendationHeadline, recommendationReasons, teamRows,
   type GuidedLaunchBarProps,
 } from './GuidedLaunchBar';
 import { initialWorkflow } from './GuidedBrainstormStep';
@@ -115,6 +115,15 @@ describe('effort pickers follow the server lists', () => {
 });
 
 describe('recommendation display helpers', () => {
+  test('adjacent roles on the same tool, model and effort share a row', () => {
+    const row = (role: string, model: string) => ({ role, roleLabel: role, tool: 'Claude Code', model, effort: 'High' });
+    const merged = mergeTeamRows([row('l0', 'Opus'), row('l1', 'Opus'), row('l2', 'Sonnet'), row('l3', 'Sonnet'),
+      row('l4', 'Opus')], ', ');
+    expect(merged.map((item) => item.roleLabel)).toEqual(['l0, l1', 'l2, l3', 'l4']);
+    expect(merged[0].role).toBe('l0+l1');
+    expect(mergeTeamRows([], ', ')).toEqual([]);
+  });
+
   test('team rows use catalog model and effort labels', () => {
     const [row] = teamRows(lineup, BUILTIN_MODEL_CATALOG, 'en', 'Tool default');
     const model = BUILTIN_MODEL_CATALOG.models.find((entry) => entry.id === 'gpt-6.2-sol')!;

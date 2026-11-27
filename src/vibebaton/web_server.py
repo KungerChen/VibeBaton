@@ -159,6 +159,23 @@ def _repo_is_empty(repo: Path) -> bool:
         return False
 
 
+def _with_l0_choice(recommendation: dict[str, Any], selected: object, readiness: ReadinessSnapshot) -> dict[str, Any]:
+    """A small project's lean team keeps the L0 model the user picked in the L0 switcher (if it is ready)."""
+    lineup = recommendation.get("lineup")
+    l0 = "brainstorm_and_final_gate"
+    if recommendation.get("reason_code") != "small_eco" or not isinstance(selected, str) or not isinstance(lineup, dict):
+        return recommendation
+    if l0 not in lineup.get("roles", {}):
+        return recommendation
+    ready = {p.provider_id for p in readiness.providers if p.provider_ready and p.credential_ready}
+    normalized = model_catalog.normalize_spec_string(selected, readiness.catalog or ())
+    if normalized["provider"] not in ready or normalized["reason"] == "unverifiable":
+        return recommendation
+    lineup = {**lineup, "roles": {**lineup["roles"], l0: normalized["provider"]},
+              "model_overrides": {**lineup["model_overrides"], l0: normalized["spec"]}}
+    return {**recommendation, "lineup": lineup}
+
+
 def _recommendation_base_lineup(session: dict[str, Any]) -> dict[str, Any] | None:
     """The team to start from: a hand-edited saved team, else the team confirmed in setup."""
     saved = session["workflow"]["lineup"]
@@ -2062,9 +2079,9 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             if size not in ("small", "medium", "large"):
                 size = estimate_project_size(result.get("rfc_markdown", ""), repo_is_empty=_repo_is_empty(repo))
                 basis = "estimated"
-            result["recommendation"] = asdict(recommend_workflow(
+            result["recommendation"] = _with_l0_choice(asdict(recommend_workflow(
                 size, readiness, previous_lineup=previous, size_basis=basis,
-            ))
+            )), session["brainstorm"].get("selected_l0_model"), readiness)
         self._send_json(200, result)
 
     def _post_brainstorm_confirm(self) -> None:

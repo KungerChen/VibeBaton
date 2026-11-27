@@ -19,12 +19,6 @@ from tests.test_workflow_recommend import example_config, example_scan
 ALL_READY = ("agy", "gemini", "claude", "codex", "dsh")
 PLANNING_ROLES = ("brainstorm_and_final_gate", "tactical_planner")
 EXECUTION_ROLES = ("micro_orchestrator", "bulk_worker", "visual", "research")
-LOW_EFFORTS = {"", "minimal", "low", "medium"}
-
-
-def _effort(spec: str) -> str:
-    model = spec.partition(":")[2]
-    return model.rpartition("@")[2] if "@" in model else ""
 
 
 class SizeTierTests(unittest.TestCase):
@@ -50,14 +44,18 @@ class SizeTierTests(unittest.TestCase):
             self.assertIsNone(result.preset)  # presets only ever reached the run log
             validate_launch_selection(result.mode, self.snapshot, lineup=result.lineup)
 
-    def test_small_keeps_strong_planning_and_uses_light_execution(self) -> None:
+    def test_small_is_two_models_planning_shared_and_one_standard_worker(self) -> None:
         small = recommend_workflow("small", self.snapshot).lineup["model_overrides"]
-        medium = recommend_workflow("medium", self.snapshot).lineup["model_overrides"]
-        for role in PLANNING_ROLES:
-            self.assertEqual(small[role].rpartition("@")[0], medium[role].rpartition("@")[0], role)
-        for role in EXECUTION_ROLES:
-            self.assertIn(_effort(small[role]), LOW_EFFORTS, small[role])
-        self.assertGreater(len(set(small.values())), 1)  # not one eco model for every role
+        planning = {small[role] for role in PLANNING_ROLES}
+        execution = {small[role] for role in EXECUTION_ROLES}
+        self.assertEqual(len(planning), 1)
+        self.assertEqual(len(execution), 1)
+        self.assertNotEqual(planning, execution)
+        worker = next(iter(execution))
+        provider, model, effort = worker.partition(":")[0], *worker.partition(":")[2].rpartition("@")[::2]
+        entry = next(m for m in self.snapshot.catalog if m["id"] == model)
+        self.assertEqual(entry["cost_tier"], "standard")  # one worker carries more, so not the cheapest model
+        self.assertIn(effort, ("", "minimal", "low", "medium", "high"))
 
     def test_default_team_matches_the_setup_step_recommendation(self) -> None:
         ready = [p.provider_id for p in self.snapshot.providers if p.provider_ready and p.credential_ready]

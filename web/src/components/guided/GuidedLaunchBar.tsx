@@ -57,6 +57,20 @@ export function teamRows(lineup: Pick<RecommendedLineup, 'roles' | 'model_overri
   });
 }
 
+/** Adjacent roles on the same tool, model and effort share one row (a small team shows as two or three rows). */
+export function mergeTeamRows(rows: readonly TeamRow[], separator: string): TeamRow[] {
+  const merged: TeamRow[] = [];
+  for (const row of rows) {
+    const last = merged[merged.length - 1];
+    if (last && last.tool === row.tool && last.model === row.model && last.effort === row.effort) {
+      merged[merged.length - 1] = { ...last, role: `${last.role}+${row.role}`, roleLabel: `${last.roleLabel}${separator}${row.roleLabel}` };
+    } else {
+      merged.push({ ...row });
+    }
+  }
+  return merged;
+}
+
 /** The one-sentence conclusion for the arrangement the backend chose. */
 export function recommendationHeadline(recommendation: WorkflowRecommendation, copy: RecommendationCopy): string {
   if (!recommendation.lineup) return copy.headlines.no_lineup;
@@ -137,7 +151,7 @@ export function GuidedLaunchBar({
   const [savingProfile, setSavingProfile] = useState(false);
   const controlsDisabled = pending || locked;
   const reasons = recommendationReasons(recommendation, copy.recommendation);
-  const rows = teamRows(lineup, catalog, locale, copy.lineup.defaultModel);
+  const rows = mergeTeamRows(teamRows(lineup, catalog, locale, copy.lineup.defaultModel), locale === 'zh' ? '、' : ', ');
   const panel = panelToggleState(panelFailure, controlsDisabled);
   const choices = [...new Set([...providers, ...Object.values(lineup.roles)])];
 

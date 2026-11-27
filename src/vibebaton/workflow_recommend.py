@@ -492,7 +492,19 @@ def _configured_override(cfg: BatonConfig, role: str, provider: str) -> str | No
     return model if model.partition(":")[2].strip() else None
 
 
-_LEAN_EFFORTS = ("medium", "low", "minimal")
+# Execution effort for a small project's single worker model: its default, but no higher than this.
+_LEAN_EFFORT_CAP = "high"
+_EFFORT_RANK = {effort["id"]: index for index, effort in enumerate(model_catalog.EFFORT_LEVELS)}
+
+
+def _lean_execution_effort(pick: dict[str, str], models: Sequence[model_catalog.ModelCatalogEntry]) -> str:
+    entry = model_catalog.find_catalog_model(pick["provider"], pick["model"], models)
+    if entry is None:
+        return pick["effort"]
+    preferred = entry.get("provider_defaults", {}).get(pick["provider"]) or entry["default_effort"]
+    if _EFFORT_RANK.get(preferred, 0) > _EFFORT_RANK[_LEAN_EFFORT_CAP]:
+        preferred = _LEAN_EFFORT_CAP
+    return model_catalog.legal_default_effort(preferred, model_catalog.allowed_efforts(entry, pick["provider"]))
 
 
 def _tiered_lineup(
@@ -501,8 +513,9 @@ def _tiered_lineup(
 ) -> WorkflowLineup | None:
     """The setup step's per-role catalog picks over ready providers (``recommend_role_assignment``).
 
-    ``lean`` keeps the L0/L1 planning and review picks but gives execution roles (L2/L3) the
-    L3 value model at an effort no higher than medium.
+    ``lean`` (small projects) uses two models: every planning/review role (L0, L1) shares the L1 pick,
+    and every execution role shares the standard-tier (L2) pick, because one worker carries more of the
+    work, at its default effort capped at high.
     """
     ready = list(_ready_providers(ReadinessSnapshot(providers)))
     if not ready or not cfg.roles:
@@ -512,15 +525,11 @@ def _tiered_lineup(
     overrides: dict[str, str] = {}
     for name in cfg.roles:
         execution = model_catalog.ROLE_TIERS.get(name, "L2") in ("L2", "L3")
-        pick = model_catalog.recommend_role_assignment("bulk_worker" if lean and execution else name, ready, models)
+        role_for_pick = name if not lean else ("critical_executor" if execution else "tactical_planner")
+        pick = model_catalog.recommend_role_assignment(role_for_pick, ready, models)
         if pick is None:
             return None
-        effort = pick["effort"]
-        if lean and execution:
-            entry = model_catalog.find_catalog_model(pick["provider"], pick["model"], models)
-            allowed = model_catalog.allowed_efforts(entry, pick["provider"]) if entry else list(_LEAN_EFFORTS)
-            effort = next((level for level in _LEAN_EFFORTS if level in allowed),
-                          model_catalog.legal_default_effort("medium", allowed))
+        effort = _lean_execution_effort(pick, models) if lean and execution and pick["model"] else pick["effort"]
         if pick["model"]:
             spec: str | None = f"{pick['provider']}:{pick['model']}" + (f"@{effort}" if effort else "")
         else:

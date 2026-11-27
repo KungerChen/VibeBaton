@@ -498,6 +498,27 @@ class TestGuidedSessionApi(GuidedApiTestCase):
         self.assertEqual(status, 200, body)
         self.assertTrue(all(model["provider"] != "claude_sub" for model in body["models"]))
 
+    def test_small_team_keeps_the_l0_model_the_user_picked(self) -> None:
+        def runner(prompt: str) -> tuple[str, str, str]:
+            guide = {"question": "", "options": [], "checklist": [], "size": "small"}
+            return "codex_sub", "gpt-6.2-astra@high", (
+                "Ready.\n```guide\n" + json.dumps(guide) + "\n```\n````rfc\n" + self.RFC + "````\n"
+            )
+
+        with patch.object(brainstorm, "_provider_dispatch", return_value=runner):
+            status, body = self._post("/api/brainstorm/chat", {
+                "messages": self.MESSAGE, "requested_l0_model": "codex_sub:gpt-6.2-astra@high"})
+        self.assertEqual(status, 200, body)
+        lineup = body["recommendation"]["lineup"]
+        self.assertEqual(body["recommendation"]["reason_code"], "small_eco")
+        self.assertEqual(lineup["model_overrides"]["brainstorm_and_final_gate"], "codex_sub:gpt-6.2-astra@high")
+        # Without a pick, L0 shares the planning model with L1.
+        self.put_session({"brainstorm": {"selected_l0_model": None}})
+        with patch.object(brainstorm, "_provider_dispatch", return_value=runner):
+            status, plain = self._post("/api/brainstorm/chat", {"messages": self.MESSAGE})
+        overrides = plain["recommendation"]["lineup"]["model_overrides"]
+        self.assertEqual(overrides["brainstorm_and_final_gate"], overrides["tactical_planner"])
+
     def test_saved_teams_with_impossible_efforts_are_corrected_once(self) -> None:
         path = self.credentials_path.parent / "lineup_profiles.json"
         path.write_text(json.dumps({"profiles": [], "last_used": {

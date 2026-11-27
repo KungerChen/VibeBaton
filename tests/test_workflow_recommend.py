@@ -97,9 +97,11 @@ class WorkflowRecommendationTests(unittest.TestCase):
         self.assertEqual((small.size, small.mode, small.preset, small.reason_code),
                          ("small", "overnight", None, "small_eco"))
         self.assertFalse(small.fallback)
-        self.assertEqual(small.lineup["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@low")
-        self.assertEqual(small.lineup["model_overrides"]["micro_orchestrator"], "dsh_opencode:deepseek-v4.1-flash@low")
-        self.assertEqual(small.lineup["model_overrides"]["brainstorm_and_final_gate"], "agy_sub:gemini-4-carbon@medium")
+        # 20261127: a small team is two models, planning/review on the L1 pick and every execution role on
+        # the standard-tier pick (no Codex list here, so Sol is capped to the verified high).
+        self.assertEqual(small.lineup["model_overrides"]["bulk_worker"], "codex_sub:gpt-6.2-sol@high")
+        self.assertEqual(small.lineup["model_overrides"]["micro_orchestrator"], "codex_sub:gpt-6.2-sol@high")
+        self.assertEqual(small.lineup["model_overrides"]["brainstorm_and_final_gate"], "claude_sub:claude-opus-5-5@medium")
         self.assertEqual(small.lineup["size"], "small")
 
         medium = recommend_workflow("medium", self.snapshot)
@@ -244,11 +246,11 @@ class WorkflowRecommendationTests(unittest.TestCase):
                          {**previous, "size": "medium"})
 
     def test_missing_lean_team_is_reported(self) -> None:
-        # With only Claude ready the lean team uses Claude's value model; the note appears only
-        # when no lean team can be built at all.
+        # With only Claude ready the lean team runs execution on Claude's standard model; the note appears
+        # only when no lean team can be built at all.
         snapshot = build_readiness_snapshot(Path("."), self.cfg, scan_result=example_scan(("claude",)))
         result = recommend_workflow("small", snapshot)
-        self.assertEqual(result.lineup["model_overrides"]["bulk_worker"], "claude_sub:claude-haiku-5-5@medium")
+        self.assertEqual(result.lineup["model_overrides"]["bulk_worker"], "claude_sub:claude-sonnet-5-5@high")
         self.assertEqual(result.explanation_codes, ("size_from_model", "small_eco"))
         result = recommend_workflow("small", replace(snapshot, eco_lineup=None))
         self.assertEqual(result.explanation_codes, ("size_from_model", "small_eco", "eco_model_unavailable"))
