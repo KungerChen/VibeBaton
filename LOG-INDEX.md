@@ -29,3 +29,4 @@ ID | 日期 | 摘要 | 日志路径与锚点 | 状态
 20261127-m3-accepted | 2026-11-27 | 用户确认 M3 验收通过；立项前核实假设 1、5、7 | [LOG.md](LOG.md#20261127-m3-accepted) | M3 已验收
 20261127-rfc-studio-workbench-p1 | 2026-11-27 | 新 RFC 立项：Studio Workbench Phase 1 + 小任务精简流程；Guided 2.0 RFC 归档 | [LOG.md](LOG.md#20261127-rfc-studio-workbench-p1) | RFC 已立项，未施工
 20261127-rfc-roadmap-section | 2026-11-27 | 现行 RFC 末尾加后续各期路线图（仅信息，不进本期范围） | [LOG.md](LOG.md#20261127-rfc-roadmap-section) | 已写入
+20261127-p1-m1-lean-flow | 2026-11-27 | Phase 1 里程碑 1：小任务精简流程（跳过规划、一做一审）、单次运行开关、推荐里的流程字段；真实规划模型未把路线图拆进计划 | [LOG.md](LOG.md#20261127-p1-m1-lean-flow) | 已自测并交付，待用户验收

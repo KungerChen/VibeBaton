@@ -393,3 +393,29 @@ is pre-task commit `53299ce`; no new commit has been made. The whitelist exclude
 - 决策：路线图只作信息，不进本期范围；章节开头写明规划与执行模型不得据此规划、施工或验收，避免 L1 把后续各期拆进本期计划。各期仍在上一期验收后单独立 RFC，换代前先归档现行 RFC。
 - 验证：`rfc_checker.check_rfc_readiness` 得分 100、无警告。未运行应用或测试；没有代码改动。真实规划模型是否会忽略这一节，未验证，里程碑 1 开工后看第一份计划即可确认。
 - 状态：已写入，随本条一并提交。README 未修改。
+
+## 20261127-p1-m1-lean-flow
+
+- 时间：2026-11-27（本机时间）。目标及授权：现行 RFC《Studio Workbench, Phase 1》里程碑 1（小任务精简流程，后端），对应验收标准 1、2。用户当日指示开始施工并交给 Opus 5.5 Max 执行，随后追加授权：Phase 1 做完后自行为 Phase 2 立项并施工，每个里程碑自检通过即交付（在 `main` 打回退标签、快进合并、`dev` 指到同一提交、重建前端、`promote-seed`、推送），只在其列出的八种情况停下。分工：Opus 5.5（effort=max）子代理施工，本会话（Fable 5.2）拆解、独立复核和交付。分支 `feat/studio-workbench-p1`，基线 `539adcd`。
+- 改动：
+  - `src/vibebaton/rfc_checker.py`：新增 `extract_verification_commands`，返回验收章节内已闭合围栏块里的命令行原文（shell 语言块逐逻辑行，无标注块沿用 `_commands_in_block` 的规则）；`_parse_document` 多返回验收章节的围栏块，`check_rfc_readiness` 的输出不变。
+  - `src/vibebaton/workflow_recommend.py`：新增 `plan_flow(size, mode, rfc_markdown, lean_flow=True)`，返回 `(flow, reason)`，引擎与推荐接口共用；`recommend_workflow` 未改。
+  - `src/vibebaton/engine.py`：新增 `_lean_flow_plan`（1 个里程碑 `M1`、1 个任务 `T1`，指派 `critical_executor`，无逐任务审校，`gate_commands` 为 RFC 命令原文，任务描述带完整 RFC 快照，经 `PlanDAG.from_dict` 校验）和 `_guided_launch_selection`；`_ensure_plan` 在规模为 small 且需要新建计划时先记一条 `plan_flow_selected` 事件（payload `{flow, reason}`），选中精简流程就不调用规划，直接写同一个 `01_PLAN.dag.json`、`register_plan`、记 `plan_generated`。
+  - `src/vibebaton/web_server.py`：`POST /api/runs/start` 接受可选布尔 `lean_flow`（非布尔或没带 `lineup` 时返回 400），写进 `guided_launch_selection` 事件 payload 的顶层；修订子运行继承父运行的选择；`/api/brainstorm/chat` 返回的推荐里增量加入 `flow`、`flow_reason`。
+  - 测试：新增 `tests/test_engine_lean_flow.py`（6 项，真实引擎与 git，只把模型调用换成假的），`test_rfc_checker.py` 加 6 项、`test_workflow_recommend.py` 加 1 项、`test_guided_session_api.py` 加 3 项。改动的现有测试只有一处：`test_engine_project_size.py` 的 `launch()` 在 small 时带 `lean_flow: False`，因为这些用例测的是 small 的完整流程；断言未改。
+- 决策：
+  - 选择规则：规模不是 small（含没有规模）走原路径，规划提示词逐字节不变，不记流程事件。small 时依次判断：`panel` 模式（`panel_mode`）、开关关闭（`lean_flow_off`）、提取不到命令（`no_verification_command`），都走今天 small 的完整流程；否则走精简流程（`small_rfc_has_verification`）。开关缺省为开，只有布尔 `false` 算关闭；推荐里另有 `size_not_small`。
+  - 检查命令只取能原样执行的原文，放弃直接用 `detected_commands`（那是规范化的模式名，例如 `npx`）。正文里口头提到的命令、验收章节之外的块、`console` 记录、未闭合的围栏、带提示符或单独 `cd`/`export`/`set` 行的块一律不取，宁可退回完整流程。
+  - 任务不设 `verify_cmd`、`allowed_paths` 为空：RFC 把命令放在里程碑门禁，门禁失败已有 `critical_executor` 补救循环；不从 RFC 正文猜路径，白名单检查的代码路径照常执行。
+  - 开关作为事件 payload 的独立键，不放进 `lineup`，不改 `WorkflowLineup`、引导会话文件格式、`schemas.py` 和数据库结构。
+  - 推荐字段加在 HTTP 返回的字典里，没有改 `recommend_workflow` 的签名，因为 `tests/test_guided_session.py` 的契约测试锁定了它。
+  - 没有为"配置里缺 `critical_executor` 角色"加回退：里程碑补救和默认升级角色本来就依赖它，默认配置和界面都不会删掉这个角色。
+- 验证（已验证）：
+  - Python 全量（`PYTHONPATH` 指向工作树的 `src`，`VIBEBATON_DISABLE_MODEL_SYNC=1`）：1017 项通过、跳过 6 项，无失败。改动前基线为 1001 项、跳过 6 项。施工会话与复核会话各跑一遍，结果一致。先失败后通过：实现前相关 5 个模块 13 项里 7 项失败、3 项因函数不存在报错，实现后 90 项通过。
+  - 前端未改动，仍跑了一遍：vitest 879 项（70 个文件）通过，`npx tsc --noEmit` 与 `npm --prefix web run build` 通过。
+  - 真实服务端加真实守护进程、模型 CLI 换成同名替身（不调用真实模型），在临时演示仓库经 `POST /api/runs/start` 发车，三种情况都到达 `READY_FOR_FINAL_GATE`：small 且 RFC 带 bash 检查块时，角色调用只有 `critical_executor` 和 `milestone_reviewer` 各一次，没有规划调用，计划为 `M1`/`T1`、门禁为 RFC 命令原文，事件写明 `lean`；带 `lean_flow: false` 时先调用规划，事件为 `full`/`lean_flow_off`；检查命令只在正文里提到时先调用规划，事件为 `full`/`no_verification_command`。同一 `launch_request_id` 重发返回 `reused: true`，库里只有一个运行。
+  - 命令行 `baton run` 在同样的演示仓库里照旧先调用规划，没有流程事件（验收标准 2 的后半句）。
+  - 路线图抽查（上一条 LOG 留下的未验证项）：在临时克隆里用现行配置的规划模型（`claude_sub` 的 `fable@high`）对 `539adcd` 的 RFC 做了一次真实规划调用，耗时 495.6 秒，得到 3 个里程碑、13 个任务，与 RFC 的三个里程碑一一对应；计划全文检索运行存储、接力图、情境抽屉、底坞、交接卡、证据矩阵、Lab、哈希路由、术语镜、设置中心、`Ctrl+K` 等后续各期关键字，没有命中。结论：真实规划模型没有把"仅作信息"的路线图拆进计划。
+- 未验证：真实模型能否在单个任务里做完一份 small RFC；RFC 里的命令在 Windows 门禁（cmd.exe）下是否可执行，例如 `PYTHONPATH=src pytest` 会被原样接受但在 cmd.exe 下会失败；前端还没有开关（里程碑 2 才加），在那之前引导页发出的 small 运行只要 RFC 验收章节有可执行命令块就走精简流程，只能通过接口传 `lean_flow: false` 退出。
+- 途中发现、未处理（均与本轮改动无关）：引导页发车的运行 ID 是 `run-request-` 加 64 位哈希，终审合并用的工作树名因此长达 94 个字符；仓库路径较深时（实测 104 和 117 个字符失败、38 个字符通过）`git worktree add` 以 `'$GIT_DIR' too big` 失败，运行在里程碑评审之后变成 `FAILED`。`tests/test_guided_api.py` 开头文档字符串里的 `/api/runs/start` 契约已过时。案例导出总会画一个 Planner 节点，精简运行也一样。
+- 状态：自检通过，已交付。代码提交 `075be81`；回退标签 `pre-p1-m1-20261127` 指向 `539adcd`；随本条所在提交快进合并到 `main`，`dev` 指到同一提交，重建前端并更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签。README 未修改（留到 Phase 1 收尾）。
