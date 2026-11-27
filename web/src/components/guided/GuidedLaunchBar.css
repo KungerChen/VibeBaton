@@ -285,3 +285,20 @@
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+
+.guided-launch-bar__effort-none {
+  align-self: end;
+  margin: 0;
+  padding-bottom: 0.4rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.guided-launch-bar__unverified {
+  margin-left: 0.35rem;
+  padding: 0 0.3rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.65rem;
+}

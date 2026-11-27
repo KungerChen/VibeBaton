@@ -26,7 +26,11 @@ import {
   lineupSummary,
   matchSavedProfile,
   coerceEffort,
+  describeCorrections,
   effortOptionsFor,
+  effortSourceFor,
+  legalDefaultEffort,
+  normalizeRoleEffort,
   modelsForProvider,
   providerTemplateSupport,
   recommendRoleSpec,
@@ -292,17 +296,19 @@ describe('CLI filtering and team lineup customization helpers', () => {
       notes_zh: '就绪。',
     };
     const tiered = buildTieredLineup(base, ['gemini_sub', 'claude_sub', 'codex_sub', 'dsh_opencode'], BUILTIN_MODEL_CATALOG);
+    // Gemini CLI does not offer the Gemini 4 line, so L0 goes to Claude; with no Codex list the offline
+    // catalog only vouches for low/medium/high, so Sol's max becomes high.
     expect(tiered.model_overrides).toEqual({
-      brainstorm_and_final_gate: 'gemini_sub:gemini-4-carbon@medium',
+      brainstorm_and_final_gate: 'claude_sub:claude-fable-5-2@medium',
       tactical_planner: 'claude_sub:claude-opus-5-5@medium',
-      critical_executor: 'codex_sub:gpt-6.2-sol@max',
+      critical_executor: 'codex_sub:gpt-6.2-sol@high',
       bulk_worker: 'dsh_opencode:deepseek-v4.1-flash@max',
     });
 
     const summaryZh = lineupSummary(tiered, 'zh', BUILTIN_MODEL_CATALOG.models);
-    expect(summaryZh).toContain('Gemini 4 Carbon · Medium');
+    expect(summaryZh).toContain('Claude Fable 5.2 · Medium');
     expect(summaryZh).toContain('Claude Opus 5.5 · Medium');
-    expect(summaryZh).toContain('GPT-6.2 Sol · Max');
+    expect(summaryZh).toContain('GPT-6.2 Sol · High');
     expect(summaryZh).toContain('DeepSeek V4.1 Flash · Max');
     expect(summaryZh).not.toMatch(/opencode/i);
 
@@ -323,8 +329,12 @@ describe('CLI filtering and team lineup customization helpers', () => {
     expect(swappedModel.model_overrides?.tactical_planner).toBe('claude_sub:claude-opus-4-6@high');
     expect(isLineupCustomized(tiered, swappedModel)).toBe(true);
 
+    // The offline catalog has no Gemini CLI model, so the role falls back to the CLI's own default model.
     const singleProviderSwap = assignRoleProvider(tiered, 'critical_executor', 'gemini_sub', BUILTIN_MODEL_CATALOG);
-    expect(singleProviderSwap.model_overrides?.critical_executor).toBe('gemini_sub:gemini-4-hydrogen@max');
+    expect(singleProviderSwap.roles.critical_executor).toBe('gemini_sub');
+    expect(singleProviderSwap.model_overrides?.critical_executor).toBeUndefined();
+    const agySwap = assignRoleProvider(tiered, 'critical_executor', 'agy_sub', BUILTIN_MODEL_CATALOG);
+    expect(agySwap.model_overrides?.critical_executor).toBe('agy_sub:gemini-4-hydrogen@high');
   });
 
   test('the offline fallback catalog only carries the recommended models; the server owns the full list', () => {
@@ -412,12 +422,12 @@ describe('recommendations stay inside what the provider offers', () => {
   test('a recommended model the CLI does not list falls back to the same tier in that provider', () => {
     expect(recommendRoleSpec('brainstorm_and_final_gate', ['agy_sub', 'gemini_sub', 'claude_sub'], BUILTIN_MODEL_CATALOG))
       .toEqual({ provider: 'agy_sub', model: 'gemini-4-carbon', effort: 'medium' });
-    expect(recommendRoleSpec('brainstorm_and_final_gate', ['gemini_sub', 'claude_sub'], catalog))
+    expect(recommendRoleSpec('brainstorm_and_final_gate', ['gemini_sub'], catalog))
       .toEqual({ provider: 'gemini_sub', model: 'gemini-2.5-pro', effort: 'medium' });
     expect(recommendRoleSpec('brainstorm_and_final_gate', ['gemini_http'], catalog))
       .toEqual({ provider: 'gemini_http', model: 'gemini-4-carbon', effort: 'medium' });
     expect(recommendRoleSpec('bulk_worker', ['dsh_deepseek'], catalog, 'dsh_deepseek'))
-      .toEqual({ provider: 'dsh_deepseek', model: 'deepseek-v4-flash', effort: 'max' });
+      .toEqual({ provider: 'dsh_deepseek', model: 'deepseek-v4-flash', effort: 'high' });
     expect(recommendRoleSpec('bulk_worker', ['dsh_opencode'], catalog))
       .toEqual({ provider: 'dsh_opencode', model: 'deepseek-v4.1-flash', effort: 'max' });
   });
@@ -441,7 +451,30 @@ describe('effort options', () => {
     const options = [{ id: 'low', label: 'Low' }, { id: 'max', label: 'Max' }];
     expect(coerceEffort('max', options, 'low')).toBe('max');
     expect(coerceEffort('ultra', options, 'low')).toBe('low');
-    expect(coerceEffort('ultra', options, 'medium')).toBe('max');
+    // The fallback rule matches the server: closest lower allowed level (medium -> low), never a stronger one.
+    expect(coerceEffort('ultra', options, 'medium')).toBe('low');
+    expect(coerceEffort('high', [], 'medium')).toBe('');
+  });
+
+  test('server effort lists are used exactly; an empty list means no effort and the source is visible', () => {
+    const flash = model('deepseek-v4.1-flash', ['dsh_opencode'], 'eco', 1, {
+      provider_efforts: { dsh_opencode: ['low', 'high', 'max'] },
+      provider_defaults: { dsh_opencode: 'max' },
+      effort_sources: { dsh_opencode: 'cli_models' },
+    });
+    const pro = model('gemini-2.5-pro', ['gemini_sub'], 'flagship', 1, {
+      provider_efforts: { gemini_sub: [] }, effort_sources: { gemini_sub: 'cli_declared' },
+    });
+    expect(effortOptionsFor(flash, 'dsh_opencode', BUILTIN_MODEL_CATALOG.efforts).map((e) => e.id)).toEqual(['low', 'high', 'max']);
+    expect(effortOptionsFor(pro, 'gemini_sub', BUILTIN_MODEL_CATALOG.efforts)).toEqual([]);
+    expect(normalizeRoleEffort('dsh_opencode', 'deepseek-v4.1-flash', 'medium', [flash])).toBe('max');
+    expect(normalizeRoleEffort('gemini_sub', 'gemini-2.5-pro', 'high', [pro])).toBe('');
+    expect(normalizeRoleEffort('claude_sub', 'claude-zeta', 'turbo', [flash, pro])).toBe('turbo');  // unknown: untouched
+    expect(effortSourceFor(flash, 'dsh_opencode')).toBe('cli_models');
+    expect(legalDefaultEffort('high', ['medium'])).toBe('medium');
+    expect(legalDefaultEffort('low', ['high', 'max'])).toBe('high');
+    expect(describeCorrections([{ role: 'bulk_worker', before: 'dsh_opencode:deepseek-v4.1-flash@medium',
+      after: 'dsh_opencode:deepseek-v4.1-flash@max', reason: 'effort_adjusted' }], 'en')).toContain('Medium → Max');
   });
 });
 

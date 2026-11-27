@@ -234,7 +234,7 @@ describe('i18n guarantees', () => {
       'small_eco', 'medium_relay', 'large_panel', 'large_relay', 'custom_lineup_kept',
       'eco_model_unavailable', 'provider_substituted', 'no_ready_provider', 'lineup_unavailable',
       'synthesizer_not_configured', 'synthesizer_provider_unavailable',
-      'synthesizer_credentials_missing', 'panelist_unavailable', 'panelist_not_ready',
+      'synthesizer_credentials_missing', 'panelist_unavailable', 'panelist_not_ready', 'effort_adjusted',
     ];
     for (const locale of ['en', 'zh'] as const) {
       expect(Object.keys(MESSAGES[locale].guided.m3).sort()).toEqual(groups.sort());

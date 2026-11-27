@@ -8,7 +8,7 @@ import type { GuidedM3Messages, Locale } from '../../i18n/messages';
 import { formatProviderDisplay, translateRole } from '../../i18n/presets';
 import {
   applySavedLineup, assignRoleModelSpec, assignRoleProvider, coerceEffort,
-  effortOptionsFor, modelsForProvider, parseRoleSpec,
+  effortOptionsFor, effortSourceFor, modelsForProvider, parseRoleSpec,
 } from './GuidedSetupStep';
 import { WorkflowSwitchPill } from './WorkflowSwitchPill';
 import './GuidedLaunchBar.css';
@@ -199,6 +199,9 @@ export function GuidedLaunchBar({
           const models = modelsForProvider(catalog.models, provider);
           const selectedModel = models.find((model) => model.id === parsed.model);
           const efforts = effortOptionsFor(selectedModel, provider, catalog.efforts);
+          // A known model whose tool takes no effort shows a note instead of a picker.
+          const noEffort = !!selectedModel && efforts.length === 0;
+          const unverified = effortSourceFor(selectedModel, provider) === 'default';
           return (
             <fieldset key={role} disabled={controlsDisabled} className="guided-launch-bar__role"
               aria-label={translateRole(role, locale)}>
@@ -213,7 +216,8 @@ export function GuidedLaunchBar({
                 <select className="guided-setup__input" value={parsed.model} onChange={(event) => {
                   const next = models.find((model) => model.id === event.currentTarget.value);
                   const available = effortOptionsFor(next, provider, catalog.efforts);
-                  const effort = coerceEffort(parsed.effort, available, next?.default_effort ?? '');
+                  const effort = coerceEffort(parsed.effort, available,
+                    next?.provider_defaults?.[provider] ?? next?.default_effort ?? '');
                   onLineupChange(assignRoleModelSpec(lineup, role, provider, event.currentTarget.value, effort));
                 }}>
                   <option value="">{setup.modelGroupLatest}</option>
@@ -221,15 +225,27 @@ export function GuidedLaunchBar({
                   {models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
                 </select>
               </label>
-              <label>{copy.lineup.effort}
-                <select className="guided-setup__input" value={parsed.effort} disabled={!parsed.model} onChange={(event) =>
-                  onLineupChange(assignRoleModelSpec(lineup, role, provider, parsed.model, event.currentTarget.value))}>
-                  <option value="">—</option>
-                  {parsed.effort && !efforts.some((effort) => effort.id === parsed.effort)
-                    ? <option value={parsed.effort}>{parsed.effort}</option> : null}
-                  {efforts.map((effort) => <option key={effort.id} value={effort.id}>{effort.label}</option>)}
-                </select>
-              </label>
+              {noEffort ? (
+                <p className="guided-launch-bar__effort-none">{setup.effortUnsupported}</p>
+              ) : (
+                <label>
+                  <span>
+                    {copy.lineup.effort}
+                    {unverified ? (
+                      <span className="guided-launch-bar__unverified" title={setup.effortUnverifiedTitle}>
+                        {setup.effortUnverified}
+                      </span>
+                    ) : null}
+                  </span>
+                  <select className="guided-setup__input" value={parsed.effort} disabled={!parsed.model} onChange={(event) =>
+                    onLineupChange(assignRoleModelSpec(lineup, role, provider, parsed.model, event.currentTarget.value))}>
+                    <option value="">—</option>
+                    {parsed.effort && !efforts.some((effort) => effort.id === parsed.effort)
+                      ? <option value={parsed.effort}>{parsed.effort}</option> : null}
+                    {efforts.map((effort) => <option key={effort.id} value={effort.id}>{effort.label}</option>)}
+                  </select>
+                </label>
+              )}
             </fieldset>
           );
         })}

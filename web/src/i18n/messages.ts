@@ -132,6 +132,7 @@ const GUIDED_M3_EN = {
       medium_relay: 'It uses the team from Workspace, with each role on its recommended model.',
       large_panel: 'Every specialist is ready, so the panel can review the plan first.',
       large_relay: 'The same team builds it without the specialist panel.',
+      effort_adjusted: 'A saved thinking-effort setting was not offered by its tool, so it was changed to one that is.',
       custom_lineup_kept: 'You changed the team yourself, so it is kept as it is.',
       eco_model_unavailable: 'No lighter model is ready, so the regular team is used.',
       provider_substituted: 'A tool that is not ready was replaced with a ready one.',
@@ -404,6 +405,7 @@ const GUIDED_M3_ZH: GuidedM3Messages = {
       medium_relay: '沿用「工作区」的团队，每个角色用它的推荐型号。',
       large_panel: '所有专家都已就绪，可以先审阅计划。',
       large_relay: '由同一支团队施工，不经过专家小组。',
+      effort_adjusted: '保存的团队里有工具不支持的思考强度，已换成它支持的档位。',
       custom_lineup_kept: '你亲手调整过团队，所以原样保留。',
       eco_model_unavailable: '没有就绪的轻量模型，改用常规团队。',
       provider_substituted: '有工具没就绪，已换成就绪的工具。',
@@ -1094,6 +1096,9 @@ export interface Messages {
       installedDone: string;
       folderSelected: string;
       gitEnabledDone: string;
+      effortUnverified: string;
+      effortUnverifiedTitle: string;
+      savedTeamCorrected: (changes: string) => string;
       apiKeysTitle: string;
       apiKeysSummary: (configured: number, total: number) => string;
       apiKeysShow: string;
@@ -1964,6 +1969,9 @@ export const MESSAGES: Record<Locale, Messages> = {
         installedDone: 'Installed and rescanned.',
         folderSelected: 'Project folder updated.',
         gitEnabledDone: 'Version history turned on.',
+        effortUnverified: 'Unverified',
+        effortUnverifiedTitle: 'No tool or provider data confirms these levels; they are a safe default.',
+        savedTeamCorrected: (changes) => `Some saved thinking-effort settings were not offered by their tool and were changed: ${changes}.`,
         apiKeysTitle: 'API Keys (Optional)',
         apiKeysSummary: (configured, total) => `${configured}/${total} configured`,
         apiKeysShow: 'Configure API Keys',
@@ -1987,7 +1995,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         effortColumnLabel: 'Thinking Effort',
         modelGroupLatest: 'Latest Recommended',
         modelGroupLegacy: 'More Models',
-        effortUnsupported: 'This CLI has no thinking-effort option',
+        effortUnsupported: 'This tool does not let you adjust thinking effort.',
       },
       brainstorm: {
         openTitle: 'Tell me in one sentence what you want to make',
@@ -2858,6 +2866,9 @@ export const MESSAGES: Record<Locale, Messages> = {
         installedDone: '安装完成并已重新扫描。',
         folderSelected: '项目文件夹已切换。',
         gitEnabledDone: '版本记录已开启。',
+        effortUnverified: '未经核实',
+        effortUnverifiedTitle: '没有读到工具或服务方的数据，这几档是保守的默认值。',
+        savedTeamCorrected: (changes) => `之前保存的团队里有工具不支持的思考强度，已自动改正：${changes}。`,
         apiKeysTitle: 'API 密钥（可选，使用 API 时在此配置）',
         apiKeysSummary: (configured, total) => `已配置 ${configured}/${total}`,
         apiKeysShow: '配置 API 密钥',
@@ -2881,7 +2892,7 @@ export const MESSAGES: Record<Locale, Messages> = {
         effortColumnLabel: '思考强度',
         modelGroupLatest: '最新推荐模型',
         modelGroupLegacy: '更多可选模型',
-        effortUnsupported: '该 CLI 不支持设置思考强度',
+        effortUnsupported: '这个工具不支持调整思考强度。',
       },
       brainstorm: {
         openTitle: '用一句话说说你想做什么',

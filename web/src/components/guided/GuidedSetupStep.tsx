@@ -7,6 +7,7 @@ import {
   type CliLoginResult,
   type CliScanEntry,
   type CliScanResult,
+  type EffortCorrection,
   type ModelCatalogEntry,
   type ModelCatalogResponse,
   type RecommendedLineup,
@@ -117,6 +118,7 @@ export function availableLineupProviders(
 }
 
 export const EFFORT_LABELS: Record<string, string> = {
+  minimal: 'Minimal',
   low: 'Low',
   medium: 'Medium',
   high: 'High',
@@ -125,7 +127,10 @@ export const EFFORT_LABELS: Record<string, string> = {
   ultra: 'Ultra',
 };
 
-const ALL_EFFORT_IDS = ['low', 'medium', 'high', 'xhigh', 'max'];
+/** Weakest first; the order "closest lower level" relies on (mirrors model_catalog.EFFORT_LEVELS). */
+const EFFORT_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+/** What the server assumes when no tool, declaration or feed says anything (marked "default"). */
+const DEFAULT_EFFORT_IDS = ['low', 'medium', 'high'];
 
 function builtinEntry(
   id: string,
@@ -136,7 +141,7 @@ function builtinEntry(
   cost_tier: ModelCatalogEntry['cost_tier'],
   rank: number,
   default_effort: string,
-  efforts: string[] = ALL_EFFORT_IDS,
+  efforts: string[] = DEFAULT_EFFORT_IDS,
   provider_efforts?: Record<string, string[]>,
 ): ModelCatalogEntry {
   return provider_efforts
@@ -161,41 +166,49 @@ export const BUILTIN_MODEL_CATALOG: Pick<ModelCatalogResponse, 'models' | 'tier_
     micro_orchestrator: 'L2',
     bulk_worker: 'L3',
   },
+  // Mirrors model_catalog.TIER_RECOMMENDATIONS: each entry's effort is legal for every provider it lists.
   tier_recommendations: {
     L0: [
-      { providers: ['agy_sub', 'gemini_sub', 'gemini_http'], model: 'gemini-4-carbon', effort: 'medium', note_en: '', note_zh: '' },
+      { providers: ['agy_sub', 'gemini_http'], model: 'gemini-4-carbon', effort: 'medium', note_en: '', note_zh: '' },
       { providers: ['claude_sub'], model: 'claude-fable-5-2', effort: 'medium', note_en: '', note_zh: '' },
-      { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.2-astra', effort: 'xhigh', note_en: '', note_zh: '' },
+      { providers: ['codex_sub'], model: 'gpt-6.2-astra', effort: 'xhigh', note_en: '', note_zh: '' },
+      { providers: ['openai_http'], model: 'gpt-6.2-astra', effort: 'high', note_en: '', note_zh: '' },
     ],
     L1: [
       { providers: ['claude_sub'], model: 'claude-opus-5-5', effort: 'medium', note_en: '', note_zh: '' },
-      { providers: ['agy_sub', 'gemini_sub', 'gemini_http'], model: 'gemini-4-neon', effort: 'medium', note_en: '', note_zh: '' },
-      { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.2-sol', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['agy_sub', 'gemini_http'], model: 'gemini-4-neon', effort: 'medium', note_en: '', note_zh: '' },
+      { providers: ['codex_sub'], model: 'gpt-6.2-sol', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['openai_http'], model: 'gpt-6.2-sol', effort: 'high', note_en: '', note_zh: '' },
     ],
     L2: [
-      { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.2-sol', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['codex_sub'], model: 'gpt-6.2-sol', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['openai_http'], model: 'gpt-6.2-sol', effort: 'high', note_en: '', note_zh: '' },
       { providers: ['claude_sub'], model: 'claude-sonnet-5-5', effort: 'max', note_en: '', note_zh: '' },
-      { providers: ['agy_sub', 'gemini_sub', 'gemini_http'], model: 'gemini-4-hydrogen', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['agy_sub'], model: 'gemini-4-hydrogen', effort: 'xhigh', note_en: '', note_zh: '' },
+      { providers: ['gemini_http'], model: 'gemini-4-hydrogen', effort: 'high', note_en: '', note_zh: '' },
     ],
     L3: [
-      { providers: ['dsh_opencode', 'dsh_deepseek'], model: 'deepseek-v4.1-flash', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['dsh_opencode'], model: 'deepseek-v4.1-flash', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['dsh_deepseek'], model: 'deepseek-v4-flash', effort: 'high', note_en: '', note_zh: '' },
       { providers: ['claude_sub'], model: 'claude-haiku-5-5', effort: 'max', note_en: '', note_zh: '' },
-      { providers: ['codex_sub', 'openai_http'], model: 'gpt-6.1-terra', effort: 'max', note_en: '', note_zh: '' },
-      { providers: ['codex_sub', 'openai_http'], model: 'gpt-6-luna', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['codex_sub'], model: 'gpt-6.1-terra', effort: 'max', note_en: '', note_zh: '' },
+      { providers: ['openai_http'], model: 'gpt-6.1-terra', effort: 'high', note_en: '', note_zh: '' },
+      { providers: ['codex_sub'], model: 'gpt-6-luna', effort: 'max', note_en: '', note_zh: '' },
     ],
   },
   models: [
-    builtinEntry('gemini-4-carbon', 'Gemini 4 Carbon', 'gemini', ['agy_sub', 'gemini_sub', 'gemini_http'], 'latest', 'flagship', 1, 'medium'),
-    builtinEntry('gemini-4-neon', 'Gemini 4 Neon', 'gemini', ['agy_sub', 'gemini_sub', 'gemini_http'], 'latest', 'standard', 2, 'medium'),
-    builtinEntry('gemini-4-hydrogen', 'Gemini 4 Hydrogen', 'gemini', ['agy_sub', 'gemini_sub', 'gemini_http'], 'latest', 'eco', 3, 'max'),
+    builtinEntry('gemini-4-carbon', 'Gemini 4 Carbon', 'gemini', ['agy_sub', 'gemini_http'], 'latest', 'flagship', 1, 'medium'),
+    builtinEntry('gemini-4-neon', 'Gemini 4 Neon', 'gemini', ['agy_sub', 'gemini_http'], 'latest', 'standard', 2, 'medium'),
+    builtinEntry('gemini-4-hydrogen', 'Gemini 4 Hydrogen', 'gemini', ['agy_sub', 'gemini_http'], 'latest', 'eco', 3, 'high'),
     builtinEntry('claude-fable-5-2', 'Claude Fable 5.2', 'claude', ['claude_sub'], 'latest', 'flagship', 1, 'medium'),
     builtinEntry('claude-opus-5-5', 'Claude Opus 5.5', 'claude', ['claude_sub', 'agy_sub'], 'latest', 'flagship', 2, 'medium'),
-    builtinEntry('claude-sonnet-5-5', 'Claude Sonnet 5.5', 'claude', ['claude_sub', 'agy_sub'], 'latest', 'standard', 3, 'max'),
+    builtinEntry('claude-sonnet-5-5', 'Claude Sonnet 5.5', 'claude', ['claude_sub', 'agy_sub'], 'latest', 'standard', 3, 'high'),
     builtinEntry('claude-haiku-5-5', 'Claude Haiku 5.5', 'claude', ['claude_sub', 'agy_sub'], 'latest', 'eco', 4, 'max'),
     builtinEntry('gpt-6.2-astra', 'GPT-6.2 Astra', 'openai', ['codex_sub', 'openai_http'], 'latest', 'flagship', 1, 'xhigh'),
     builtinEntry('gpt-6.2-sol', 'GPT-6.2 Sol', 'openai', ['codex_sub', 'openai_http'], 'latest', 'standard', 2, 'max'),
     builtinEntry('gpt-6.1-terra', 'GPT-6.1 Terra', 'openai', ['codex_sub', 'openai_http'], 'latest', 'eco', 3, 'max'),
     builtinEntry('gpt-6-luna', 'GPT-6 Luna', 'openai', ['codex_sub', 'openai_http'], 'latest', 'eco', 4, 'max'),
+    builtinEntry('deepseek-v4-flash', 'DeepSeek V4 Flash', 'deepseek', ['dsh_deepseek'], 'latest', 'eco', 3, 'high'),
     builtinEntry(
       'deepseek-v4.1-flash',
       'DeepSeek V4.1 Flash',
@@ -245,23 +258,70 @@ export function providerTemplateSupport(command: readonly string[] | undefined):
   return { model: uses('{model_name}') || uses('{model}'), effort: uses('{effort}') || uses('{model}') };
 }
 
-/** Efforts a model offers on a provider: the CLI's own list when it reported one, else the catalog default. */
+/**
+ * Efforts a model offers on a provider, exactly as the server resolved them (tool list, tool declaration,
+ * feed flags, or the low/medium/high default). An empty list means the tool takes no effort at all.
+ * A model the catalog does not know keeps every level, since it cannot be checked.
+ */
 export function effortOptionsFor(
-  entry: Pick<ModelCatalogEntry, 'provider_efforts'> | undefined,
+  entry: Pick<ModelCatalogEntry, 'provider_efforts' | 'efforts'> | undefined,
   providerId: string,
   efforts: readonly { id: string; label: string }[],
 ): { id: string; label: string }[] {
-  const reported = entry?.provider_efforts?.[providerId];
-  if (!reported || reported.length === 0) return [...efforts];
+  if (!entry) return [...efforts];
+  const reported = entry.provider_efforts?.[providerId] ?? entry.efforts ?? DEFAULT_EFFORT_IDS;
   return reported.map((id) => ({ id, label: efforts.find((e) => e.id === id)?.label ?? EFFORT_LABELS[id] ?? id }));
 }
 
-/** Keep `effort` when offered, else `fallback` when offered, else the strongest offered effort. */
+/** Where the server got a provider's effort list; `default` means nothing confirmed it. */
+export function effortSourceFor(
+  entry: Pick<ModelCatalogEntry, 'effort_sources'> | undefined,
+  providerId: string,
+): string | undefined {
+  return entry?.effort_sources?.[providerId];
+}
+
+/** `preferred` when allowed, else the closest lower allowed level, else the lowest; "" when none (server rule). */
+export function legalDefaultEffort(preferred: string, allowed: readonly string[]): string {
+  if (allowed.length === 0) return '';
+  if (allowed.includes(preferred)) return preferred;
+  const rank = (id: string) => (EFFORT_ORDER.indexOf(id) < 0 ? 99 : EFFORT_ORDER.indexOf(id));
+  const ordered = [...allowed].sort((a, b) => rank(a) - rank(b));
+  const lower = EFFORT_ORDER.includes(preferred) ? ordered.filter((id) => rank(id) < rank(preferred)) : [];
+  return lower.length ? lower[lower.length - 1] : ordered[0];
+}
+
+/** Keep `effort` when offered, else the legal default from `fallback`; no options means no effort. */
 export function coerceEffort(effort: string, options: readonly { id: string }[], fallback: string): string {
   const ids = options.map((option) => option.id);
+  if (ids.length === 0) return '';
   if (ids.includes(effort)) return effort;
-  if (ids.includes(fallback)) return fallback;
-  return ids.at(-1) ?? effort;
+  return legalDefaultEffort(fallback || effort, ids);
+}
+
+/** "Role: before -> after" for the saved-team correction notice, with display names only. */
+export function describeCorrections(corrections: readonly EffortCorrection[], locale: Locale): string {
+  return corrections.map((change) => {
+    const before = parseRoleSpec(change.before, '');
+    const after = parseRoleSpec(change.after, '');
+    const label = (effort: string) => (effort ? EFFORT_LABELS[effort] ?? effort : '—');
+    return `${translateRole(change.role, locale)}: ${label(before.effort)} → ${label(after.effort)}`;
+  }).join(locale === 'zh' ? '；' : '; ');
+}
+
+/** Mirrors model_catalog.normalize_spec: an unknown model is left alone, an illegal effort is replaced. */
+export function normalizeRoleEffort(
+  providerId: string,
+  model: string,
+  effort: string,
+  models: readonly ModelCatalogEntry[],
+): string {
+  const entry = modelsForProvider(models, providerId).find((item) => item.id === model);
+  if (!entry || !model) return effort;
+  const allowed = entry.provider_efforts?.[providerId] ?? entry.efforts ?? DEFAULT_EFFORT_IDS;
+  if (allowed.length === 0) return '';
+  if (allowed.includes(effort)) return effort;
+  return legalDefaultEffort(entry.provider_defaults?.[providerId] || entry.default_effort, allowed);
 }
 
 /** Wait for the server's start-up sync (20s fetch timeout) before re-reading a stale catalog. */
@@ -292,6 +352,16 @@ export function recommendRoleSpec(
   catalog: Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers'> = BUILTIN_MODEL_CATALOG,
   preferredProvider?: string,
 ): { provider: string; model: string; effort: string } {
+  const pick = rawRoleSpec(role, selectableProviders, catalog, preferredProvider);
+  return pick.model ? { ...pick, effort: normalizeRoleEffort(pick.provider, pick.model, pick.effort, catalog.models) } : pick;
+}
+
+function rawRoleSpec(
+  role: string,
+  selectableProviders: readonly string[],
+  catalog: Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers'> = BUILTIN_MODEL_CATALOG,
+  preferredProvider?: string,
+): { provider: string; model: string; effort: string } {
   const tier = catalog.role_tiers[role] ?? 'L2';
   const recs: readonly TierRecommendation[] = catalog.tier_recommendations[tier] ?? [];
 
@@ -316,11 +386,11 @@ export function recommendRoleSpec(
   const readySet = new Set(selectableProviders);
   for (const rec of recs) {
     const matched = rec.providers.find((pid) => readySet.has(pid));
-    if (matched) return recommendRoleSpec(role, selectableProviders, catalog, matched);
+    if (matched) return rawRoleSpec(role, selectableProviders, catalog, matched);
   }
 
   const fallback = selectableProviders[0] ?? '';
-  return fallback ? recommendRoleSpec(role, selectableProviders, catalog, fallback) : { provider: '', model: '', effort: 'medium' };
+  return fallback ? rawRoleSpec(role, selectableProviders, catalog, fallback) : { provider: '', model: '', effort: 'medium' };
 }
 
 /** Build the tiered default lineup (with L0..L3 market-rank model@effort specs) for a ready team. */
@@ -696,6 +766,8 @@ function GuidedSetupBody({
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const [customRoles, setCustomRoles] = useState<Record<string, string> | null>(() => initialRoles);
   const [customModelOverrides, setCustomModelOverrides] = useState<Record<string, string> | null>(() => initialModelOverrides);
+  // Saved settings the server just corrected (shown once; the server already saved the fix).
+  const [savedCorrections, setSavedCorrections] = useState<EffortCorrection[]>([]);
   const [savedProfiles, setSavedProfiles] = useState<SavedLineupProfile[]>([]);
   const [driverFilter, setDriverFilter] = useState<DriverFilter>('all');
   const [scanResult, setScanResult] = useState<CliScanResult | null>(null);
@@ -805,6 +877,7 @@ function GuidedSetupBody({
       setCredentials(creds);
       if (lineupStore) {
         setSavedProfiles(lineupStore.profiles);
+        setSavedCorrections(lineupStore.corrections ?? []);
         if (
           initialRoles === null
           && initialModelOverrides === null
@@ -1002,7 +1075,8 @@ function GuidedSetupBody({
       if (spec) {
         const parsed = parseRoleSpec(spec, chosenProvider);
         if (parsed.provider === chosenProvider) {
-          nextOverrides[role] = formatRoleSpec(chosenProvider, parsed.model, parsed.effort);
+          const effort = normalizeRoleEffort(chosenProvider, parsed.model, parsed.effort, modelCatalog.models);
+          nextOverrides[role] = formatRoleSpec(chosenProvider, parsed.model, effort);
         } else {
           const rec = recommendRoleSpec(role, selectableProviders, modelCatalog, chosenProvider);
           if (rec.model) nextOverrides[role] = formatRoleSpec(chosenProvider, rec.model, rec.effort);
@@ -1271,6 +1345,11 @@ function GuidedSetupBody({
         <section className="guided-setup__card" data-ready={effectiveLineup.ready}>
           {effectiveLineup.ready ? (
             <>
+              {savedCorrections.length ? (
+                <p className="guided-setup__done-note" role="status">
+                  {copy.savedTeamCorrected(describeCorrections(savedCorrections, locale))}
+                </p>
+              ) : null}
               <p className="guided-setup__lineup">{lineupNotes(effectiveLineup, locale)}</p>
               <p className="guided-setup__reason">
                 {locale === 'zh'

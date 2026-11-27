@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test, vi } from 'vitest';
-import type { GuidedSession, RecommendedLineup, WorkflowRecommendation } from '../../api/client';
+import type { GuidedSession, ModelCatalogEntry, RecommendedLineup, WorkflowRecommendation } from '../../api/client';
 import { MESSAGES } from '../../i18n/messages';
 import {
   GuidedLaunchBar, panelToggleState, recommendationHeadline, recommendationReasons, teamRows,
@@ -90,6 +90,27 @@ describe('GuidedLaunchBar', () => {
   test('does not show the size switch when sizes match or the user dismissed it', () => {
     expect(renderToStaticMarkup(createElement(GuidedLaunchBar, props({ showSwitch: false })))).not.toContain('workflow-switch-pill');
     expect(renderToStaticMarkup(createElement(GuidedLaunchBar, props({ previousSize: 'large' })))).not.toContain('workflow-switch-pill');
+  });
+});
+
+describe('effort pickers follow the server lists', () => {
+  const geminiCli = { ...lineup, roles: { planner: 'gemini_sub', coder: 'codex_sub' },
+    model_overrides: { planner: 'gemini_sub:gemini-2.5-pro', coder: 'codex_sub:gpt-6.2-sol@high' } };
+  const models: ModelCatalogEntry[] = [
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', family: 'gemini', providers: ['gemini_sub'], status: 'legacy' as const,
+        cost_tier: 'flagship' as const, rank: 1, efforts: [], default_effort: 'medium',
+        provider_efforts: { gemini_sub: [] }, effort_sources: { gemini_sub: 'cli_declared' as const } },
+      { id: 'gpt-6.2-sol', label: 'GPT-6.2 Sol', family: 'openai', providers: ['codex_sub'], status: 'latest' as const,
+        cost_tier: 'standard' as const, rank: 1, efforts: ['low', 'medium', 'high'], default_effort: 'high',
+        provider_efforts: { codex_sub: ['low', 'medium', 'high'] }, effort_sources: { codex_sub: 'default' as const } },
+  ];
+  const catalog = { ...BUILTIN_MODEL_CATALOG, models };
+
+  test('a tool without effort shows a note, and unconfirmed levels are marked unverified', () => {
+    const html = renderToStaticMarkup(createElement(GuidedLaunchBar, props({ lineup: geminiCli, catalog })));
+    expect(html).toContain(MESSAGES.en.guided.setup.effortUnsupported);
+    expect(html).toContain('guided-launch-bar__unverified');
+    expect(html.match(/guided-launch-bar__effort-none/g)).toHaveLength(1);
   });
 });
 

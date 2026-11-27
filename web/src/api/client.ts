@@ -163,6 +163,8 @@ export interface LastUsedLineup {
 export interface LineupProfilesResponse {
   profiles: SavedLineupProfile[];
   last_used: LastUsedLineup | null;
+  /** Saved settings the server just corrected (shown once; the fix is already saved). */
+  corrections?: EffortCorrection[];
 }
 
 export interface SaveLineupProfileResponse extends LineupProfilesResponse {
@@ -179,8 +181,21 @@ export interface ModelCatalogEntry {
   rank: number;
   efforts: string[];
   default_effort: string;
-  /** Per-provider efforts a CLI reported for this model (e.g. Codex's supported reasoning levels). */
+  /** Allowed efforts per provider; an empty list means the tool takes no effort at all. */
   provider_efforts?: Record<string, string[]>;
+  /** Where each provider's list came from: a tool's own list, a tool declaration, feed flags, or a default. */
+  effort_sources?: Record<string, 'cli_models' | 'cli_declared' | 'feed' | 'default'>;
+  /** Each provider's legal default effort ("" when it takes none). */
+  provider_defaults?: Record<string, string>;
+}
+
+/** A saved setting the server changed because its tool does not offer that effort. */
+export interface EffortCorrection {
+  where?: string;
+  role: string;
+  before: string;
+  after: string;
+  reason: string;
 }
 
 export interface TierRecommendation {
@@ -361,6 +376,8 @@ export interface WorkflowRecommendation {
   substitutions: { role: string; preferred_provider: string; chosen_provider: string }[];
   /** Panelist providers that are not ready (a large project then skips the panel recommendation). */
   missing_panelists?: string[];
+  /** Saved team settings whose effort was not offered and was changed. */
+  effort_changes?: EffortCorrection[];
 }
 
 export type GuidedStage = 'setup' | 'blueprint' | 'build' | 'signoff';

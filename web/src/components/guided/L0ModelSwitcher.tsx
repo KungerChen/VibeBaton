@@ -3,7 +3,7 @@ import type { L0ModelOption, ModelCatalogResponse } from '../../api/client';
 import { useI18n } from '../../i18n';
 import { Button } from '../ui/button';
 import { Select } from '../ui/input';
-import { effortOptionsFor, modelsForProvider } from './GuidedSetupStep';
+import { effortOptionsFor, effortSourceFor, modelsForProvider } from './GuidedSetupStep';
 import './L0ModelSwitcher.css';
 
 export interface L0ModelSwitcherOption extends L0ModelOption {
@@ -71,6 +71,9 @@ export function L0ModelSwitcher({
     ? effortOptionsFor(catalogModel, activeModel.provider, catalog.efforts)
     : [];
   const selectedEffort = parsedSelected?.effort || activeModel?.effort || '';
+  // A known model whose tool takes no effort gets a note instead of a picker; unconfirmed levels are marked.
+  const noEffort = !!catalog && !!activeModel && !!catalogModel && efforts.length === 0;
+  const unverified = !!activeModel && effortSourceFor(catalogModel, activeModel.provider) === 'default';
   const effortLabel = efforts.find((effort) => effort.id === selectedEffort)?.label ?? selectedEffort;
   const currentLabel = selectedSpec === null
     ? automaticModel ? `${copy.auto} — ${automaticModel.label}` : copy.auto
@@ -152,6 +155,14 @@ export function L0ModelSwitcher({
             <option key={effort.id} value={effort.id}>{effort.label}</option>
           ))}
         </Select>
+      ) : null}
+      {catalog && activeModel && efforts.length > 0 && unverified ? (
+        <span className="l0-model-switcher__status" title={messages.guided.setup.effortUnverifiedTitle}>
+          {messages.guided.setup.effortUnverified}
+        </span>
+      ) : null}
+      {noEffort ? (
+        <span className="l0-model-switcher__status">{messages.guided.setup.effortUnsupported}</span>
       ) : null}
       <span id={currentId} className="l0-model-switcher__current">
         {copy.selected}: <strong>{currentLabel}</strong>
