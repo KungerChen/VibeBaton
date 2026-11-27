@@ -137,6 +137,8 @@ export interface RecommendedLineup {
   roles: Record<string, string>;
   /** Optional role name -> "provider:model@effort" override chosen by the user. */
   model_overrides?: Record<string, string>;
+  /** True when the user changed the recommended team by hand. */
+  customized?: boolean;
   source: 'cli' | 'http' | 'mixed';
   notes_en: string;
   notes_zh: string;
@@ -342,6 +344,8 @@ export interface WorkflowLineup {
   roles: Record<string, string>;
   model_overrides: Record<string, string>;
   size?: ProjectSize;
+  /** True once the user changed this team by hand; recommendations then keep it. */
+  customized?: boolean;
 }
 
 export interface WorkflowRecommendation {
@@ -355,6 +359,8 @@ export interface WorkflowRecommendation {
   size_changed: boolean | null;
   explanation_codes: string[];
   substitutions: { role: string; preferred_provider: string; chosen_provider: string }[];
+  /** Panelist providers that are not ready (a large project then skips the panel recommendation). */
+  missing_panelists?: string[];
 }
 
 export type GuidedStage = 'setup' | 'blueprint' | 'build' | 'signoff';

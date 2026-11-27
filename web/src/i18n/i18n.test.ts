@@ -218,11 +218,13 @@ describe('i18n guarantees', () => {
       'lineup', 'recommendation', 'workflowSwitch', 'humanGate', 'failed', 'signOff', 'revision',
       'rollback', 'drift', 'session', 'errors',
     ];
+    // workflow_recommend no longer emits previous_lineup_preserved or preset_unavailable.
     const reasons = [
-      'small_eco', 'medium_relay', 'large_panel', 'size_defaulted_to_medium', 'previous_lineup_preserved',
+      'size_from_model', 'size_estimated', 'size_defaulted_to_medium',
+      'small_eco', 'medium_relay', 'large_panel', 'large_relay', 'custom_lineup_kept',
       'eco_model_unavailable', 'provider_substituted', 'no_ready_provider', 'lineup_unavailable',
-      'preset_unavailable', 'synthesizer_not_configured', 'synthesizer_provider_unavailable',
-      'synthesizer_credentials_missing', 'panelist_unavailable',
+      'synthesizer_not_configured', 'synthesizer_provider_unavailable',
+      'synthesizer_credentials_missing', 'panelist_unavailable', 'panelist_not_ready',
     ];
     for (const locale of ['en', 'zh'] as const) {
       expect(Object.keys(MESSAGES[locale].guided.m3).sort()).toEqual(groups.sort());

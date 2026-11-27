@@ -797,14 +797,17 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
         roles: replacementMap(current.roles, nextLineup.roles),
         model_overrides: replacementMap(current.model_overrides, nextLineup.model_overrides ?? {}),
         ...(size ? { size } : {}),
+        ...(nextLineup.customized ? { customized: true } : {}),
       },
     } });
     void guidedSession.flush().catch(() => {});
   }
 
   function changeLineup(next: RecommendedLineup) {
-    setSelectedLineup(next);
-    saveWorkflow(next, mode, preset);
+    // A hand-edited team is kept by every later recommendation.
+    const custom = { ...next, customized: true };
+    setSelectedLineup(custom);
+    saveWorkflow(custom, mode, preset);
   }
 
   function changeMode(next: WorkflowMode) {

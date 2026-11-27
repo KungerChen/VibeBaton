@@ -1019,7 +1019,8 @@ function GuidedSetupBody({
           profile_name: matchedProfile?.name ?? null,
         }).catch(() => {});
       }
-      confirmLineup(effectiveLineup, onReady);
+      // A hand-changed team is kept by the Blueprint recommendation; an untouched one follows the project size.
+      confirmLineup({ ...effectiveLineup, customized: isLineupCustomized(baselineLineup, effectiveLineup) }, onReady);
     });
   };
 

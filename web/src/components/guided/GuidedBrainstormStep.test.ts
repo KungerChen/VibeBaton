@@ -693,7 +693,7 @@ test('mounted step preserves, restores, launches once, and replans with failure 
   });
   expect(api.brainstormChat).toHaveBeenLastCalledWith(expect.objectContaining({ requested_l0_model: 'two:second@high' }));
   expect(container.textContent).toContain('second-model');
-  expect(container.textContent).toContain('Recommended workflow');
+  expect(container.textContent).toContain('Recommended plan');
   await vi.waitFor(() => expect(session.brainstorm.guided_turn_snapshot).toBeTruthy());
   await act(async () => root.unmount());
   root = createRoot(container as unknown as HTMLElement);
@@ -701,11 +701,11 @@ test('mounted step preserves, restores, launches once, and replans with failure 
   expect(container.textContent).toContain('Todo app');
   expect(container.textContent).toContain('second-model');
   expect(reactProps(byClass('l0-model-switcher__select')).value).toBe('two:second@high');
-  expect(container.textContent).toContain('Recommended workflow');
+  expect(container.textContent).toContain('Recommended plan');
 
   await act(async () => {
     const toggle = findNode(container, (node, props) => node.nodeName === 'INPUT'
-      && props.type === 'checkbox' && props.checked === false && typeof props['aria-describedby'] !== 'string')!;
+      && props.type === 'checkbox' && props.checked === false && props.role === 'switch')!;
     (reactProps(toggle).onChange as (event: unknown) => void)({ currentTarget: { checked: true } });
   });
   api.startRun.mockRejectedValueOnce(new ApiError(409, 'Panel unavailable', { code: 'LAUNCH_PREFLIGHT',
