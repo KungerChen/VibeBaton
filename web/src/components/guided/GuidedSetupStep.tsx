@@ -136,8 +136,12 @@ function builtinEntry(
   cost_tier: ModelCatalogEntry['cost_tier'],
   rank: number,
   default_effort: string,
+  efforts: string[] = ALL_EFFORT_IDS,
+  provider_efforts?: Record<string, string[]>,
 ): ModelCatalogEntry {
-  return { id, label, family, providers, status, cost_tier, rank, efforts: ALL_EFFORT_IDS, default_effort };
+  return provider_efforts
+    ? { id, label, family, providers, status, cost_tier, rank, efforts, default_effort, provider_efforts }
+    : { id, label, family, providers, status, cost_tier, rank, efforts, default_effort };
 }
 
 /** Offline fallback only: the recommended models. The full, daily-synced list comes from GET /api/models/catalog. */
@@ -192,7 +196,18 @@ export const BUILTIN_MODEL_CATALOG: Pick<ModelCatalogResponse, 'models' | 'tier_
     builtinEntry('gpt-6.2-sol', 'GPT-6.2 Sol', 'openai', ['codex_sub', 'openai_http'], 'latest', 'standard', 2, 'max'),
     builtinEntry('gpt-6.1-terra', 'GPT-6.1 Terra', 'openai', ['codex_sub', 'openai_http'], 'latest', 'eco', 3, 'max'),
     builtinEntry('gpt-6-luna', 'GPT-6 Luna', 'openai', ['codex_sub', 'openai_http'], 'latest', 'eco', 4, 'max'),
-    builtinEntry('deepseek-v4.1-flash', 'DeepSeek V4.1 Flash', 'deepseek', ['dsh_opencode'], 'latest', 'eco', 1, 'max'),
+    builtinEntry(
+      'deepseek-v4.1-flash',
+      'DeepSeek V4.1 Flash',
+      'deepseek',
+      ['dsh_opencode'],
+      'latest',
+      'eco',
+      1,
+      'max',
+      ['low', 'high', 'max'],
+      { dsh_opencode: ['low', 'high', 'max'] },
+    ),
   ],
 };
 

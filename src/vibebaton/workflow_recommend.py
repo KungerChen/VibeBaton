@@ -470,7 +470,7 @@ def _tiered_lineup(
         effort = pick["effort"]
         if lean and execution:
             entry = next((m for m in models if m["id"] == pick["model"]), None)
-            allowed = entry["efforts"] if entry else list(_LEAN_EFFORTS)
+            allowed = (entry["provider_efforts"].get(pick["provider"]) or entry["efforts"]) if entry else list(_LEAN_EFFORTS)
             effort = next((level for level in _LEAN_EFFORTS if level in allowed), "")
         if pick["model"]:
             spec: str | None = f"{pick['provider']}:{pick['model']}" + (f"@{effort}" if effort else "")

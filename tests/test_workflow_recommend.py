@@ -97,7 +97,8 @@ class WorkflowRecommendationTests(unittest.TestCase):
         self.assertEqual((small.size, small.mode, small.preset, small.reason_code),
                          ("small", "overnight", None, "small_eco"))
         self.assertFalse(small.fallback)
-        self.assertEqual(small.lineup["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@medium")
+        self.assertEqual(small.lineup["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@low")
+        self.assertEqual(small.lineup["model_overrides"]["micro_orchestrator"], "dsh_opencode:deepseek-v4.1-flash@low")
         self.assertEqual(small.lineup["model_overrides"]["brainstorm_and_final_gate"], "agy_sub:gemini-4-carbon@medium")
         self.assertEqual(small.lineup["size"], "small")
 
@@ -284,9 +285,10 @@ class SnapshotAndLaunchTests(unittest.TestCase):
         snapshot = build_readiness_snapshot(Path("."), cfg, scan_result=example_scan(("dsh",)))
         result = recommend_workflow("medium", snapshot)
         self.assertEqual(set(result.lineup["roles"].values()), {"dsh_opencode"})
-        # The setup step's tiered pick for the only ready provider (L0 keeps medium effort).
+        # The setup step's tiered pick for the only ready provider; deepseek-v4.1-flash does not
+        # support medium on dsh_opencode, so it falls back to its supported default effort (max).
         self.assertEqual(result.lineup["model_overrides"]["brainstorm_and_final_gate"],
-                         "dsh_opencode:deepseek-v4.1-flash@medium")
+                         "dsh_opencode:deepseek-v4.1-flash@max")
 
     def test_live_scanner_reads_credentials_without_exposing_values(self) -> None:
         cfg = example_config()

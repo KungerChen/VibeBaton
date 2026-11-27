@@ -79,6 +79,9 @@ def _model(
     cost_tier: ModelCostTier,
     rank: int,
     default_effort: str,
+    *,
+    efforts: Sequence[str] | None = None,
+    provider_efforts: Mapping[str, Sequence[str]] | None = None,
 ) -> ModelCatalogEntry:
     return {
         "id": model_id,
@@ -88,9 +91,9 @@ def _model(
         "status": status,
         "cost_tier": cost_tier,
         "rank": rank,
-        "efforts": list(_EFFORT_IDS),
+        "efforts": list(efforts) if efforts is not None else list(_EFFORT_IDS),
         "default_effort": default_effort,
-        "provider_efforts": {},
+        "provider_efforts": {k: list(v) for k, v in provider_efforts.items()} if provider_efforts else {},
     }
 
 
@@ -162,8 +165,15 @@ BUNDLED_MODELS: tuple[ModelCatalogEntry, ...] = (
     _model("o4-mini", "openai", ("openai_http",), "legacy", "eco", 11, "high"),
     # DeepSeek / DSH family. dsh_opencode lists exactly the models presets/dsh-headless-opencode-go.patch.yml
     # defines; dsh_deepseek lists DeepSeek's own API IDs.
-    _model("deepseek-v4.1-flash", "deepseek", ("dsh_opencode",), "latest", "eco", 1, "max"),
-    _model("deepseek-v4-pro", "deepseek", ("dsh_opencode", "dsh_deepseek"), "latest", "standard", 2, "high"),
+    _model(
+        "deepseek-v4.1-flash", "deepseek", ("dsh_opencode",), "latest", "eco", 1, "max",
+        efforts=("low", "high", "max"),
+        provider_efforts={"dsh_opencode": ("low", "high", "max")},
+    ),
+    _model(
+        "deepseek-v4-pro", "deepseek", ("dsh_opencode", "dsh_deepseek"), "latest", "standard", 2, "high",
+        provider_efforts={"dsh_opencode": ("high", "max")},
+    ),
     _model("deepseek-v4-flash", "deepseek", ("dsh_deepseek",), "latest", "eco", 3, "max"),
     _model("deepseek-reasoner", "deepseek", ("dsh_deepseek",), "legacy", "standard", 4, "high"),
     _model("deepseek-chat", "deepseek", ("dsh_deepseek",), "legacy", "eco", 5, "high"),
@@ -606,7 +616,12 @@ def _apply_cli_models(models: list[ModelCatalogEntry], cli_models: CliModels) ->
                 )
                 if base is None:
                     continue
-                entry = {**base, "providers": [], "efforts": list(base["efforts"]), "provider_efforts": {}}
+                entry = {
+                    **base,
+                    "providers": [],
+                    "efforts": list(base["efforts"]),
+                    "provider_efforts": {k: list(v) for k, v in base["provider_efforts"].items()},
+                }
                 models.append(entry)
                 by_id[model_id] = entry
             if provider not in entry["providers"]:
@@ -689,7 +704,12 @@ def _write_catalog_cache(path: Path, cache: _CatalogCache) -> None:
 def _merge_catalog(synced: list[ModelCatalogEntry], retired_ids: Sequence[str] = ()) -> list[ModelCatalogEntry]:
     retired = set(retired_ids)
     merged: list[ModelCatalogEntry] = [
-        {**entry, "providers": list(entry["providers"]), "efforts": list(entry["efforts"]), "provider_efforts": {}}
+        {
+            **entry,
+            "providers": list(entry["providers"]),
+            "efforts": list(entry["efforts"]),
+            "provider_efforts": {k: list(v) for k, v in entry["provider_efforts"].items()},
+        }
         for entry in BUNDLED_MODELS
         if entry["id"] not in retired
     ]
@@ -903,4 +923,7 @@ def _provider_tier_fallback(provider: str, tier: RoleTier, models: Sequence[Mode
         return {"provider": provider, "model": "", "effort": effort}
     target_tier: ModelCostTier = "flagship" if tier == "L0" else "eco" if tier == "L3" else "standard"
     chosen = next((m for m in provider_models if m["cost_tier"] == target_tier), provider_models[0])
+    allowed = chosen["provider_efforts"].get(provider) or chosen["efforts"]
+    if effort not in allowed:
+        effort = chosen["default_effort"] if chosen["default_effort"] in allowed else (allowed[0] if allowed else "")
     return {"provider": provider, "model": chosen["id"], "effort": effort}

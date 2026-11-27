@@ -443,6 +443,10 @@ class CliReportedModelTests(unittest.TestCase):
         self.assertEqual(model_catalog.parse_codex_models_cache([]), {})
 
     def test_sync_caches_cli_lists_and_subscription_providers_show_only_those(self) -> None:
+        bundled_before = {
+            m["id"]: {k: list(v) for k, v in m["provider_efforts"].items()}
+            for m in model_catalog.BUNDLED_MODELS
+        }
         feed = {"gpt-7.1": {"litellm_provider": "openai", "mode": "chat"},
                 "gpt-6.2-sol": {"litellm_provider": "openai", "mode": "chat"},
                 "gemini/gemini-4-carbon": {"litellm_provider": "gemini", "mode": "chat"}}
@@ -465,7 +469,7 @@ class CliReportedModelTests(unittest.TestCase):
         self.assertEqual(by_id["gpt-5.6-terra"]["provider_efforts"]["codex_sub"], ["low", "max"])
         self.assertNotIn("openai_http", by_id["gpt-6.2-sol"]["provider_efforts"])
         # The bundled roster itself is never mutated.
-        self.assertTrue(all(not m["provider_efforts"] for m in model_catalog.BUNDLED_MODELS))
+        self.assertEqual({m["id"]: m["provider_efforts"] for m in model_catalog.BUNDLED_MODELS}, bundled_before)
 
     def test_missing_cli_list_falls_back_to_feed_mapping(self) -> None:
         feed = {"gpt-7.1": {"litellm_provider": "openai", "mode": "chat"}}
@@ -656,6 +660,19 @@ class RecommendationAvailabilityTests(unittest.TestCase):
             model_catalog.recommend_role_assignment("bulk_worker", ["dsh_opencode"], models),
             {"provider": "dsh_opencode", "model": "deepseek-v4.1-flash", "effort": "max"},
         )
+
+    def test_dsh_opencode_models_preserve_provider_supported_efforts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            catalog = model_catalog.get_model_catalog(cache_path=Path(tmp) / "missing.json")
+        by_id = {m["id"]: m for m in catalog["models"]}
+        self.assertNotIn("medium", by_id["deepseek-v4.1-flash"]["efforts"])
+        self.assertEqual(by_id["deepseek-v4.1-flash"]["provider_efforts"].get("dsh_opencode"), ["low", "high", "max"])
+        self.assertEqual(by_id["deepseek-v4-pro"]["provider_efforts"].get("dsh_opencode"), ["high", "max"])
+
+        pick = model_catalog.recommend_role_assignment("brainstorm_and_final_gate", ["dsh_opencode"], catalog["models"])
+        self.assertIsNotNone(pick)
+        assert pick is not None
+        self.assertNotEqual(pick["effort"], "medium")
 
 
 class UltraEffortPassThroughTests(unittest.TestCase):
