@@ -202,6 +202,8 @@ export interface TierRecommendation {
   providers: string[];
   model: string;
   effort: string;
+  /** Served by the catalog: each listed provider's legal effort in the current catalog ("" = none). */
+  efforts_by_provider?: Record<string, string>;
   note_en: string;
   note_zh: string;
 }

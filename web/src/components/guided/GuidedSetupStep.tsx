@@ -291,12 +291,27 @@ export function legalDefaultEffort(preferred: string, allowed: readonly string[]
   return lower.length ? lower[lower.length - 1] : ordered[0];
 }
 
-/** Keep `effort` when offered, else the legal default from `fallback`; no options means no effort. */
+/** The allowed level nearest to `effort` (ties go to the lower, cheaper one); null for an unknown level. */
+export function closestEffort(effort: string, allowed: readonly string[]): string | null {
+  const rank = EFFORT_ORDER.indexOf(effort);
+  const known = allowed.filter((id) => EFFORT_ORDER.includes(id));
+  if (rank < 0 || known.length === 0) return null;
+  return [...known].sort((a, b) => {
+    const da = Math.abs(EFFORT_ORDER.indexOf(a) - rank);
+    const db = Math.abs(EFFORT_ORDER.indexOf(b) - rank);
+    return da - db || EFFORT_ORDER.indexOf(a) - EFFORT_ORDER.indexOf(b);
+  })[0];
+}
+
+/**
+ * Keep `effort` when offered, else the nearest offered level (ties go lower), else the legal default
+ * from `fallback`; no options means no effort. Same rule as model_catalog.normalize_spec.
+ */
 export function coerceEffort(effort: string, options: readonly { id: string }[], fallback: string): string {
   const ids = options.map((option) => option.id);
   if (ids.length === 0) return '';
   if (ids.includes(effort)) return effort;
-  return legalDefaultEffort(fallback || effort, ids);
+  return closestEffort(effort, ids) ?? legalDefaultEffort(fallback || effort, ids);
 }
 
 /** "Role: before -> after" for the saved-team correction notice, with display names only. */
@@ -309,7 +324,7 @@ export function describeCorrections(corrections: readonly EffortCorrection[], lo
   }).join(locale === 'zh' ? '；' : '; ');
 }
 
-/** Mirrors model_catalog.normalize_spec: an unknown model is left alone, an illegal effort is replaced. */
+/** Mirrors model_catalog.normalize_spec: an unknown model is left alone, an illegal effort becomes the nearest legal one. */
 export function normalizeRoleEffort(
   providerId: string,
   model: string,
@@ -321,7 +336,8 @@ export function normalizeRoleEffort(
   const allowed = entry.provider_efforts?.[providerId] ?? entry.efforts ?? DEFAULT_EFFORT_IDS;
   if (allowed.length === 0) return '';
   if (allowed.includes(effort)) return effort;
-  return legalDefaultEffort(entry.provider_defaults?.[providerId] || entry.default_effort, allowed);
+  return closestEffort(effort, allowed)
+    ?? legalDefaultEffort(entry.provider_defaults?.[providerId] || entry.default_effort, allowed);
 }
 
 /** Wait for the server's start-up sync (20s fetch timeout) before re-reading a stale catalog. */
@@ -370,7 +386,9 @@ function rawRoleSpec(
     const rec = recs.find((item) => item.providers.includes(preferredProvider));
     // Mirrors the backend's recommend_role_assignment: a recommended model the provider does not offer
     // falls back to the provider's best model of the same cost tier.
-    if (rec && choices.some((m) => m.id === rec.model)) return { provider: preferredProvider, model: rec.model, effort: rec.effort };
+    if (rec && choices.some((m) => m.id === rec.model)) {
+      return { provider: preferredProvider, model: rec.model, effort: rec.efforts_by_provider?.[preferredProvider] ?? rec.effort };
+    }
     if (choices.length > 0) {
       const targetTier = tier === 'L0' ? 'flagship' : tier === 'L3' ? 'eco' : 'standard';
       const chosen = choices.find((m) => m.cost_tier === targetTier) ?? choices[0];

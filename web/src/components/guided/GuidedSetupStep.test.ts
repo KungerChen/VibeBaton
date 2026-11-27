@@ -25,6 +25,7 @@ import {
   isLineupCustomized,
   lineupSummary,
   matchSavedProfile,
+  closestEffort,
   coerceEffort,
   describeCorrections,
   effortOptionsFor,
@@ -419,6 +420,22 @@ describe('recommendations stay inside what the provider offers', () => {
     ],
   };
 
+  test('the served per-provider tier effort is the one used, the same value the server recommends', () => {
+    const sonnet = model('claude-sonnet-5-5', ['claude_sub'], 'standard', 1, {
+      provider_efforts: { claude_sub: ['low', 'medium', 'high'] }, effort_sources: { claude_sub: 'default' },
+    });
+    const served = {
+      ...BUILTIN_MODEL_CATALOG,
+      models: [sonnet],
+      tier_recommendations: { ...BUILTIN_MODEL_CATALOG.tier_recommendations, L2: [
+        { providers: ['claude_sub'], model: 'claude-sonnet-5-5', effort: 'max', note_en: '', note_zh: '',
+          efforts_by_provider: { claude_sub: 'high' } },
+      ] },
+    };
+    expect(recommendRoleSpec('critical_executor', ['claude_sub'], served))
+      .toEqual({ provider: 'claude_sub', model: 'claude-sonnet-5-5', effort: 'high' });
+  });
+
   test('a recommended model the CLI does not list falls back to the same tier in that provider', () => {
     expect(recommendRoleSpec('brainstorm_and_final_gate', ['agy_sub', 'gemini_sub', 'claude_sub'], BUILTIN_MODEL_CATALOG))
       .toEqual({ provider: 'agy_sub', model: 'gemini-4-carbon', effort: 'medium' });
@@ -449,10 +466,12 @@ describe('effort options', () => {
 
   test('an effort the chosen model does not offer is replaced by one it does', () => {
     const options = [{ id: 'low', label: 'Low' }, { id: 'max', label: 'Max' }];
+    // Same rule as the server: the nearest offered level; on a tie the lower (cheaper) one.
     expect(coerceEffort('max', options, 'low')).toBe('max');
-    expect(coerceEffort('ultra', options, 'low')).toBe('low');
-    // The fallback rule matches the server: closest lower allowed level (medium -> low), never a stronger one.
-    expect(coerceEffort('ultra', options, 'medium')).toBe('low');
+    expect(coerceEffort('ultra', options, 'low')).toBe('max');
+    expect(coerceEffort('medium', options, 'max')).toBe('low');  // low and max: low is nearer
+    expect(coerceEffort('medium', [{ id: 'low' }, { id: 'high' }], 'max')).toBe('low');  // tie -> lower
+    expect(coerceEffort('turbo', options, 'max')).toBe('max');  // unknown level -> legal default
     expect(coerceEffort('high', [], 'medium')).toBe('');
   });
 
@@ -467,14 +486,15 @@ describe('effort options', () => {
     });
     expect(effortOptionsFor(flash, 'dsh_opencode', BUILTIN_MODEL_CATALOG.efforts).map((e) => e.id)).toEqual(['low', 'high', 'max']);
     expect(effortOptionsFor(pro, 'gemini_sub', BUILTIN_MODEL_CATALOG.efforts)).toEqual([]);
-    expect(normalizeRoleEffort('dsh_opencode', 'deepseek-v4.1-flash', 'medium', [flash])).toBe('max');
+    expect(normalizeRoleEffort('dsh_opencode', 'deepseek-v4.1-flash', 'medium', [flash])).toBe('low');  // tie -> lower
+    expect(closestEffort('max', ['low', 'medium', 'high', 'xhigh'])).toBe('xhigh');
     expect(normalizeRoleEffort('gemini_sub', 'gemini-2.5-pro', 'high', [pro])).toBe('');
     expect(normalizeRoleEffort('claude_sub', 'claude-zeta', 'turbo', [flash, pro])).toBe('turbo');  // unknown: untouched
     expect(effortSourceFor(flash, 'dsh_opencode')).toBe('cli_models');
     expect(legalDefaultEffort('high', ['medium'])).toBe('medium');
     expect(legalDefaultEffort('low', ['high', 'max'])).toBe('high');
     expect(describeCorrections([{ role: 'bulk_worker', before: 'dsh_opencode:deepseek-v4.1-flash@medium',
-      after: 'dsh_opencode:deepseek-v4.1-flash@max', reason: 'effort_adjusted' }], 'en')).toContain('Medium → Max');
+      after: 'dsh_opencode:deepseek-v4.1-flash@low', reason: 'effort_adjusted' }], 'en')).toContain('Medium → Low');
   });
 });
 
