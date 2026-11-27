@@ -13,7 +13,7 @@ import { clearBrainstorm, GuidedBrainstormStep, type GuidedBrainstormApi, type L
 import { GuidedDecisionDrawer } from './GuidedDecisionDrawer';
 import { optionsFromEvent, type GuidedDecisionOption } from './GuidedDecisionModal';
 import { GuidedFailedBanner } from './GuidedFailedBanner';
-import { GuidedSetupStep, lineupSummary } from './GuidedSetupStep';
+import { GuidedSetupStep } from './GuidedSetupStep';
 import { GuidedSignOffPanel, loadSignOffLineage, type SignOffDeliverable, type SignOffSummary } from './GuidedSignOffPanel';
 import { isStaleRunError, localizeGuidedError } from './guidedErrors';
 import { NodeDetailDrawer } from './NodeDetailDrawer';
@@ -753,7 +753,16 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
           <div className="guided-workbench__panel">
             <div className="guided-workbench__team-bar">
               <span className="guided-workbench__team-text">
-                <strong>{copy.workbench.currentTeamPrefix}</strong> {lineupSummary(lineup, locale)}
+                {workspacePath ? (
+                  <>
+                    <strong>{copy.setup.currentFolder}{locale === 'zh' ? '：' : ': '}</strong>
+                    <code>{workspacePath}</code>
+                  </>
+                ) : (
+                  locale === 'zh'
+                    ? '先与 L0 架构伙伴共创蓝图，蓝图就绪后再推荐并配置工作流团队。'
+                    : 'Shape the blueprint with L0 first; workflow and team options appear once the blueprint is ready.'
+                )}
               </span>
               <button
                 type="button"
