@@ -1,109 +1,76 @@
-# Master RFC: Stage 6 (v1.2.0) — Guided End-to-End Studio Experience, Universal CLI Registry & 220+ Bilingual Tech Glossary
+# VibeBaton Studio Workbench, Phase 1: One Launch Path, Three-Act Shell & Lean Small-Task Flow
 
 ## Goals
 
-Transform VibeBaton Studio from a developer-only workflow monitor into an **empowering, single-window end-to-end orchestration workbench** with **`引导模式` (`Guided`)** and **`专业模式` (`Pro`)** modes, while keeping zero third-party Python dependencies and preserving 100% compatibility with all existing CLI commands and Pro Studio features:
+Make the Studio open on one project workbench that moves through Blueprint, Build and Sign-Off, with a single idempotent launch path, honest status displays, and a two-role flow for small tasks.
 
-1. **Universal AI CLI Driver Registry & Authorized One-Click Discovery/Install (`cli_registry.py`, `presets/cli_registry.json`, `credentials.py`, `web_server.py`)**:
-   - Ship a bundled driver registry of **8+ mainstream AI coding CLIs** (`claude`, `codex`, `dsh`, `gemini`, `opencode`, `aider`, `qwen`, `copilot`), each carrying structured metadata (`id`, `name`, `tier` = `"official"` | `"community"`, `binary`, `summary_en`, `summary_zh`, `prereq`, `install_cmd`, `login_cmd`, `official_url`, `command_template`).
-   - Support authorized local host scanning (`POST /api/cli-registry/scan`), fixing false-negative readiness checks such as `dsh_opencode` when `dsh` already executes cleanly via its local config without `OPENCODE_API_KEY` set in env, explicit user-confirmed allowlisted installs (`POST /api/cli-registry/install`), login launch (`POST /api/cli-registry/login`), and optional registry sync.
-   - Automatically synthesize a **Ready-on-Host Lineup** even when a user only has **one** working CLI or **one** HTTP API key, so users never hit a wall of red missing-provider badges.
-
-2. **Single-Window 4-Step Guided Closed Loop (`brainstorm.py`, `web_server.py`, `web/src/components/guided/`)**:
-   - **Mode Switcher (`引导模式 / 专业模式`, `Guided / Pro`)** in the header persisted cleanly in `localStorage` (while keeping Pro mode as default-compatible so all existing Pro workflows and tests stay green).
-   - **Step 1 — Workspace & Toolkit (`GuidedSetupStep`)**: Pick project folder (`/api/workspace/info`, `/api/workspace/select`), inspect/one-click initialize Git (`/api/workspace/init-git`), run authorized CLI scan/install/login, and auto-select a valid lineup.
-   - **Step 2 — In-App Architecture Brainstorm & Blueprint Confirmation (`GuidedBrainstormStep`, `brainstorm.py`)**: Starter scenario cards + multi-turn plain-language conversation (`/api/brainstorm/chat`) that compiles `.baton/00_RFC.md` behind the scenes and presents an approachable **Blueprint Card** (`summary`, `deliverables`, `touched_areas`, `verification_plan`, `readiness_score`) for one-click launch (`/api/brainstorm/confirm`) — without ever leaving the Studio window or exposing raw schema jargon unless expanded.
-   - **Step 3 — Animated Live Workbench, Node Detail Drawer & Plain-Language Decisions (`NodeDetailDrawer`, `GuidedDecisionModal`)**: Click any live or completed DAG node to inspect a plain-language summary, active model, elapsed runtime, billed cost, test status, and changed files via `GET /api/runs/<id>/tasks/<task_id>`. When `WAITING_HUMAN` occurs, present clear choice cards inside Studio (`POST /api/runs/<id>/resolve`).
-   - **Step 4 — In-App Sign-Off & One-Click Time-Machine Rollback (`GuidedSignOffPanel`)**: Display test pass summary, changed files, Battle Report preview, **"验收通过，应用改动" / "Approve & Apply Changes"**, **"提出修改意见" / "Request Revisions"**, and **"一键回退至开工前快照" / "Restore Pre-Run Snapshot"** backed by `baton-backup/<run_id>` tags via `POST /api/runs/<id>/finalize`.
-
-3. **220+ Term Empowering Bilingual Tech Glossary (`web/src/data/glossary.ts`, `GlossaryTerm.tsx`, `GlossaryDrawer.tsx`)**:
-   - Ship **at least 220 curated `EN | 中文` entries** spanning 6 categories (`vibebaton`, `git`, `ai`, `engineering`, `web_http`, `errors`). Every entry has `oneLiner`, `plainExplain` (`通俗解读` / `Plain Explanation`), `proExplain` (`技术定义` / `Technical Definition`), and `related` IDs.
-   - Provide subtle first-occurrence dotted term highlights (`<GlossaryTerm>`) inside Guided Mode copy plus a persistent searchable **`术语速查词典` / `Tech Glossary`** drawer accessible anytime.
-   - **Respectful, Empowering Copy Rule**: ZERO condescending labels (`/小白|菜鸟|傻瓜|笨蛋|noob|dummy/i`) anywhere in UI strings, Guided prompts, or Glossary content. Tone treats every user as the Lead Architect commanding an engineering relay studio.
-
-4. **Publish `v1.2.0` Release & Verified Documentation**:
-   - Bump versions cleanly to `1.2.0` across manifests, update `CHANGELOG.md`, `docs/ROADMAP.md`, `docs/TUTORIAL.md`, `README.md`, and `README.zh-CN.md`, and keep all frontend and backend test suites green.
+1. **Lean small-task flow (engine)**: For runs the Guided page launches with size `small`, skip the L1 planning call and run "one model builds, one model reviews":
+   - Synthesize the plan deterministically from the run's RFC snapshot: exactly one milestone with one task, assigned to `critical_executor`, no per-task reviewer, and the RFC's verification command(s) as the milestone `gate_commands`.
+   - Keep the automated milestone gate, exactly one independent review (the existing milestone review), and the human final gate.
+   - Escalate instead of guessing: when the RFC has no detectable verification command, or the user turns the lean flow off for this run, use the full flow unchanged.
+   - Show on the launch card which flow this run will use, with a per-run switch back to the full flow.
+   - Runs without a size (command line, legacy runs, resumed runs) behave exactly as today.
+2. **One launch path**: Every real run starts through the Guided launch request with `launch_request_id`.
+   - Add a "Paste RFC" fast lane to the Blueprint stage: paste, drop or edit the RFC text directly, reuse the existing readiness scoring from `RfcStep`, and reach launch in two clicks without replaying the chat.
+   - The launch confirmation lists what will actually take effect: RFC title, role to tool/model/effort mapping, execution mode, and the flow (lean or full). Per-run overrides are labelled "this run only".
+   - Budget is shown as the inherited project default with a link to where it is changed; no per-run budget override is added (the server has none).
+   - Remove `StartRunModal` and its hand-written JSON override box once the fast lane covers its fields (`rfc_markdown`, `mode`, `model_overrides`). The three "Start Real Run" buttons become one entry into the workbench launch bar.
+3. **Three-act shell**:
+   - The Studio opens on the workbench by default (today `studioMode` defaults to `'pro'`).
+   - The stage rail numbers only "1 Blueprint, 2 Build, 3 Sign-Off". The backend stage enum `setup | blueprint | build | signoff` and the session file format stay unchanged.
+   - `setup` becomes a readiness capsule in the top bar (ready / partly ready / blocked, text plus icon) that expands the existing workspace and tool wizard only when something is missing. A ready workspace lands directly on Blueprint; a restored session returns to its own stage.
+   - Readiness is independent of the stage: turning red mid-run never moves `active_stage` back; it only blocks launch, with the reason linking to the fix. Readiness is re-checked on workspace change, lineup change, manual refresh and right before launch.
+   - The former Pro three-column view stays reachable from a secondary top-bar entry in this phase; it is not restructured here.
+4. **Honest displays (two items)**:
+   - Sign-Off: an empty gate list (`gates: []`) never shows "checks passed". Merge result and verification result are shown separately; verification has four states: passed, failed, not configured, not returned.
+   - Cost: an invocation with no reported usage shows "not reported" instead of `$0.00`, and totals state how many invocations reported usage.
 
 ## Constraints
 
-- **Zero new Python runtime dependencies**: `cli_registry.py`, `brainstorm.py`, `credentials.py`, `web_server.py`, and all modules in `src/vibebaton/` must use Python 3.11+ standard library modules only.
-- **Zero new npm dependencies**: Do NOT run `npm install` or modify `web/package-lock.json`; only bump `"version": "1.2.0"` in `web/package.json`. On Windows, invoke frontend tools via `npx.cmd` and `npm.cmd`.
-- **Safe CLI Installation & Workspace Boundaries**:
-  - `POST /api/cli-registry/install` MUST ONLY execute commands strictly matching allowlisted recipes from the trusted CLI registry (or explicitly confirmed user consent flag), never arbitrary shell strings from client requests.
-  - `POST /api/workspace/select` / `/init-git` / `/finalize` must validate resolved directory paths cleanly and create a lightweight `baton-backup/<run_id>` Git tag on `main` (or base branch) before applying `dev` changes so `rollback` is deterministic and reversible.
-  - Preexisting `credentials.py` security invariants remain intact (never store plaintext keys inside `.git` repo directories).
-- **Backward Compatibility & Anti-Condescension Invariants**:
-  - Existing CLI subcommands (`init`, `doctor`, `run`, `status`, `report`, `ui --app`, `sandbox init`, `export-case`, `mcp`, `presets`, `promote-seed`) and all existing `Pro` Studio workflows, 8 workflow presets, and `test_web_server.py` / `test_web_fullstack.py` / `test_desktop_app.py` / `test_release_collateral.py` contracts must stay 100% green.
-  - Maintain pure English in `MESSAGES.en` (zero CJK), >= 1 Han char per leaf in `MESSAGES.zh` (`QUICK_START_IDENTIFIERS` exempted), `"DSH"` display naming, zero `/opencode/i` in UI display strings (NOTE: use `"DSH / OpenCode Go"` rule carefully — e.g., when displaying CLI driver IDs from the dynamic `/api/cli-registry` data model vs static `MESSAGES` keys, keep static `MESSAGES` strings completely compliant with `i18n.test.ts`!).
-  - Strict anti-condescension guard across `web/src/i18n/messages.ts`, `web/src/data/glossary.ts`, and `src/vibebaton/brainstorm.py`: zero matches against `/小白|菜鸟|傻瓜|笨蛋|noob|dummy/i`.
-- **Execution Planning Note (`allowed_paths`)**: Ensure EVERY task in `M1`–`M3` includes any companion `.test.ts` / `.test.py` files that enforce exhaustive union types, message keys, preset counts, or version numbers in its `allowed_paths`.
+- Keep the Python core on the standard library only (Python 3.11+); `tests/test_stdlib_only.py` stays green.
+- No change to the SQLite schema, the PlanDAG schema in `schemas.py`, the guided session file format, or the stage enum. Existing CLI commands, `baton.toml`, MCP tools and existing databases keep working.
+- The engine does not consume workflow graphs or presets; the lean flow is selected by run size only.
+- Lean-flow runs still enforce the path whitelist, worktree isolation, lineage columns and run-scoped RFC snapshots exactly as full-flow runs do.
+- Every tool, model and effort shown or submitted goes through `model_catalog.normalize_spec`; no new code path may build a spec string without it.
+- Keep `EN | 中文` key parity in `web/src/i18n/messages.ts`; EN copy stays ASCII; Guided copy uses plain words.
+- Do not change `web/package-lock.json` unless a dependency change is unavoidable; none is expected.
+- One verifiable goal per round; each round appends a LOG entry and an index line.
 
 ## Non-Goals
 
-- Do NOT attempt automated browser password entry or CAPTCHA solving for OAuth CLI logins (always launch official `login_cmd` interactively or guide user clearly).
-- Do NOT break headless/scripted `baton run` usage or require interactive Studio input when running CLI commands.
-- Do NOT auto-execute arbitrary untrusted shell install commands from unvalidated remote URLs without allowlist verification.
+- Phase 2: run store extraction, read-only live relay graph, context drawer and bottom dock, handoff cards, evidence matrix.
+- Phase 3: moving the Pro view into the Lab, splitting the two canvas hosts, hash routing, and deleting `studioMode` and `liveViewActive`.
+- Phase 4: typography and status-colour tokens, the settings centre, and the Term Lens.
+- Skipping the milestone review or the final gate for small tasks; changing the flow for medium or large runs.
+- Per-run budget overrides, cost forecasts, and an always-on L0 copilot.
+- Letting the engine execute canvas topology.
 
-## Architecture & Deliverables (Milestones M1–M3)
+## Architecture & Deliverables
 
-### M1: Universal CLI Registry, Guided Workspace/Brainstorm/Finalize APIs & Backend Tests
-
-- **`presets/cli_registry.json` & `src/vibebaton/cli_registry.py`**:
-  - Curate 8+ CLI driver entries (`claude`, `codex`, `dsh`, `gemini`, `opencode`, `aider`, `qwen`, `copilot`) covering official multi-file CLIs and community coding tools, including prerequisites, official install commands, login commands, homepage URLs, and command/parser integration tiers.
-  - Implement `load_cli_registry()`, `scan_host_clis(repo_path, cfg, credentials_path)` (checking prerequisite runtimes like `node`, `python`, `git`, binary discovery via `resolve_cli_binary`, auth/version checks, and fixing `dsh_opencode` false negatives when `dsh` already has working local profile config without requiring `OPENCODE_API_KEY` env var unless unconfigured), `run_cli_install(cli_id, confirmed=True, ...)` (allowlist-enforced), and `launch_cli_login(cli_id, ...)`.
-  - Include `build_recommended_lineup(scan_result, cfg)` so even a single ready CLI or single HTTP API key returns a valid single-click runnable configuration without missing-provider dead ends.
-- **`src/vibebaton/brainstorm.py`**:
-  - Pure-stdlib `brainstorm_turn(repo_path, messages, scenario=None, cfg=None)` supporting live dispatch via the best ready provider (plus offline/deterministic fallback when running tests or offline tour), outputting assistant reply, updated `.baton/00_RFC.md` draft, and structured Blueprint Card (`title`, `summary`, `deliverables`, `touched_areas`, `verification_plan`, `readiness_score`, `ready_to_launch`), plus `confirm_blueprint(repo_path, rfc_markdown, cfg)` writing `.baton/00_RFC.md` cleanly and running `check_rfc_readiness`.
-- **`src/vibebaton/web_server.py` & Backend Tests (`tests/test_cli_registry.py`, `tests/test_guided_api.py`)**:
-  - Wire REST endpoints cleanly into `VibeBatonWebServer`:
-    - `GET /api/cli-registry` (catalog + tags)
-    - `POST /api/cli-registry/scan` (authorized host scan + recommended lineup)
-    - `POST /api/cli-registry/install` (confirmed allowlisted install)
-    - `POST /api/cli-registry/login` (launch official CLI auth flow)
-    - `GET /api/workspace/info`, `POST /api/workspace/select`, `POST /api/workspace/init-git`
-    - `POST /api/brainstorm/chat`, `POST /api/brainstorm/confirm`
-    - `GET /api/runs/<id>/tasks/<task_id>` (human-readable node detail payload: summary, model, elapsed_sec, cost_usd, changed_files, review_verdict)
-    - `POST /api/runs/<id>/resolve` (in-app `WAITING_HUMAN` decision submission & daemon resume trigger)
-    - `POST /api/runs/<id>/finalize` (`action = "approve" | "revise" | "rollback"`, tagging `baton-backup/<run_id>` on base branch before merge and restoring cleanly on rollback).
-  - Add thorough mocked unit & HTTP integration tests in `tests/test_cli_registry.py` and `tests/test_guided_api.py`, updating `tests/test_web_server.py` and `src/vibebaton/credentials.py` as needed.
-
-### M2: 220+ Bilingual Glossary, Guided Mode 4-Step Flow & Pro Mode Integration
-
-- **`web/src/data/glossary.ts` & `web/src/data/glossary.test.ts`**:
-  - Create **>= 220 structured `GlossaryEntry` records** spanning 6 categories (`vibebaton`, `git`, `ai`, `engineering`, `web_http`, `errors`) with fields `id`, `term`, `category`, `oneLiner_en`, `oneLiner_zh`, `plainExplain_en`, `plainExplain_zh`, `proExplain_en`, `proExplain_zh`, `related`.
-  - Add `web/src/data/glossary.test.ts` validating count `>= 220`, non-empty EN/ZH fields, valid `related` links, and zero matches for condescending terms (`/小白|菜鸟|傻瓜|笨蛋|noob|dummy/i`).
-- **`web/src/components/GlossaryTerm.tsx` & `web/src/components/GlossaryDrawer.tsx`**:
-  - Implement `<GlossaryTerm>` interactive inline term popover (plain explanation + technical definition + clickable related terms) with a helper avoiding duplicate underlines inside a single paragraph, plus top-bar searchable **`术语速查词典` / `Glossary`** drawer.
-- **Studio Guided Mode vs Pro Mode (`web/src/components/guided/*`, `App.tsx`, `HeaderBar.tsx`, `client.ts`, `messages.ts`, `i18n.test.ts`, `types/graph.ts`, `graph.test.ts`)**:
-  - Add header **`引导模式` (`Guided`) / `专业模式` (`Pro`)** switcher, persisting user preference in `localStorage`. Existing Pro views remain untouched when in Pro mode.
-  - Build the 4-step empowering Guided Closed Loop:
-    1. `GuidedSetupStep.tsx`: Visual project folder picker + Git status check/one-click init + authorized Universal CLI Registry scan/install/login + auto-ready lineup card.
-    2. `GuidedBrainstormStep.tsx`: Scenario starter cards + conversational multi-turn brainstorming UI + clear Blueprint Card + **"确认蓝图，开始编排"** action.
-    3. `NodeDetailDrawer.tsx` & `GuidedDecisionModal.tsx`: Clicking any canvas node opens `NodeDetailDrawer` showing plain summary, model, runtime, cost, files touched, and check results; `WAITING_HUMAN` pauses surface inside `GuidedDecisionModal` with clear option cards.
-    4. `GuidedSignOffPanel.tsx`: Final verification card showing passing tests, modified files summary, Battle Report link, **"验收通过，应用改动"**, **"提出修改意见"**, and **"一键回退至开工前快照"**.
-  - Update `web/src/i18n/messages.ts` with complete `EN | 中文` parity (zero `/opencode/i` and zero condescending wording), add component unit tests, and run full `npx.cmd vitest run && npx.cmd tsc --noEmit`.
-
-### M3: Version `1.2.0`, Release Documentation & Full Verification
-
-- **Version Bump (`1.2.0`)**:
-  - Update `pyproject.toml`, `src/vibebaton/__init__.py`, `web/package.json`, and `tests/test_version_consistency.py` to `1.2.0` (do NOT modify `web/package-lock.json`).
-- **Release Collateral (`CHANGELOG.md`, `docs/ROADMAP.md`, `docs/TUTORIAL.md`, `README.md`, `README.zh-CN.md`)**:
-  - Append `## [v1.2.0] - 2026-11-24` to `CHANGELOG.md` (preserving oldest-first order).
-  - Document Stage 6 Guided Mode, Universal CLI Registry, and 220+ Tech Glossary across `docs/ROADMAP.md`, `docs/TUTORIAL.md`, `README.md`, and `README.zh-CN.md` (preserving existing `1.0.0`, `sandbox init`, `scripts/install.ps1`, 16 FPS GIFs, and `--app` launcher sections).
-- **Full-Stack Final Gate**:
-  - Run frontend `vitest run`, `tsc --noEmit`, `vite build` AND full backend `unittest discover -s tests -v`, `presets --validate`, `--version`, and `test_release_collateral.py`.
+- **Milestone 1 - Lean small-task flow (backend)**:
+  - `src/vibebaton/engine.py`: a deterministic single-task plan builder used in `_ensure_plan` when the run's `guided_launch_selection` event carries size `small` and the lean flow is enabled; an event recording which flow was chosen and why.
+  - `src/vibebaton/web_server.py` and `src/vibebaton/workflow_recommend.py`: carry the per-run lean/full choice in the launch selection; report the chosen flow in the recommendation.
+  - `tests/`: plan synthesis from an RFC snapshot; no planner call and no per-task review on a lean run; milestone gate and milestone review still run; fallback to the full flow when no verification command exists or the switch is off; unchanged behaviour without a size.
+- **Milestone 2 - One launch path (frontend, small API additions only if needed)**:
+  - `web/src/components/guided/GuidedBrainstormStep.tsx`, `GuidedLaunchBar.tsx`, a new paste-RFC entry reusing `web/src/components/inspector/wizard/RfcStep.tsx` scoring, `web/src/api/client.ts`, `web/src/i18n/messages.ts`.
+  - Launch confirmation with effective values and the lean/full switch; removal of `web/src/components/inspector/StartRunModal.tsx` and its call sites (`HeaderBar.tsx`, `RightInspector.tsx`, `LiveRunPanel.tsx`), each replaced by an entry into the workbench launch bar.
+- **Milestone 3 - Three-act shell and honest displays (frontend)**:
+  - `web/src/lib/studioMode.ts` default, `web/src/components/guided/GuidedWorkbench.tsx` stage rail and readiness capsule, `GuidedSetupStep.tsx` as the on-demand wizard, `GuidedSignOffPanel.tsx` four-state verification, and cost displays in the run panels and battle report.
+  - `vitest` coverage for the capsule states, stage restoration, the empty-gate case and the "not reported" cost case; production build.
 
 ## Verification & Acceptance Criteria
 
-Run all verification checks sequentially without shell races:
+1. A Guided run launched as `small` with a verification command in its RFC makes no planning call, executes one task, runs the milestone gate and one review, and reaches the final gate; the run events state that the lean flow was used.
+2. The same RFC launched with the lean switch off, or an RFC with no verification command, runs the full flow; a run started from the command line plans exactly as before this change.
+3. Journey 2 passes in a browser on a ready workspace: the first screen accepts a pasted RFC, the launch confirmation matches what the run actually uses, and a simulated launch timeout followed by a retry yields exactly one run.
+4. `StartRunModal` no longer exists in the source tree, and every former "Start Real Run" button leads to the workbench launch bar.
+5. A ready workspace opens on Blueprint with a three-step stage rail; an unready one shows the capsule reason and opens the wizard; refreshing during Build or Sign-Off returns to the same run and stage.
+6. A Sign-Off whose re-integration returned no gates shows "no gate records" in a neutral colour, never a green "checks passed".
+7. An invocation without usage data is displayed as "not reported", and the total shows the reporting coverage.
+8. All Python tests and all Studio tests pass, and the production build succeeds.
 
 ```bash
-cmd /c "cd /d web && npx.cmd vitest run && npx.cmd tsc --noEmit && npm.cmd run build"
-cmd /c "set PYTHONPATH=src&& set PYTHONUTF8=1&& set VIBEBATON_DISABLE_PRICING_SYNC=1&& python -m unittest discover -s tests -v"
+python -m unittest discover -s tests
+npm --prefix web test
+npm --prefix web run build
 ```
-
-1. `tests/test_cli_registry.py` and `tests/test_guided_api.py` pass all unit & HTTP integration tests covering 8+ CLI drivers, authorized scan (`dsh` false-negative fix included), allowlist install safety, workspace Git init, multi-turn brainstorm -> Blueprint Card + RFC confirmation, task detail lookup, in-app resolve, and finalize/rollback tags.
-2. `web/src/data/glossary.test.ts` passes with **`>= 220` terms** across 6 categories, 100% EN/ZH parity, valid `related` graph, and zero condescending terms across glossary + UI copy.
-3. Guided Mode 4-step components (`GuidedSetupStep`, `GuidedBrainstormStep`, `NodeDetailDrawer`, `GuidedDecisionModal`, `GuidedSignOffPanel`, `GlossaryDrawer`, Mode Switcher) pass TypeScript & Vitest tests without regressing any Pro mode functionality (`web/src/` tests & `tests/test_web_fullstack.py` green).
-4. `python -m vibebaton --version` prints `vibebaton 1.2.0`, `python -m vibebaton presets --validate` passes all presets (`errors=0, warnings=0`), and `tests/test_version_consistency.py` + `tests/test_release_collateral.py` + `tests/test_desktop_app.py` pass cleanly.
-5. `npx.cmd vitest run`, `npx.cmd tsc --noEmit`, `npm.cmd run build`, and `python -m unittest discover -s tests -v` exit `0` with `0` failures.

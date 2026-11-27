@@ -13,16 +13,18 @@ L0008 | 2026-11-26 | 无 Git 身份时初始化仓库补仓库级身份与首个
 
 ID | 日期 | 摘要 | 日志路径与锚点 | 状态
 --- | --- | --- | --- | ---
-20261126-080223-m1-favicon-gate | 2026-11-26 | M1 全量门禁：修正过时的 ICO 断言并验证实际资源 | [LOG.md](LOG.md#20261126-080223-m1-favicon-gate) | 已自测待用户验收
-20261126-082838-m2-session-contract | 2026-11-26 | M2-T1 会话存储、推荐接口及契约 | [LOG.md](LOG.md#20261126-082838-m2-session-contract) | 历史自测待用户验收
-20261126-115602-m2-guided-integration | 2026-11-26 | M2-T4 会话 API、推荐与启动前检查 | [LOG.md](LOG.md#20261126-115602-m2-guided-integration) | 历史自测待用户验收
-20261126-122618-m2-brainstorm-lock | 2026-11-26 | M2 会话锁并发修复与回归 | [LOG.md](LOG.md#20261126-122618-m2-brainstorm-lock) | 已自测待用户验收
-20261126-123140-m2-gates | 2026-11-26 | M2 前三项门禁、panel 夹具和历史记录迁移 | [LOG.md](LOG.md#20261126-123140-m2-gates) | 已自测待用户验收
-20261126-123645-m2-scan-stale-response | 2026-11-26 | 扫描期间草稿更新和重置的过时响应保护 | [LOG.md](LOG.md#20261126-123645-m2-scan-stale-response) | 已自测待用户验收
-20261126-124814-m2-remediation-verification | 2026-11-26 | M2 最终四项门禁、跳过项与验收边界 | [LOG.md](LOG.md#20261126-124814-m2-remediation-verification) | 已自测待用户验收
-20261126-183037-m3-t6-guided-loop | 2026-11-26 | M3 Guided 四阶段闭环与会话恢复 | [LOG.md](LOG.md#20261126-183037-m3-t6-guided-loop) | 已自测待用户验收
+20261126-080223-m1-favicon-gate | 2026-11-26 | M1 全量门禁：修正过时的 ICO 断言并验证实际资源 | [LOG.md](LOG.md#20261126-080223-m1-favicon-gate) | 用户已验收（2026-11-27）
+20261126-082838-m2-session-contract | 2026-11-26 | M2-T1 会话存储、推荐接口及契约 | [LOG.md](LOG.md#20261126-082838-m2-session-contract) | 用户已验收（2026-11-27）
+20261126-115602-m2-guided-integration | 2026-11-26 | M2-T4 会话 API、推荐与启动前检查 | [LOG.md](LOG.md#20261126-115602-m2-guided-integration) | 用户已验收（2026-11-27）
+20261126-122618-m2-brainstorm-lock | 2026-11-26 | M2 会话锁并发修复与回归 | [LOG.md](LOG.md#20261126-122618-m2-brainstorm-lock) | 用户已验收（2026-11-27）
+20261126-123140-m2-gates | 2026-11-26 | M2 前三项门禁、panel 夹具和历史记录迁移 | [LOG.md](LOG.md#20261126-123140-m2-gates) | 用户已验收（2026-11-27）
+20261126-123645-m2-scan-stale-response | 2026-11-26 | 扫描期间草稿更新和重置的过时响应保护 | [LOG.md](LOG.md#20261126-123645-m2-scan-stale-response) | 用户已验收（2026-11-27）
+20261126-124814-m2-remediation-verification | 2026-11-26 | M2 最终四项门禁、跳过项与验收边界 | [LOG.md](LOG.md#20261126-124814-m2-remediation-verification) | 用户已验收（2026-11-27）
+20261126-183037-m3-t6-guided-loop | 2026-11-26 | M3 Guided 四阶段闭环与会话恢复 | [LOG.md](LOG.md#20261126-183037-m3-t6-guided-loop) | 用户已验收（2026-11-27）
 20261126-211349-workflow-recommendation | 2026-11-26 | 推荐工作流按规模分档、保留定制团队、panel 全员就绪才推荐；推荐卡片重排 | [LOG.md](LOG.md#20261126-211349-workflow-recommendation) | 已自测待用户验收
 20261126-221815-provider-names-launch-card | 2026-11-26 | 工具显示名统一；推荐卡片移到对话区下方横向展开 | [LOG.md](LOG.md#20261126-221815-provider-names-launch-card) | 已自测待用户验收
 20261126-233025-studio-master-plan | 2026-11-26 | Studio 总体执行方案书（三幕工作台 + Lab）与三项已拍板决策，仅文档 | [LOG.md](LOG.md#20261126-233025-studio-master-plan) | 文档已写，待用户审阅
 20261127-0940-small-project-lean-plan | 2026-11-27 | 小项目规划精简：规模传到规划指令、去掉逐任务审校 | [LOG.md](LOG.md#20261127-0940-small-project-lean-plan) | 已自测待用户验收
 20261127-1300-effort-source-of-truth | 2026-11-27 | 思考强度来自工具/声明/feed 数据，所有出口统一校验；小项目团队两种型号 | [LOG.md](LOG.md#20261127-1300-effort-source-of-truth) | 已自测待用户验收
+20261127-m3-accepted | 2026-11-27 | 用户确认 M3 验收通过；立项前核实假设 1、5、7 | [LOG.md](LOG.md#20261127-m3-accepted) | M3 已验收
+20261127-rfc-studio-workbench-p1 | 2026-11-27 | 新 RFC 立项：Studio Workbench Phase 1 + 小任务精简流程；Guided 2.0 RFC 归档 | [LOG.md](LOG.md#20261127-rfc-studio-workbench-p1) | RFC 已立项，未施工

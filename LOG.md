@@ -366,3 +366,22 @@ is pre-task commit `53299ce`; no new commit has been made. The whitelist exclude
 - 验证：新增 `tests/test_effort_invariants.py`（档位推荐、默认档位、全部角色 × 全部工具组合、普通与精简团队、所有预设与示例配置；数据齐全、完全无数据、仅 Codex 数据三组夹具），注入旧错误推荐时报错；接口测试覆盖档案校正与一次性提示、启动拒绝与建议值、沿用团队的校正、旧缓存判为过期、小项目沿用 L0 选择。Python 全量 1001 项通过、6 项跳过；前端 vitest 879、tsc、build 通过（执行会话与复核会话各跑一遍）。本机实测：agy 11、codex 10、dsh_opencode 2 来自工具清单，gemini_sub 3 来自工具声明；`flash@medium` → `@low`，`agy_sub:gemini-4-hydrogen@max` → `@xhigh`，`gemini_sub:gemini-2.5-pro@high` → 去掉强度；对外推荐表越界 0 条。
 - 未验证：各工具对不合法强度的运行时表现；Claude Code 逐型号差异（`--effort` 帮助文本只到工具级）；前端"未经核实""不支持强度""已自动改正"提示未在浏览器实看；小项目两型号团队的实际运行效果。
 - 状态：已自测待用户验收。提交：`ac0196c`、`edb67ac`、`bb6e504`、`d9d5691`、`5025c57`，已合并进 `main` / `dev` 并推送。README 未修改。后续：小任务"一个模型做、一个模型审"的两角色流程需改引擎流程，用户决定留给下一份 RFC。
+
+## 20261127-m3-accepted
+
+- 时间：2026-11-27（本机时间）。事项：用户确认 Guided Mode 2.0 的 M3 验收通过，并指示继续执行《Studio 总体执行方案书》的下一步（步骤 1：新 RFC 立项）。
+- 记录范围：用户只给出了"验收通过"的总体结论，没有提供方案书 3.9 表里 A–G 各组的逐项结果；本条不替用户补写分组结论。待定事项 4（验收假绿灯是否算 M3 阻塞项）随验收通过视为不阻塞，其修复仍排在 Phase 1。
+- 立项前核实（方案书 12.3 中影响 Phase 1/2 范围的三条假设，读代码核实，未运行）：
+  - 假设 5（单次运行的预算覆盖）：不成立。`engine.create_run` 与启动接口只接收 RFC、`mode`、`model_overrides`、`plan_path`、`run_id`、`parent_run_id`；预算只有项目级的 `policies.budget_profile`（`PUT /api/config/budget` 写 `baton.toml`）。发车条按"显示继承值并链接到设置"实现。
+  - 假设 7（角色表单能覆盖旧 JSON 覆盖）：基本成立。旧 `StartRunModal` 提交的是 `rfc_markdown`、`mode`、`model_overrides`（角色 → `provider:model@effort` 字符串），与引导侧发车的字段相同；两处都不提供 `interactive` 模式。差别只在旧弹窗可手写任意角色键，表单按已配置角色逐项列出。
+  - 假设 1（每次交接有落盘交接物和稳定事件 ID）：部分成立。每次角色调用都写 `prompts/<artifact_key>.md` 与 `out/<artifact_key>.json`，并记一条带自增 ID、`task_id`、`milestone_id` 的 `role_invoked` 事件；但事件里没有 `artifact_key`，事件与交接物只能靠任务与尝试次序推断。Phase 2 的连线卡需要先在事件 payload 里补上该键（纯增量）。
+- 改动：本条 LOG；`LOG-INDEX.md` 中 M1–M3 相关条目的状态改为"用户已验收（2026-11-27）"。未改代码。
+- 状态：M3 已验收。新 RFC 草稿见 `docs/RFC_STUDIO_WORKBENCH_P1_DRAFT.md`，待用户确认后才写入 `.baton/00_RFC.md`。
+
+## 20261127-rfc-studio-workbench-p1
+
+- 时间：2026-11-27（本机时间）。事项：用户确认新 RFC，写入 `.baton/00_RFC.md`，成为现行目标与验收依据。
+- 改动：`.baton/00_RFC.md` 换为《Studio Workbench, Phase 1》（方案书 Phase 1 的发车合一、三幕外壳、两项如实显示，加小任务"一个模型做、一个模型审"的精简流程；三个里程碑、八条验收标准）。原工作区里的 Guided Mode 2.0 RFC 从未提交过（Git 历史里该文件停在 Stage 6），覆盖前归档到 `docs/guided2/RFC_GUIDED_MODE_2.md`。草稿文件 `docs/RFC_STUDIO_WORKBENCH_P1_DRAFT.md` 已并入正式文件后删除。
+- 决策：一份 RFC 只做方案书的第一期，Phase 2–4 各自另立，避免在一份 RFC 里堆四期、无法逐期验收；小任务流程只动后端引擎，与前端两个里程碑互不干扰，按用户 2026-11-27 的决定并入本份。小任务保留一次模型评审和最终人工确认，不做单模型直出。单次运行的预算覆盖不做（服务端只有项目级预算）。
+- 验证：用 `rfc_checker.check_rfc_readiness` 检查新 RFC，得分 100、无缺失章节、无警告。未运行应用或测试；本轮没有代码改动。
+- 状态：RFC 已立项，尚未施工。下一步是里程碑 1（小任务精简流程，后端）。README 未修改。
