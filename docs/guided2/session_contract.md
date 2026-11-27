@@ -46,6 +46,9 @@ integration is handled separately.
 | `workflow.mode` | `"interactive"`, `"overnight"`, `"panel"`, or `null` while unselected. |
 | `workflow.lineup.roles` | Object mapping role names to provider IDs. |
 | `workflow.lineup.model_overrides` | Object mapping role names to `provider:model@effort` strings. |
+| `workflow.lineup.size` | Optional `"small"`, `"medium"` or `"large"`: the size of the recommendation this team came from. |
+| `workflow.lineup.customized` | Optional boolean, absent means `false`: the user changed this team by hand (Blueprint team drawer). A customized team is kept by every recommendation. |
+| `workflow.guided_selected_lineup` | Optional JSON string written by Setup: the confirmed team (`roles`, `model_overrides`, and `customized: true` when the user changed the setup recommendation by hand). Recommendations start from it. |
 | `workflow.preset` | Preset ID string or `null`. |
 | `workflow.panel_enabled` | Boolean: the selected panel setting. |
 | `workflow.launch_request_id` | String or `null`: launch idempotency key. Save it before launch and reuse it for retries of the same launch intent; see [lineage contract](lineage_contract.md#guided-http-lineage-contract). |
@@ -135,8 +138,40 @@ true. The snapshot contains statuses and IDs, never credential values.
 The recommendation contains an API run mode, preset ID, role/model lineup,
 normalized input size, machine-readable reason code, UI translation key, and
 whether a readiness-driven fallback was used. It also includes `size_changed`,
-`explanation_codes`, and `substitutions`. `preset` or `lineup` can be `null`
-when no selection is available; a missing lineup is not launch-ready.
+`explanation_codes`, `substitutions`, and `missing_panelists`. `lineup` can be
+`null` when no selection is available; a missing lineup is not launch-ready.
+`preset` is always `null`: presets were only ever recorded in the run log and
+never changed how a Guided run works. The field remains for compatibility.
+
+`recommend_workflow` also takes an optional keyword `size_basis`
+(`"model"` or `"estimated"`). Teams follow the size and only use ready providers:
+
+- `previous_lineup` flagged `customized: true` and still ready is kept in full
+  (`custom_lineup_kept`).
+- small: a lean team. Planning and review roles (L0/L1) keep the setup step's
+  picks; execution roles (L2/L3) get the value model at an effort no higher than
+  `medium` (`small_eco`).
+- medium: the previous (setup) team when it is still ready, else the setup
+  step's tiered default from the model catalog (`medium_relay`).
+- large: the same team; `panel` only when the Synthesizer and every panelist are
+  ready (`large_panel`), otherwise `overnight` (`large_relay`) with the blocking
+  codes. A partly ready panel adds `panelist_not_ready` and lists the unready
+  providers in `missing_panelists`. Launch preflight (`validate_launch_selection`)
+  still accepts a panel with at least one ready panelist, because the engine
+  skips specialists that fail.
+
+`explanation_codes` are ordered: the size and its basis (`size_from_model`,
+`size_estimated`, or `size_defaulted_to_medium` when a direct caller passes no
+size), then the arrangement (always present, equal to `reason_code`), then notes
+such as panel blockers, `eco_model_unavailable`, `provider_substituted`,
+`lineup_unavailable` or `no_ready_provider`. `fallback` is true when any note is
+present.
+
+`estimate_project_size(rfc_markdown, *, repo_is_empty)` is the deterministic
+size used when the live guide gives none: six or more Goals bullets or
+Architecture & Deliverables bullets is large; at most two of each in a folder
+that already has files is small; everything else (including an empty folder or a
+draft without Goals) is medium.
 
 ## Guided HTTP contract
 
@@ -218,7 +253,13 @@ configured role model includes its `@effort` suffix when one was configured;
 no suffix is invented when it was omitted. The
 optional `guide.size` follows the parsing rule above. When
 `blueprint.ready_to_launch` is true, the response includes `recommendation`
-from a fresh readiness snapshot. It is advisory and does not overwrite the
+from a fresh readiness snapshot (built with the same model catalog as the setup
+step). Its size is `guide.size` when given (`size_from_model`), otherwise
+`estimate_project_size` of the returned draft, where a folder holding only
+`.git`, `.baton`, `.gitignore`, `.gitattributes`, README or LICENSE files counts
+as empty (`size_estimated`). Without a `previous_lineup` in the request it
+starts from a customized `workflow.lineup`, else `workflow.guided_selected_lineup`,
+else a non-empty `workflow.lineup`. It is advisory and does not overwrite the
 session's workflow selection. A failed readiness scan returns `500` with
 `code: "READINESS_UNAVAILABLE"`; the completed turn is already saved. Legacy
 offline responses retain their existing shape until a recommendation is ready.

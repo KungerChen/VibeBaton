@@ -8,20 +8,27 @@ a run or starting a daemon; a recommendation is not a reservation of readiness.
 The existing lineup contract contains no previous project size.  New lineups
 therefore carry an optional ``size`` tag.  When submitting a retained lineup on
 the next iteration, callers should set that tag to the preceding recommendation's
-``size``.  Untagged legacy lineups are preserved, but ``size_changed`` is None:
-there is no basis for claiming either a change or no change.
+``size``.  Untagged legacy lineups have ``size_changed`` None: there is no basis
+for claiming either a change or no change.
+
+Teams follow the size: small gets a lean team (strong planning/review, light
+execution), medium and large reuse the team confirmed in setup (or the
+setup-equivalent tiered default). A lineup flagged ``customized`` (the user
+changed it by hand) is always kept.
 """
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NotRequired, TypedDict, cast
 from urllib.parse import urlsplit
 
-from . import cli_registry, credentials, presets
-from .config import BatonConfig, ProviderConfig, build_model_catalog
+from . import cli_registry, credentials, model_catalog
+from .config import BatonConfig, ProviderConfig
 from .panel import build_default_panel_settings
 
 ProjectSize = Literal["small", "medium", "large"]
@@ -35,6 +42,7 @@ class WorkflowLineup(TypedDict):
     roles: dict[str, str]
     model_overrides: dict[str, str]
     size: NotRequired[ProjectSize]
+    customized: NotRequired[bool]  # True once the user changed the team by hand
 
 
 @dataclass(frozen=True)
@@ -60,11 +68,12 @@ class ReadinessSnapshot:
     fallbacks are not sufficient: the engine does not try them for every kind
     of primary failure. The synthesizer is checked separately because role
     overrides do not change it.
-    ``required_roles=None`` and ``available_presets=None`` mean unknown, not
-    empty.  ``default_lineup`` is the host-derived standard relay; ``eco_lineup``
-    uses a configured eco model when one is ready. ``implicit_model_targets``
-    lists role/provider pairs for which the existing config can resolve a model
-    without an explicit override; None means that information is unavailable.
+    ``required_roles=None`` means unknown, not empty.  ``default_lineup`` follows
+    the setup step's tiered catalog picks (the host-derived relay when those cannot
+    be built); ``eco_lineup`` is the lean small-project team derived from them.
+    ``implicit_model_targets`` lists role/provider pairs for which the existing
+    config can resolve a model without an explicit override; None means that
+    information is unavailable.
     """
 
     providers: tuple[ProviderReadiness, ...]
@@ -74,9 +83,7 @@ class ReadinessSnapshot:
     eco_lineup: WorkflowLineup | None = None
     preferred_lineup: WorkflowLineup | None = None
     required_roles: tuple[str, ...] | None = None
-    available_presets: tuple[str, ...] | None = None
     implicit_model_targets: tuple[tuple[str, str], ...] | None = None
-    eco_preset_roles: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -111,6 +118,7 @@ class DetailedWorkflowRecommendation(WorkflowRecommendation):
     size_changed: bool | None = None
     explanation_codes: tuple[str, ...] = ()
     substitutions: tuple[ProviderSubstitution, ...] = ()
+    missing_panelists: tuple[str, ...] = ()
 
 
 class LaunchSelectionError(ValueError):
@@ -161,7 +169,13 @@ def _lineup_valid(lineup: WorkflowLineup | None, snapshot: ReadinessSnapshot) ->
     return True
 
 
+def _missing_panelists(snapshot: ReadinessSnapshot) -> tuple[str, ...]:
+    ready = set(_ready_providers(snapshot))
+    return tuple(provider for provider in snapshot.panelist_providers if provider not in ready)
+
+
 def _panel_errors(snapshot: ReadinessSnapshot) -> tuple[str, ...]:
+    """Launch preflight: the engine skips failed specialists, so one ready panelist suffices."""
     ready = set(_ready_providers(snapshot))
     errors: list[str] = []
     synth_id = snapshot.synthesizer_provider
@@ -243,80 +257,140 @@ def _repair_lineup(lineup: WorkflowLineup | None, snapshot: ReadinessSnapshot) -
     return repaired if _lineup_valid(repaired, snapshot) else None
 
 
+SizeBasis = Literal["model", "estimated"]
+_BULLET = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+\S")
+_FENCE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
+_PLACEHOLDER_AREA = "Implementation areas are chosen during planning."
+
+
+def _section_bullets(rfc_markdown: str) -> dict[str, int]:
+    """Count list items under each lower-cased ``## `` heading, ignoring fenced code."""
+    counts: dict[str, int] = {}
+    current: str | None = None
+    fence: str | None = None
+    for line in rfc_markdown.splitlines():
+        match = _FENCE.match(line)
+        if fence is not None:
+            if match and match.group(1).startswith(fence):
+                fence = None
+            continue
+        if match:
+            fence = match.group(1)
+            continue
+        if line.startswith("## "):
+            current = line[3:].strip().lower()
+            counts.setdefault(current, 0)
+        elif current is not None and _BULLET.match(line) and _PLACEHOLDER_AREA not in line:
+            counts[current] += 1
+    return counts
+
+
+def estimate_project_size(rfc_markdown: str, *, repo_is_empty: bool) -> ProjectSize:
+    """Deterministic size from the blueprint when the model gave none.
+
+    Six or more goals or deliverable areas is large; at most two of each in an existing
+    project is small; everything else, including a project started from an empty folder
+    or a draft without goals, is medium.
+    """
+    counts = _section_bullets(rfc_markdown)
+    if "goals" not in counts:
+        return "medium"
+    goals = counts["goals"]
+    areas = counts.get("architecture & deliverables", 0)
+    if goals >= 6 or areas >= 6:
+        return "large"
+    if goals <= 2 and areas <= 2 and not repo_is_empty:
+        return "small"
+    return "medium"
+
+
+def _base_lineup(
+    previous: WorkflowLineup | None, readiness: ReadinessSnapshot,
+) -> tuple[WorkflowLineup | None, bool]:
+    """The setup team when it is still ready, else the (repaired) tiered default; flag = repaired."""
+    if _lineup_valid(previous, readiness):
+        assert previous is not None
+        return {"roles": dict(previous["roles"]), "model_overrides": dict(previous["model_overrides"])}, False
+    candidate = readiness.default_lineup
+    if _lineup_valid(candidate, readiness):
+        return deepcopy(candidate), False
+    return _repair_lineup(candidate, readiness), True
+
+
 def recommend_workflow(
     size: ProjectSize | None,
     readiness: ReadinessSnapshot,
     *,
     previous_lineup: WorkflowLineup | None = None,
+    size_basis: SizeBasis | None = None,
 ) -> DetailedWorkflowRecommendation:
     """Recommend a workflow without I/O, clocks, random choices, or mutation.
 
-    Missing/unknown sizes use medium. A valid previous lineup is retained in
-    full, including unknown metadata. The selected mode is still re-evaluated,
-    so an unsafe panel never survives merely because the lineup was preserved.
+    ``previous_lineup`` is the team confirmed in setup (or the last saved team). Flagged
+    ``customized`` and still ready, it is kept as is; otherwise small projects get the lean
+    team and medium/large reuse it. Large recommends the panel only when the Synthesizer and
+    every panelist are ready. ``explanation_codes`` are ordered: size and its basis, the
+    arrangement (always present), then notes such as fallbacks or substitutions.
+    ``preset`` is always None: presets never changed how a Guided run works.
     """
-    normalized: ProjectSize = cast(ProjectSize, size) if size in ("small", "medium", "large") else "medium"
+    known = size in ("small", "medium", "large")
+    normalized: ProjectSize = cast(ProjectSize, size) if known else "medium"
+    if not known:
+        size_code = "size_defaulted_to_medium"
+    else:
+        size_code = "size_estimated" if size_basis == "estimated" else "size_from_model"
     prior_size = previous_lineup.get("size") if isinstance(previous_lineup, dict) else None
     size_changed = prior_size != normalized if prior_size in ("small", "medium", "large") else None
-    panel_errors = _panel_errors(readiness) if normalized == "large" else ()
-    mode: WorkflowMode = "panel" if normalized == "large" and not panel_errors else "overnight"
-    preset = "specialist_panel" if mode == "panel" else (
-        "starter_2tier" if normalized == "small" else "solo_coder_3tier"
-    )
-    reasons: list[str] = list(panel_errors)
-    fallback = bool(panel_errors)
 
-    kept = _lineup_valid(previous_lineup, readiness)
+    notes: list[str] = []
+    missing = _missing_panelists(readiness) if normalized == "large" else ()
+    if normalized == "large":
+        notes.extend(_panel_errors(readiness))
+        if missing and "panelist_unavailable" not in notes:
+            notes.append("panelist_not_ready")
+    mode: WorkflowMode = "panel" if normalized == "large" and not notes else "overnight"
+
+    custom = isinstance(previous_lineup, dict) and previous_lineup.get("customized") is True
+    kept = custom and _lineup_valid(previous_lineup, readiness)
+    repaired = False
     if kept:
         lineup = deepcopy(previous_lineup)
+        arrangement = "custom_lineup_kept"
     else:
-        candidate = readiness.eco_lineup if normalized == "small" and readiness.eco_lineup else readiness.default_lineup
-        lineup = deepcopy(candidate) if _lineup_valid(candidate, readiness) else _repair_lineup(candidate, readiness)
+        lineup, repaired = _base_lineup(previous_lineup, readiness)
+        if normalized == "small":
+            arrangement = "small_eco"
+            if _lineup_valid(readiness.eco_lineup, readiness):
+                lineup = deepcopy(readiness.eco_lineup)
+                repaired = False
+            elif lineup is not None:
+                notes.append("eco_model_unavailable")
+        elif mode == "panel":
+            arrangement = "large_panel"
+        else:
+            arrangement = "large_relay" if normalized == "large" else "medium_relay"
         if lineup is not None:
             lineup["size"] = normalized
-        if normalized == "small" and readiness.eco_lineup is None and lineup is not None:
-            reasons.append("eco_model_unavailable")
-            fallback = True
 
     substitutions: list[ProviderSubstitution] = []
     preferred = readiness.preferred_lineup or readiness.default_lineup
-    if lineup is not None and not kept and isinstance(preferred, dict):
-        preferred_roles = preferred.get("roles")
-        if isinstance(preferred_roles, dict):
-            ready = set(_ready_providers(readiness))
-            for role, chosen in lineup["roles"].items():
-                original = preferred_roles.get(role)
-                if isinstance(original, str) and original != chosen and original not in ready:
-                    substitutions.append(ProviderSubstitution(role, original, chosen))
-    if lineup is not None and not kept and normalized == "small":
+    if lineup is not None and repaired and isinstance(preferred, dict) and isinstance(preferred.get("roles"), dict):
         ready = set(_ready_providers(readiness))
-        for role, original in readiness.eco_preset_roles:
-            chosen = lineup["roles"].get(role)
-            if chosen and original != chosen and original not in ready:
-                substitution = ProviderSubstitution(role, original, chosen)
-                if substitution not in substitutions:
-                    substitutions.append(substitution)
+        for role, chosen in lineup["roles"].items():
+            original = preferred["roles"].get(role)
+            if isinstance(original, str) and original != chosen and original not in ready:
+                substitutions.append(ProviderSubstitution(role, original, chosen))
     if substitutions:
-        reasons.append("provider_substituted")
-        fallback = True
+        notes.append("provider_substituted")
     if lineup is None:
-        reasons.append("no_ready_provider" if not _ready_providers(readiness) else "lineup_unavailable")
-        fallback = True
-    if readiness.available_presets is not None and preset not in readiness.available_presets:
-        preset = None
-        reasons.append("preset_unavailable")
-        fallback = True
-    if size not in ("small", "medium", "large"):
-        reasons.append("size_defaulted_to_medium")
-    if kept:
-        reasons.append("previous_lineup_preserved")
-    if not reasons:
-        reasons.append("small_eco" if normalized == "small" else "large_panel" if mode == "panel" else "medium_relay")
-    reason = reasons[0]
+        notes.append("no_ready_provider" if not _ready_providers(readiness) else "lineup_unavailable")
+
+    reasons = (size_code, arrangement, *dict.fromkeys(notes))
     return DetailedWorkflowRecommendation(
-        mode=mode, preset=preset, lineup=lineup, size=normalized,
-        reason_code=reason, explanation_key=f"workflow.{reason}", fallback=fallback,
-        size_changed=size_changed, explanation_codes=tuple(reasons), substitutions=tuple(substitutions),
+        mode=mode, preset=None, lineup=lineup, size=normalized,
+        reason_code=arrangement, explanation_key=f"workflow.{arrangement}", fallback=bool(notes),
+        size_changed=size_changed, explanation_codes=reasons, substitutions=tuple(substitutions),
+        missing_panelists=missing,
     )
 
 
@@ -371,21 +445,41 @@ def _configured_override(cfg: BatonConfig, role: str, provider: str) -> str | No
     return model if model.partition(":")[2].strip() else None
 
 
-def _eco_lineup(
-    cfg: BatonConfig, providers: tuple[ProviderReadiness, ...], starter_targets: tuple[tuple[str, str], ...],
+_LEAN_EFFORTS = ("medium", "low", "minimal")
+
+
+def _tiered_lineup(
+    cfg: BatonConfig, providers: tuple[ProviderReadiness, ...], models: Sequence[model_catalog.ModelCatalogEntry],
+    *, lean: bool = False,
 ) -> WorkflowLineup | None:
-    if not cfg.roles:
+    """The setup step's per-role catalog picks over ready providers (``recommend_role_assignment``).
+
+    ``lean`` keeps the L0/L1 planning and review picks but gives execution roles (L2/L3) the
+    L3 value model at an effort no higher than medium.
+    """
+    ready = list(_ready_providers(ReadinessSnapshot(providers)))
+    if not ready or not cfg.roles:
         return None
-    ready = set(_ready_providers(ReadinessSnapshot(providers)))
-    eco = [model for model in build_model_catalog(cfg) if model.cost_tier == "eco" and model.provider in ready]
-    if not eco:
-        return None
-    choice = next((model for target in starter_targets for model in eco
-                   if (model.provider, model.model) == target), eco[0])
-    return {
-        "roles": {name: choice.provider for name in cfg.roles},
-        "model_overrides": {name: f"{choice.provider}:{choice.model}" for name in cfg.roles},
-    }
+    roles: dict[str, str] = {}
+    overrides: dict[str, str] = {}
+    for name in cfg.roles:
+        execution = model_catalog.ROLE_TIERS.get(name, "L2") in ("L2", "L3")
+        pick = model_catalog.recommend_role_assignment("bulk_worker" if lean and execution else name, ready, models)
+        if pick is None:
+            return None
+        effort = pick["effort"]
+        if lean and execution:
+            entry = next((m for m in models if m["id"] == pick["model"]), None)
+            allowed = entry["efforts"] if entry else list(_LEAN_EFFORTS)
+            effort = next((level for level in _LEAN_EFFORTS if level in allowed), "")
+        if pick["model"]:
+            spec: str | None = f"{pick['provider']}:{pick['model']}" + (f"@{effort}" if effort else "")
+        else:
+            spec = _configured_override(cfg, name, pick["provider"])
+        if spec is None:
+            return None
+        roles[name], overrides[name] = pick["provider"], spec
+    return {"roles": roles, "model_overrides": overrides}
 
 
 def build_readiness_snapshot(
@@ -394,12 +488,14 @@ def build_readiness_snapshot(
     credentials_path: Path | None = None,
     *,
     scan_result: cli_registry.CliScanResult | None = None,
+    models: Sequence[model_catalog.ModelCatalogEntry] | None = None,
 ) -> ReadinessSnapshot:
     """Read config, local credential/CLI scan, presets, and effective panel settings.
 
     Passing an existing scan avoids running another registry scan. Unregistered
     CLI providers use the existing bounded provider probe. These checks do not
     install or log in. Snapshot contents never include credential values.
+    ``models`` is the model catalog the setup step shows; the bundled one by default.
     """
     registry = cli_registry.load_cli_registry()
     scan = scan_result if scan_result is not None else cli_registry.scan_host_clis(
@@ -427,19 +523,7 @@ def build_readiness_snapshot(
                 installed = authenticated = bool(probe["ok"])
             providers.append(ProviderReadiness(name, "cli", installed, authenticated))
     provider_tuple = tuple(providers)
-    preset_ids = tuple(summary.id for summary in presets.list_presets())
-    starter = presets.load_preset("starter_2tier") if "starter_2tier" in preset_ids else None
-    starter_nodes = starter.nodes if starter is not None else ()
-    starter_targets = tuple(
-        (provider, model) for node in starter_nodes
-        if isinstance(provider := node.config.get("provider"), str)
-        and isinstance(model := node.config.get("model"), str)
-    )
-    starter_roles = tuple(
-        (node.role, provider) for node in starter_nodes
-        if node.role in cfg.roles and isinstance(provider := node.config.get("provider"), str)
-        and provider != "host_native"
-    )
+    catalog = list(models) if models is not None else list(model_catalog.BUNDLED_MODELS)
     settings = cfg.panel if cfg.panel.members else build_default_panel_settings(cfg)
     panelists = tuple(dict.fromkeys(
         member.provider for member in settings.members if member.provider and member.model.strip()
@@ -447,16 +531,14 @@ def build_readiness_snapshot(
     preferred: WorkflowLineup = {"roles": {name: role.provider for name, role in cfg.roles.items()}, "model_overrides": {}}
     return ReadinessSnapshot(
         providers=provider_tuple,
-        default_lineup=_host_lineup(cfg, scan, provider_tuple),
+        default_lineup=_tiered_lineup(cfg, provider_tuple, catalog) or _host_lineup(cfg, scan, provider_tuple),
         panelist_providers=panelists,
         synthesizer_provider=settings.synthesizer_provider if settings.synthesizer_model.strip() else None,
-        eco_lineup=_eco_lineup(cfg, provider_tuple, starter_targets),
+        eco_lineup=_tiered_lineup(cfg, provider_tuple, catalog, lean=True),
         preferred_lineup=preferred,
         required_roles=tuple(cfg.roles),
-        available_presets=preset_ids,
         implicit_model_targets=tuple(
             (role, provider) for role in cfg.roles for provider in cfg.providers
             if _configured_override(cfg, role, provider) is not None
         ),
-        eco_preset_roles=starter_roles,
     )

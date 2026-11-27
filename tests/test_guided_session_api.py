@@ -201,6 +201,44 @@ class TestGuidedSessionApi(GuidedApiTestCase):
         self.assertTrue(offline["retryable"])
         self.assertEqual(offline["rfc_markdown"], original)
 
+    def test_recommendation_estimates_size_and_starts_from_the_setup_team(self) -> None:
+        def runner(prompt: str) -> tuple[str, str, str]:
+            guide = {"question": "", "options": [], "checklist": []}  # no size from the model
+            return "codex_sub", "gpt-6.2-astra@xhigh", (
+                "Ready.\n```guide\n" + json.dumps(guide) + "\n```\n````rfc\n" + self.RFC + "````\n"
+            )
+
+        def chat() -> dict:
+            with patch.object(brainstorm, "_provider_dispatch", return_value=runner):
+                status, body = self._post("/api/brainstorm/chat", {"messages": self.MESSAGE})
+            self.assertEqual(status, 200, body)
+            return body["recommendation"]
+
+        setup_team = self.lineup()
+        setup_team.pop("size", None)
+        self.assertEqual(self.put_session({"workflow": {"guided_selected_lineup": json.dumps(
+            {**setup_team, "ready": True, "source": "cli", "notes_en": "", "notes_zh": ""})}})[0], 200)
+        # Only README/.gitignore so far: an empty project is at least medium; the setup team is reused.
+        first = chat()
+        self.assertEqual(first["explanation_codes"][:2], ["size_estimated", "medium_relay"])
+        self.assertEqual(first["size"], "medium")
+        self.assertEqual(first["lineup"]["model_overrides"], setup_team["model_overrides"])
+        self.assertIsNone(first["preset"])
+
+        # One goal and one area in an existing project is small: a lean team, not the setup team.
+        (self.repo / "app.py").write_text("print('hi')\n", encoding="utf-8")
+        small = chat()
+        self.assertEqual(small["explanation_codes"][:2], ["size_estimated", "small_eco"])
+        self.assertNotEqual(small["lineup"]["model_overrides"], setup_team["model_overrides"])
+
+        # A team the user edited by hand is kept whatever the size.
+        custom = {**setup_team, "customized": True}
+        self.assertEqual(self.put_session({"workflow": {"guided_selected_lineup": json.dumps(
+            {**custom, "ready": True, "source": "cli", "notes_en": "", "notes_zh": ""})}})[0], 200)
+        kept = chat()
+        self.assertEqual(kept["explanation_codes"][:2], ["size_estimated", "custom_lineup_kept"])
+        self.assertEqual(kept["lineup"]["model_overrides"], setup_team["model_overrides"])
+
     def test_invalid_added_fields_and_lineups_do_not_create_runs(self) -> None:
         for extra in (
             {"requested_l0_model": "unknown:bad"},

@@ -63,7 +63,7 @@ from .report import compute_run_telemetry, generate_battle_report
 from .rfc_checker import check_rfc_readiness, generate_structured_rfc
 from .schemas import RunStatus
 from .workflow_recommend import (
-    LaunchSelectionError, ReadinessSnapshot, build_readiness_snapshot, recommend_workflow,
+    LaunchSelectionError, ReadinessSnapshot, build_readiness_snapshot, estimate_project_size, recommend_workflow,
     validate_launch_selection,
 )
 
@@ -146,6 +146,34 @@ def _dismissed_alerts_path(credentials_path: Path | None) -> Path:
 def _model_catalog_cache_path(credentials_path: Path | None) -> Path:
     base = credentials.default_credentials_path(credentials_path)
     return base.parent / "model_catalog_cache.json"
+
+
+# Files that do not make a folder a project yet (for the blueprint size estimate).
+_SCAFFOLD_NAMES = re.compile(r"^(?:\.git|\.baton|\.gitignore|\.gitattributes|readme(?:\..*)?|license(?:\..*)?)$", re.IGNORECASE)
+
+
+def _repo_is_empty(repo: Path) -> bool:
+    try:
+        return not any(not _SCAFFOLD_NAMES.match(entry.name) for entry in repo.iterdir())
+    except OSError:
+        return False
+
+
+def _recommendation_base_lineup(session: dict[str, Any]) -> dict[str, Any] | None:
+    """The team to start from: a hand-edited saved team, else the team confirmed in setup."""
+    saved = session["workflow"]["lineup"]
+    if saved.get("customized") is True and saved["roles"]:
+        return saved
+    setup = session["workflow"].get("guided_selected_lineup")
+    try:
+        setup = json.loads(setup) if isinstance(setup, str) else setup
+    except ValueError:
+        setup = None
+    if isinstance(setup, dict) and isinstance(setup.get("roles"), dict) and setup["roles"]:
+        overrides = setup.get("model_overrides")
+        return {"roles": setup["roles"], "model_overrides": overrides if isinstance(overrides, dict) else {},
+                **({"customized": True} if setup.get("customized") is True else {})}
+    return saved if saved["roles"] else None
 
 
 _LINEUP_PROFILES_LOCK = threading.Lock()
@@ -1735,7 +1763,11 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                 config = self.server.loader.current
                 repo = repo or self.server.repo_path
         try:
-            return build_readiness_snapshot(repo or self.server.repo_path, config, self.server.credentials_path)
+            # The setup step recommends from this catalog; the workflow recommendation must match it.
+            models = model_catalog.get_model_catalog(
+                cache_path=_model_catalog_cache_path(self.server.credentials_path))["models"]
+            return build_readiness_snapshot(repo or self.server.repo_path, config, self.server.credentials_path,
+                                            models=models)
         except (OSError, ValueError) as exc:
             raise _SessionIOError(f"Provider readiness could not be checked: {exc}",
                                   code="READINESS_UNAVAILABLE") from exc
@@ -1976,10 +2008,15 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                         "BRAINSTORM_SESSION_CHANGED",
                         "The brainstorm session changed during this turn; reload it before retrying",
                     )
-                if previous is None and session["workflow"]["lineup"]["roles"]:
-                    previous = session["workflow"]["lineup"]
+                if previous is None:
+                    previous = _recommendation_base_lineup(session)
+            size = result.get("guide", {}).get("size")
+            basis = "model"
+            if size not in ("small", "medium", "large"):
+                size = estimate_project_size(result.get("rfc_markdown", ""), repo_is_empty=_repo_is_empty(repo))
+                basis = "estimated"
             result["recommendation"] = asdict(recommend_workflow(
-                result.get("guide", {}).get("size"), readiness, previous_lineup=previous,
+                size, readiness, previous_lineup=previous, size_basis=basis,
             ))
         self._send_json(200, result)
 

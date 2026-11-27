@@ -242,9 +242,11 @@ class WorkflowRecommendationContractTests(unittest.TestCase):
             "explanation_key": "workflow.example", "fallback": False,
         })
         parameters = inspect.signature(recommend_workflow).parameters
-        self.assertEqual(list(parameters), ["size", "readiness", "previous_lineup"])
-        self.assertEqual(parameters["previous_lineup"].kind, inspect.Parameter.KEYWORD_ONLY)
-        self.assertIsNone(parameters["previous_lineup"].default)
+        # size_basis (20261126 workflow tiers) is a new optional keyword-only argument.
+        self.assertEqual(list(parameters), ["size", "readiness", "previous_lineup", "size_basis"])
+        for name in ("previous_lineup", "size_basis"):
+            self.assertEqual(parameters[name].kind, inspect.Parameter.KEYWORD_ONLY)
+            self.assertIsNone(parameters[name].default)
 
 
 if __name__ == "__main__":

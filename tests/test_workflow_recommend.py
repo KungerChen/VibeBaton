@@ -91,43 +91,47 @@ class WorkflowRecommendationTests(unittest.TestCase):
         self.snapshot = build_readiness_snapshot(Path("."), self.cfg, scan_result=self.scan)
 
     def test_golden_example_selects_size_policy_and_real_eco_model(self) -> None:
+        # 20261126 workflow tiers: small is a lean tiered team (not one eco model for every role),
+        # and preset is always None because presets never changed a Guided run.
         small = recommend_workflow("small", self.snapshot)
         self.assertEqual((small.size, small.mode, small.preset, small.reason_code),
-                         ("small", "overnight", "starter_2tier", "small_eco"))
+                         ("small", "overnight", None, "small_eco"))
         self.assertFalse(small.fallback)
-        self.assertEqual(set(small.lineup["roles"].values()), {"dsh_opencode"})
-        self.assertEqual(set(small.lineup["model_overrides"].values()),
-                         {"dsh_opencode:deepseek-v4.1-flash@max"})
+        self.assertEqual(small.lineup["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@medium")
+        self.assertEqual(small.lineup["model_overrides"]["brainstorm_and_final_gate"], "agy_sub:gemini-4-carbon@medium")
         self.assertEqual(small.lineup["size"], "small")
 
         medium = recommend_workflow("medium", self.snapshot)
         self.assertEqual((medium.mode, medium.preset, medium.reason_code),
-                         ("overnight", "solo_coder_3tier", "medium_relay"))
+                         ("overnight", None, "medium_relay"))
         self.assertEqual(medium.lineup["roles"]["tactical_planner"], "claude_sub")
         self.assertEqual(medium.lineup["roles"]["bulk_worker"], "dsh_opencode")
         large = recommend_workflow("large", self.snapshot)
         self.assertEqual((large.mode, large.preset, large.reason_code),
-                         ("panel", "specialist_panel", "large_panel"))
+                         ("panel", None, "large_panel"))
         validate_launch_selection(large.mode, self.snapshot, lineup=large.lineup)
 
     def test_missing_synthesizer_key_falls_back_and_launch_rejects(self) -> None:
         snapshot = build_readiness_snapshot(Path("."), self.cfg, scan_result=example_scan(("claude",), http_key=False))
         result = recommend_workflow("large", snapshot)
-        self.assertEqual((result.mode, result.preset, result.fallback), ("overnight", "solo_coder_3tier", True))
-        self.assertEqual(result.reason_code, "synthesizer_credentials_missing")
-        self.assertIn("synthesizer", result.explanation_key)
+        self.assertEqual((result.mode, result.preset, result.fallback), ("overnight", None, True))
+        # reason_code is the arrangement; the panel blocker is a note right after it.
+        self.assertEqual(result.reason_code, "large_relay")
+        self.assertEqual(result.explanation_codes[2], "synthesizer_credentials_missing")
         self.assertTrue(all(provider == "claude_sub" for provider in result.lineup["roles"].values()))
-        self.assertTrue(result.substitutions)
         with self.assertRaises(LaunchSelectionError) as caught:
             validate_launch_selection("panel", snapshot)
         self.assertIn("synthesizer_credentials_missing", caught.exception.codes)
         self.assertIn("gemini_http", str(caught.exception))
 
-    def test_one_ready_panelist_and_synthesizer_are_enough(self) -> None:
+    def test_one_ready_panelist_is_enough_to_launch_but_not_to_recommend(self) -> None:
+        # The engine skips a failed specialist, so launch preflight still accepts one ready
+        # panelist; the recommendation only proposes the panel when every panelist is ready.
         snapshot = build_readiness_snapshot(Path("."), self.cfg, scan_result=example_scan(("claude",), http_key=True))
         result = recommend_workflow("large", snapshot)
-        self.assertEqual(result.mode, "panel")
-        self.assertIn("provider_substituted", result.explanation_codes)
+        self.assertEqual(result.mode, "overnight")
+        self.assertIn("panelist_not_ready", result.explanation_codes)
+        self.assertEqual(result.missing_panelists, ("codex_sub",))
         ready = {provider.provider_id for provider in snapshot.providers if provider.provider_ready and provider.credential_ready}
         self.assertLessEqual(set(result.lineup["roles"].values()), ready)
         validate_launch_selection("panel", snapshot, lineup=result.lineup)
@@ -146,8 +150,9 @@ class WorkflowRecommendationTests(unittest.TestCase):
         for size in (None, "", "huge", "MEDIUM"):
             with self.subTest(size=size):
                 result = recommend_workflow(size, self.snapshot)
-                self.assertEqual((result.size, result.mode, result.preset), ("medium", "overnight", "solo_coder_3tier"))
-                self.assertEqual(result.reason_code, "size_defaulted_to_medium")
+                self.assertEqual((result.size, result.mode, result.preset), ("medium", "overnight", None))
+                # Only direct callers can omit the size; Guided always passes a model or estimated size.
+                self.assertEqual(result.explanation_codes, ("size_defaulted_to_medium", "medium_relay"))
                 self.assertFalse(result.fallback)
 
     def test_recommendation_is_pure_deterministic_and_never_mutates_its_inputs(self) -> None:
@@ -163,19 +168,22 @@ class WorkflowRecommendationTests(unittest.TestCase):
         self.assertEqual(previous, previous_original)
 
     def test_previous_lineup_is_preserved_and_size_comparison_is_explicit(self) -> None:
+        # Only a team the user changed by hand ("customized") is kept in full; an untouched one
+        # is the base for medium/large and is replaced by the lean team for small.
         previous = deepcopy(recommend_workflow("small", self.snapshot).lineup)
         previous["future_metadata"] = {"keep": [1, 2]}
+        previous["customized"] = True
         result = recommend_workflow("large", self.snapshot, previous_lineup=previous)
         self.assertEqual(result.lineup, previous)
         self.assertIsNot(result.lineup, previous)
         self.assertTrue(result.size_changed)
         self.assertTrue(asdict(result)["size_changed"])
-        self.assertIn("previous_lineup_preserved", result.explanation_codes)
+        self.assertEqual(result.reason_code, "custom_lineup_kept")
         self.assertFalse(recommend_workflow("small", self.snapshot, previous_lineup=previous).size_changed)
         legacy = {"roles": dict(previous["roles"]), "model_overrides": dict(previous["model_overrides"])}
         legacy_result = recommend_workflow("large", self.snapshot, previous_lineup=legacy)
         self.assertIsNone(legacy_result.size_changed)
-        self.assertEqual(legacy_result.lineup, legacy)
+        self.assertEqual(legacy_result.lineup, {**legacy, "size": "large"})
         # For the following iteration, retain the assignments and associate the
         # immediately preceding recommendation's size with the supplied lineup.
         next_previous = deepcopy(result.lineup)
@@ -194,59 +202,56 @@ class WorkflowRecommendationTests(unittest.TestCase):
         inconsistent["model_overrides"]["tactical_planner"] = "dsh_opencode:flash"
         result = recommend_workflow("medium", self.snapshot, previous_lineup=inconsistent)
         self.assertNotEqual(result.lineup, inconsistent)
-        self.assertNotIn("previous_lineup_preserved", result.explanation_codes)
+        self.assertNotIn("custom_lineup_kept", result.explanation_codes)
 
     def test_panel_revalidated_even_when_previous_lineup_is_preserved(self) -> None:
         snapshot = replace(self.snapshot, synthesizer_provider="gemini_http", providers=tuple(
             replace(provider, credential_ready=False) if provider.provider_id == "gemini_http" else provider
             for provider in self.snapshot.providers
         ))
-        prior = {"roles": {name: "claude_sub" for name in self.cfg.roles}, "model_overrides": {}, "size": "medium"}
+        prior = {"roles": {name: "claude_sub" for name in self.cfg.roles}, "model_overrides": {}, "size": "medium",
+                 "customized": True}
         result = recommend_workflow("large", snapshot, previous_lineup=prior)
         self.assertEqual(result.lineup, prior)
         self.assertTrue(result.size_changed)
         self.assertEqual(result.mode, "overnight")
-        self.assertEqual(result.reason_code, "synthesizer_credentials_missing")
+        self.assertEqual(result.explanation_codes[1:], ("custom_lineup_kept", "synthesizer_credentials_missing"))
 
     def test_no_ready_provider_or_model_never_produces_a_lineup(self) -> None:
         empty = build_readiness_snapshot(Path("."), self.cfg, scan_result=example_scan(()))
         result = recommend_workflow("medium", empty)
         self.assertIsNone(result.lineup)
         self.assertTrue(result.fallback)
-        self.assertEqual(result.reason_code, "no_ready_provider")
+        self.assertEqual(result.explanation_codes[-1], "no_ready_provider")
         cfg = parse_config_dict({"providers": {"gemini_http": {"type": "http", "api_key_env": "GEMINI_API_KEY"}},
                                  "roles": {"bulk_worker": {"provider": "not_configured", "model": "other"}}})
         snapshot = build_readiness_snapshot(Path("."), cfg, scan_result=example_scan((), http_key=True))
-        self.assertIsNone(recommend_workflow("medium", snapshot).lineup)
+        # The config has no model for gemini_http, but the setup step's catalog pick supplies an
+        # explicit one, so a ready team exists.
+        self.assertEqual(recommend_workflow("medium", snapshot).lineup["roles"], {"bulk_worker": "gemini_http"})
+        self.assertNotIn("no_ready_provider", recommend_workflow("medium", snapshot).explanation_codes)
         previous = {"roles": {"bulk_worker": "gemini_http"}, "model_overrides": {}, "size": "small"}
-        self.assertIsNone(recommend_workflow("medium", snapshot, previous_lineup=previous).lineup)
+        # A previous team without a resolvable model is not reused; the catalog team replaces it.
+        self.assertEqual(recommend_workflow("medium", snapshot, previous_lineup=previous).lineup["model_overrides"],
+                         {"bulk_worker": "gemini_http:gemini-4-hydrogen@max"})
         with self.assertRaises(LaunchSelectionError) as caught:
             validate_launch_selection("overnight", snapshot, lineup=previous)
         self.assertEqual(caught.exception.codes, ("lineup_unavailable",))
         # An explicit model for that ready provider remains a valid user choice.
         previous["model_overrides"]["bulk_worker"] = "gemini_http:gemini-explicit"
-        self.assertEqual(recommend_workflow("medium", snapshot, previous_lineup=previous).lineup, previous)
+        self.assertEqual(recommend_workflow("medium", snapshot, previous_lineup=previous).lineup,
+                         {**previous, "size": "medium"})
 
-    def test_missing_eco_model_or_preset_is_reported(self) -> None:
+    def test_missing_lean_team_is_reported(self) -> None:
+        # With only Claude ready the lean team uses Claude's value model; the note appears only
+        # when no lean team can be built at all.
         snapshot = build_readiness_snapshot(Path("."), self.cfg, scan_result=example_scan(("claude",)))
         result = recommend_workflow("small", snapshot)
-        self.assertEqual(result.reason_code, "eco_model_unavailable")
+        self.assertEqual(result.lineup["model_overrides"]["bulk_worker"], "claude_sub:claude-haiku-5-5@medium")
+        self.assertEqual(result.explanation_codes, ("size_from_model", "small_eco"))
+        result = recommend_workflow("small", replace(snapshot, eco_lineup=None))
+        self.assertEqual(result.explanation_codes, ("size_from_model", "small_eco", "eco_model_unavailable"))
         self.assertTrue(result.fallback)
-        missing = replace(self.snapshot, available_presets=())
-        result = recommend_workflow("medium", missing)
-        self.assertIsNone(result.preset)
-        self.assertEqual(result.reason_code, "preset_unavailable")
-
-    def test_eco_preset_provider_substitution_is_reported(self) -> None:
-        from vibebaton.config import FallbackTarget
-        self.cfg.roles["tactical_planner"].fallback.append(FallbackTarget("claude_sub", "haiku@low"))
-        snapshot = build_readiness_snapshot(Path("."), self.cfg, scan_result=example_scan(("claude",)))
-        result = recommend_workflow("small", snapshot)
-        self.assertEqual(set(result.lineup["model_overrides"].values()), {"claude_sub:haiku@low"})
-        self.assertTrue(result.fallback)
-        self.assertIn("provider_substituted", result.explanation_codes)
-        self.assertTrue(any(change.role == "tactical_planner" and change.preferred_provider == "dsh_opencode"
-                            and change.chosen_provider == "claude_sub" for change in result.substitutions))
 
 
 class SnapshotAndLaunchTests(unittest.TestCase):
@@ -279,9 +284,9 @@ class SnapshotAndLaunchTests(unittest.TestCase):
         snapshot = build_readiness_snapshot(Path("."), cfg, scan_result=example_scan(("dsh",)))
         result = recommend_workflow("medium", snapshot)
         self.assertEqual(set(result.lineup["roles"].values()), {"dsh_opencode"})
+        # The setup step's tiered pick for the only ready provider (L0 keeps medium effort).
         self.assertEqual(result.lineup["model_overrides"]["brainstorm_and_final_gate"],
-                         "dsh_opencode:deepseek-v4.1-flash@max")
-        self.assertTrue(any(change.preferred_provider == "host_native" for change in result.substitutions))
+                         "dsh_opencode:deepseek-v4.1-flash@medium")
 
     def test_live_scanner_reads_credentials_without_exposing_values(self) -> None:
         cfg = example_config()
@@ -304,7 +309,7 @@ class SnapshotAndLaunchTests(unittest.TestCase):
         http = next(p for p in snapshot.providers if p.provider_id == "gemini_http")
         self.assertFalse(http.provider_ready)
         self.assertTrue(http.credential_ready)
-        self.assertEqual(recommend_workflow("large", snapshot).reason_code, "synthesizer_provider_unavailable")
+        self.assertIn("synthesizer_provider_unavailable", recommend_workflow("large", snapshot).explanation_codes)
         with self.assertRaises(LaunchSelectionError):
             validate_launch_selection("panel", snapshot)
 
@@ -314,7 +319,10 @@ class SnapshotAndLaunchTests(unittest.TestCase):
         snapshot = build_readiness_snapshot(Path("."), cfg, scan_result=example_scan(("claude", "dsh")))
         self.assertTrue(snapshot.panelist_providers)
         self.assertEqual(snapshot.synthesizer_provider, "dsh_opencode")
-        self.assertEqual(recommend_workflow("large", snapshot).mode, "panel")
+        # The default panel also lists unready providers, so it is not recommended, yet launching
+        # it is allowed because the engine skips the specialists that fail.
+        self.assertEqual(recommend_workflow("large", snapshot).mode, "overnight")
+        validate_launch_selection("panel", snapshot)
 
         cfg = example_config()
         member = cfg.panel.members[0]
@@ -324,7 +332,7 @@ class SnapshotAndLaunchTests(unittest.TestCase):
         # The engine only walks this fallback for specific results, so it cannot
         # make an unready primary panelist a reliable preflight success.
         self.assertNotIn("dsh_opencode", snapshot.panelist_providers)
-        self.assertEqual(recommend_workflow("large", snapshot).reason_code, "panelist_unavailable")
+        self.assertIn("panelist_unavailable", recommend_workflow("large", snapshot).explanation_codes)
         with self.assertRaises(LaunchSelectionError) as caught:
             validate_launch_selection("panel", snapshot)
         self.assertEqual(caught.exception.codes, ("panelist_unavailable",))

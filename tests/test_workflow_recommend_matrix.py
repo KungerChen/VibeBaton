@@ -1,7 +1,8 @@
 """Size x readiness x previous-lineup matrix for ``recommend_workflow``.
 
-Each of the 60 rows asserts the selected mode, fallback flag, primary
-explanation code, explanation key, normalized size, and ``size_changed`` value.
+Each of the 60 rows asserts the selected mode, fallback flag, arrangement
+reason code, ordered explanation codes, explanation key, normalized size, and
+``size_changed`` value.
 Every row is evaluated twice with identical inputs to prove determinism.
 """
 
@@ -44,72 +45,26 @@ READINESS_SCANS: dict[str, tuple[tuple[str, ...], bool]] = {
 
 PREVIOUS_KINDS = (NO_PREVIOUS, VALID_PREVIOUS, STALE_PREVIOUS)
 
-# (size, readiness, previous lineup, mode, fallback, reason_code, size_changed)
-MATRIX_CASES = (
-    # small
-    ("small", ALL_READY, NO_PREVIOUS, "overnight", False, "small_eco", None),
-    ("small", ALL_READY, VALID_PREVIOUS, "overnight", False, "previous_lineup_preserved", True),
-    ("small", ALL_READY, STALE_PREVIOUS, "overnight", False, "small_eco", True),
-    ("small", NO_PANELIST, NO_PREVIOUS, "overnight", True, "provider_substituted", None),
-    ("small", NO_PANELIST, VALID_PREVIOUS, "overnight", False, "previous_lineup_preserved", True),
-    ("small", NO_PANELIST, STALE_PREVIOUS, "overnight", True, "provider_substituted", True),
-    ("small", NO_SYNTHESIZER, NO_PREVIOUS, "overnight", True, "provider_substituted", None),
-    ("small", NO_SYNTHESIZER, VALID_PREVIOUS, "overnight", False, "previous_lineup_preserved", True),
-    ("small", NO_SYNTHESIZER, STALE_PREVIOUS, "overnight", True, "provider_substituted", True),
-    ("small", ONE_CLI_READY, NO_PREVIOUS, "overnight", True, "eco_model_unavailable", None),
-    ("small", ONE_CLI_READY, VALID_PREVIOUS, "overnight", False, "previous_lineup_preserved", True),
-    ("small", ONE_CLI_READY, STALE_PREVIOUS, "overnight", True, "eco_model_unavailable", True),
-    ("small", HTTP_ONLY_READY, NO_PREVIOUS, "overnight", True, "eco_model_unavailable", None),
-    ("small", HTTP_ONLY_READY, VALID_PREVIOUS, "overnight", False, "previous_lineup_preserved", True),
-    ("small", HTTP_ONLY_READY, STALE_PREVIOUS, "overnight", True, "eco_model_unavailable", True),
-    # medium
-    ("medium", ALL_READY, NO_PREVIOUS, "overnight", False, "medium_relay", None),
-    ("medium", ALL_READY, VALID_PREVIOUS, "overnight", False, "previous_lineup_preserved", False),
-    ("medium", ALL_READY, STALE_PREVIOUS, "overnight", False, "medium_relay", False),
-    ("medium", NO_PANELIST, NO_PREVIOUS, "overnight", True, "provider_substituted", None),
-    ("medium", NO_PANELIST, VALID_PREVIOUS, "overnight", False, "previous_lineup_preserved", False),
-    ("medium", NO_PANELIST, STALE_PREVIOUS, "overnight", True, "provider_substituted", False),
-    ("medium", NO_SYNTHESIZER, NO_PREVIOUS, "overnight", True, "provider_substituted", None),
-    ("medium", NO_SYNTHESIZER, VALID_PREVIOUS, "overnight", False, "previous_lineup_preserved", False),
-    ("medium", NO_SYNTHESIZER, STALE_PREVIOUS, "overnight", True, "provider_substituted", False),
-    ("medium", ONE_CLI_READY, NO_PREVIOUS, "overnight", True, "provider_substituted", None),
-    ("medium", ONE_CLI_READY, VALID_PREVIOUS, "overnight", False, "previous_lineup_preserved", False),
-    ("medium", ONE_CLI_READY, STALE_PREVIOUS, "overnight", True, "provider_substituted", False),
-    ("medium", HTTP_ONLY_READY, NO_PREVIOUS, "overnight", True, "provider_substituted", None),
-    ("medium", HTTP_ONLY_READY, VALID_PREVIOUS, "overnight", False, "previous_lineup_preserved", False),
-    ("medium", HTTP_ONLY_READY, STALE_PREVIOUS, "overnight", True, "provider_substituted", False),
-    # large
-    ("large", ALL_READY, NO_PREVIOUS, "panel", False, "large_panel", None),
-    ("large", ALL_READY, VALID_PREVIOUS, "panel", False, "previous_lineup_preserved", True),
-    ("large", ALL_READY, STALE_PREVIOUS, "panel", False, "large_panel", True),
-    ("large", NO_PANELIST, NO_PREVIOUS, "overnight", True, "panelist_unavailable", None),
-    ("large", NO_PANELIST, VALID_PREVIOUS, "overnight", True, "panelist_unavailable", True),
-    ("large", NO_PANELIST, STALE_PREVIOUS, "overnight", True, "panelist_unavailable", True),
-    ("large", NO_SYNTHESIZER, NO_PREVIOUS, "overnight", True, "synthesizer_credentials_missing", None),
-    ("large", NO_SYNTHESIZER, VALID_PREVIOUS, "overnight", True, "synthesizer_credentials_missing", True),
-    ("large", NO_SYNTHESIZER, STALE_PREVIOUS, "overnight", True, "synthesizer_credentials_missing", True),
-    ("large", ONE_CLI_READY, NO_PREVIOUS, "panel", True, "provider_substituted", None),
-    ("large", ONE_CLI_READY, VALID_PREVIOUS, "panel", False, "previous_lineup_preserved", True),
-    ("large", ONE_CLI_READY, STALE_PREVIOUS, "panel", True, "provider_substituted", True),
-    ("large", HTTP_ONLY_READY, NO_PREVIOUS, "overnight", True, "panelist_unavailable", None),
-    ("large", HTTP_ONLY_READY, VALID_PREVIOUS, "overnight", True, "panelist_unavailable", True),
-    ("large", HTTP_ONLY_READY, STALE_PREVIOUS, "overnight", True, "panelist_unavailable", True),
-    # None defaults to medium
-    (None, ALL_READY, NO_PREVIOUS, "overnight", False, "size_defaulted_to_medium", None),
-    (None, ALL_READY, VALID_PREVIOUS, "overnight", False, "size_defaulted_to_medium", False),
-    (None, ALL_READY, STALE_PREVIOUS, "overnight", False, "size_defaulted_to_medium", False),
-    (None, NO_PANELIST, NO_PREVIOUS, "overnight", True, "provider_substituted", None),
-    (None, NO_PANELIST, VALID_PREVIOUS, "overnight", False, "size_defaulted_to_medium", False),
-    (None, NO_PANELIST, STALE_PREVIOUS, "overnight", True, "provider_substituted", False),
-    (None, NO_SYNTHESIZER, NO_PREVIOUS, "overnight", True, "provider_substituted", None),
-    (None, NO_SYNTHESIZER, VALID_PREVIOUS, "overnight", False, "size_defaulted_to_medium", False),
-    (None, NO_SYNTHESIZER, STALE_PREVIOUS, "overnight", True, "provider_substituted", False),
-    (None, ONE_CLI_READY, NO_PREVIOUS, "overnight", True, "provider_substituted", None),
-    (None, ONE_CLI_READY, VALID_PREVIOUS, "overnight", False, "size_defaulted_to_medium", False),
-    (None, ONE_CLI_READY, STALE_PREVIOUS, "overnight", True, "provider_substituted", False),
-    (None, HTTP_ONLY_READY, NO_PREVIOUS, "overnight", True, "provider_substituted", None),
-    (None, HTTP_ONLY_READY, VALID_PREVIOUS, "overnight", False, "size_defaulted_to_medium", False),
-    (None, HTTP_ONLY_READY, STALE_PREVIOUS, "overnight", True, "provider_substituted", False),
+# (size, readiness) -> (mode, fallback, reason_code, extra explanation codes).
+# 20261126 workflow tiers: reason_code is now the arrangement (always present); the size code and
+# notes sit around it in explanation_codes. Teams are rebuilt from ready providers with the setup
+# step's tiered picks, so readiness changes no longer show up as config-default substitutions, and
+# large recommends the panel only when every panelist is ready ("only one CLI" now falls back).
+EXPECTED: dict[tuple[str | None, str], tuple[str, bool, str, tuple[str, ...]]] = {
+    **{("small", readiness): ("overnight", False, "small_eco", ()) for readiness in READINESS_SCANS},
+    **{("medium", readiness): ("overnight", False, "medium_relay", ()) for readiness in READINESS_SCANS},
+    **{(None, readiness): ("overnight", False, "medium_relay", ()) for readiness in READINESS_SCANS},
+    ("large", ALL_READY): ("panel", False, "large_panel", ()),
+    ("large", NO_PANELIST): ("overnight", True, "large_relay", ("panelist_unavailable",)),
+    ("large", NO_SYNTHESIZER): ("overnight", True, "large_relay", ("synthesizer_credentials_missing",)),
+    ("large", ONE_CLI_READY): ("overnight", True, "large_relay", ("panelist_not_ready",)),
+    ("large", HTTP_ONLY_READY): ("overnight", True, "large_relay", ("panelist_unavailable",)),
+}
+
+MATRIX_CASES = tuple(
+    (size, readiness, previous, *EXPECTED[(size, readiness)][:3],
+     None if previous == NO_PREVIOUS else (size or "medium") != "medium")
+    for size in SIZES for readiness in READINESS_SCANS for previous in PREVIOUS_KINDS
 )
 
 
@@ -164,7 +119,8 @@ class WorkflowRecommendationMatrixTests(unittest.TestCase):
                 self.assertIs(first.fallback, fallback)
                 self.assertEqual(first.reason_code, reason)
                 self.assertEqual(first.explanation_key, f"workflow.{reason}")
-                self.assertIn(reason, first.explanation_codes)
+                size_code = "size_defaulted_to_medium" if size is None else "size_from_model"
+                self.assertEqual(first.explanation_codes, (size_code, reason, *EXPECTED[(size, readiness)][3]))
                 self.assertIs(first.size_changed, size_changed)
                 self.assertEqual(first.size, "medium" if size is None else size)
                 self.assertEqual(asdict(first), asdict(second))
