@@ -74,3 +74,16 @@ python -m unittest discover -s tests
 npm --prefix web test
 npm --prefix web run build
 ```
+
+## Roadmap After This RFC (information only)
+
+This section is not part of the scope above. Planners and executors must not plan, build or verify anything listed here. Each phase gets its own RFC, drafted from `docs/STUDIO_MASTER_PLAN.md` sections 9 and 10 and confirmed by the user, after the previous phase is accepted. Before a new RFC replaces this file, archive this one under `docs/`.
+
+| Phase | Deliverables | Release gate | Must be settled first |
+| --- | --- | --- | --- |
+| 2 - Build and Sign-Off main stage | One run store for the SSE snapshot, selected run and run controls; read-only live relay graph; context drawer and bottom dock; every `LiveRunPanel` field reachable there; handoff cards; evidence matrix of acceptance criteria against gate results | Journey 1 (beginner loop) passes; the object-binding part of journey 4 passes | Add `artifact_key` to the `role_invoked` event payload so a handoff card can point at its prompt and output files (additive); verify master plan assumptions 1 and 2 |
+| 3 - Lab isolation and old shell removal | Move the Pro three-column view into the Lab; separate live and Lab canvas hosts; hash routing for refresh, back and deep links; stop the Lab from writing `baton.toml`; relay swimlanes, lineage time machine, decision inbox, changed-file lookup in the matrix; last step: delete `studioMode`, `liveViewActive` and the three rollback buttons | All four journeys pass; each of the three rollback paths is verified | Who produces the criterion-to-gate binding (model proposes and a person confirms, or a person specifies it) through a separate SPEC discussion; verify assumptions 3 and 4 |
+| 4 - Tokens, settings centre and Term Lens | Five type sizes, three weights and exclusive status colours on both sides; one settings centre with "project default" and "this run only" scopes; Term Lens with explicit bindings, a controlled matcher and a single viewport popover | Keyboard, touch and narrow-screen walkthroughs; no font size below 11 px in the code | Default Term Lens state for new users; colour of primary and selected controls; verify assumption 8 |
+| Later | `Ctrl+K` navigation palette, then the overnight briefing, hard-limit circuit breaker, and the full panel-consultation trace | Each has its own precondition in master plan section 8.3 | Reading cursor and history backfill for events (assumption 6); a verified metering source for the circuit breaker |
+
+Dropped for good (master plan section 8.4): pre-launch cost forecasts and an always-on L0 copilot.
