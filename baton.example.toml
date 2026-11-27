@@ -179,7 +179,7 @@ perspective = "Visual & Structure"
 # host_native runs inside the host agent and cannot be dispatched by the daemon,
 # so this specialist calls the same model through Gemini's OpenAI-compatible API.
 provider = "gemini_http"
-model = "gemini-4-neon-high"
+model = "gemini-4-neon@high"
 
 [[panel.members]]
 id = "source_safety"

@@ -84,6 +84,8 @@ class ReadinessSnapshot:
     preferred_lineup: WorkflowLineup | None = None
     required_roles: tuple[str, ...] | None = None
     implicit_model_targets: tuple[tuple[str, str], ...] | None = None
+    # The resolved model catalog (per-provider allowed efforts); None means efforts are not checked.
+    catalog: tuple[model_catalog.ModelCatalogEntry, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -119,14 +121,25 @@ class DetailedWorkflowRecommendation(WorkflowRecommendation):
     explanation_codes: tuple[str, ...] = ()
     substitutions: tuple[ProviderSubstitution, ...] = ()
     missing_panelists: tuple[str, ...] = ()
+    # Saved team settings that were not legal and were changed: {role, before, after, reason}.
+    effort_changes: tuple[dict[str, str], ...] = ()
 
 
 class LaunchSelectionError(ValueError):
     """A launch preflight failure with stable, machine-readable reason codes."""
 
-    def __init__(self, codes: tuple[str, ...], synthesizer_provider: str | None = None) -> None:
+    def __init__(
+        self, codes: tuple[str, ...], synthesizer_provider: str | None = None, *,
+        effort_changes: tuple[dict[str, str], ...] = (), suggested_lineup: WorkflowLineup | None = None,
+    ) -> None:
         self.codes = codes
+        self.effort_changes = effort_changes
+        self.suggested_lineup = suggested_lineup
         detail = ", ".join(codes)
+        if effort_changes:
+            detail += " (" + "; ".join(
+                f"{change['role']}: {change['before']} -> {change['after']}" for change in effort_changes
+            ) + ")"
         if synthesizer_provider and any(code.startswith("synthesizer_") for code in codes):
             detail += f" (Synthesizer provider: {synthesizer_provider})"
         super().__init__(f"Launch selection rejected: {detail}")
@@ -195,6 +208,25 @@ def _panel_errors(snapshot: ReadinessSnapshot) -> tuple[str, ...]:
     return tuple(errors)
 
 
+def normalize_lineup(
+    lineup: WorkflowLineup, catalog: tuple[model_catalog.ModelCatalogEntry, ...] | list | None,
+) -> tuple[WorkflowLineup, tuple[dict[str, str], ...]]:
+    """Run every model override through ``model_catalog.normalize_spec``; returns the legal lineup and
+    what changed. Models the catalog cannot check are kept unchanged."""
+    if not catalog or not isinstance(lineup, dict) or not isinstance(lineup.get("model_overrides"), dict):
+        return lineup, ()
+    fixed = deepcopy(lineup)
+    changes: list[dict[str, str]] = []
+    for role, spec in lineup["model_overrides"].items():
+        if not isinstance(spec, str):
+            continue
+        result = model_catalog.normalize_spec_string(spec, catalog)
+        if result["changed"]:
+            fixed["model_overrides"][role] = result["spec"]
+            changes.append({"role": role, "before": spec, "after": result["spec"], "reason": result["reason"]})
+    return fixed, tuple(changes)
+
+
 def validate_launch_selection(
     mode: WorkflowMode,
     readiness: ReadinessSnapshot,
@@ -215,8 +247,17 @@ def validate_launch_selection(
         errors.extend(_panel_errors(readiness))
     if lineup is not None and not _lineup_valid(lineup, readiness):
         errors.append("lineup_unavailable")
+    effort_changes: tuple[dict[str, str], ...] = ()
+    suggested: WorkflowLineup | None = None
+    if lineup is not None and readiness.catalog:
+        suggested, effort_changes = normalize_lineup(lineup, readiness.catalog)
+        if effort_changes:
+            errors.append("effort_not_allowed")
     if errors:
-        raise LaunchSelectionError(tuple(errors), readiness.synthesizer_provider)
+        raise LaunchSelectionError(
+            tuple(errors), readiness.synthesizer_provider,
+            effort_changes=effort_changes, suggested_lineup=suggested if effort_changes else None,
+        )
 
 
 def _repair_lineup(lineup: WorkflowLineup | None, snapshot: ReadinessSnapshot) -> WorkflowLineup | None:
@@ -350,6 +391,12 @@ def recommend_workflow(
             notes.append("panelist_not_ready")
     mode: WorkflowMode = "panel" if normalized == "large" and not notes else "overnight"
 
+    # A saved team with an effort its tool does not offer is corrected first (the model is never changed).
+    effort_changes: tuple[dict[str, str], ...] = ()
+    if isinstance(previous_lineup, dict) and readiness.catalog:
+        previous_lineup, effort_changes = normalize_lineup(previous_lineup, readiness.catalog)
+        if effort_changes:
+            notes.append("effort_adjusted")
     custom = isinstance(previous_lineup, dict) and previous_lineup.get("customized") is True
     kept = custom and _lineup_valid(previous_lineup, readiness)
     repaired = False
@@ -390,7 +437,7 @@ def recommend_workflow(
         mode=mode, preset=None, lineup=lineup, size=normalized,
         reason_code=arrangement, explanation_key=f"workflow.{arrangement}", fallback=bool(notes),
         size_changed=size_changed, explanation_codes=reasons, substitutions=tuple(substitutions),
-        missing_panelists=missing,
+        missing_panelists=missing, effort_changes=effort_changes,
     )
 
 
@@ -460,6 +507,7 @@ def _tiered_lineup(
     ready = list(_ready_providers(ReadinessSnapshot(providers)))
     if not ready or not cfg.roles:
         return None
+    models = model_catalog.ensure_resolved(models)
     roles: dict[str, str] = {}
     overrides: dict[str, str] = {}
     for name in cfg.roles:
@@ -469,9 +517,10 @@ def _tiered_lineup(
             return None
         effort = pick["effort"]
         if lean and execution:
-            entry = next((m for m in models if m["id"] == pick["model"]), None)
-            allowed = (entry["provider_efforts"].get(pick["provider"]) or entry["efforts"]) if entry else list(_LEAN_EFFORTS)
-            effort = next((level for level in _LEAN_EFFORTS if level in allowed), "")
+            entry = model_catalog.find_catalog_model(pick["provider"], pick["model"], models)
+            allowed = model_catalog.allowed_efforts(entry, pick["provider"]) if entry else list(_LEAN_EFFORTS)
+            effort = next((level for level in _LEAN_EFFORTS if level in allowed),
+                          model_catalog.legal_default_effort("medium", allowed))
         if pick["model"]:
             spec: str | None = f"{pick['provider']}:{pick['model']}" + (f"@{effort}" if effort else "")
         else:
@@ -523,7 +572,7 @@ def build_readiness_snapshot(
                 installed = authenticated = bool(probe["ok"])
             providers.append(ProviderReadiness(name, "cli", installed, authenticated))
     provider_tuple = tuple(providers)
-    catalog = list(models) if models is not None else list(model_catalog.BUNDLED_MODELS)
+    catalog = model_catalog.ensure_resolved(list(models) if models is not None else list(model_catalog.BUNDLED_MODELS))
     settings = cfg.panel if cfg.panel.members else build_default_panel_settings(cfg)
     panelists = tuple(dict.fromkeys(
         member.provider for member in settings.members if member.provider and member.model.strip()
@@ -537,6 +586,7 @@ def build_readiness_snapshot(
         eco_lineup=_tiered_lineup(cfg, provider_tuple, catalog, lean=True),
         preferred_lineup=preferred,
         required_roles=tuple(cfg.roles),
+        catalog=tuple(catalog),
         implicit_model_targets=tuple(
             (role, provider) for role in cfg.roles for provider in cfg.providers
             if _configured_override(cfg, role, provider) is not None

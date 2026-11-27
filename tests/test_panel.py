@@ -765,7 +765,7 @@ class TestShippedConfigsParse(unittest.TestCase):
             [(m.perspective, m.provider, m.model) for m in cfg.panel.members],
             [
                 ("UX & Copy", "claude_sub", "opus@high"),
-                ("Visual & Structure", "gemini_http", "gemini-4-neon-high"),
+                ("Visual & Structure", "gemini_http", "gemini-4-neon@high"),
                 ("Source & Safety", "codex_sub", "gpt-6.2-sol@max"),
             ],
         )

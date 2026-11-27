@@ -268,15 +268,15 @@ class BrainstormHardeningTests(unittest.TestCase):
         snapshot = ReadinessSnapshot((provider("codex_sub"), provider("claude_sub"), provider("agy_sub")))
         self.assertEqual(brainstorm.auto_select_l0_model(snapshot), "agy_sub:gemini-4-carbon@medium")
         snapshot = ReadinessSnapshot((provider("agy_sub", credential=False), provider("codex_sub")))
-        self.assertEqual(brainstorm.auto_select_l0_model(snapshot), "codex_sub:gpt-6.2-astra@xhigh")
+        self.assertEqual(brainstorm.auto_select_l0_model(snapshot), "codex_sub:gpt-6.2-astra@high")  # no Codex list: low/medium/high only
         snapshot = ReadinessSnapshot((provider("unknown"), provider("codex_sub")))
-        self.assertEqual(brainstorm.auto_select_l0_model(snapshot), "codex_sub:gpt-6.2-astra@xhigh")
+        self.assertEqual(brainstorm.auto_select_l0_model(snapshot), "codex_sub:gpt-6.2-astra@high")
         self.assertIsNone(brainstorm.auto_select_l0_model(ReadinessSnapshot((provider("unknown"),))))
         self.assertIsNone(brainstorm.auto_select_l0_model(ReadinessSnapshot((provider("codex_sub", ready=False),))))
         # A current catalog with the top recommendation unavailable must use the next available flagship.
         models = [model for model in BUNDLED_MODELS if model["id"] != "gemini-4-carbon"]
         snapshot = ReadinessSnapshot((provider("agy_sub"), provider("codex_sub")))
-        self.assertEqual(brainstorm.auto_select_l0_model(snapshot, models=models), "codex_sub:gpt-6.2-astra@xhigh")
+        self.assertEqual(brainstorm.auto_select_l0_model(snapshot, models=models), "codex_sub:gpt-6.2-astra@high")
 
     def test_live_turn_asks_for_verification_command_when_checklist_settled_without_command(self) -> None:
         rfc_without_cmd = (

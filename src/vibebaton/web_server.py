@@ -27,7 +27,7 @@ from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import monotonic
-from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol, TypedDict
+from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol, Sequence, TypedDict
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import __version__, case_export, cli_registry, credentials, guided_session, model_catalog, presets, pricing
@@ -63,8 +63,8 @@ from .report import compute_run_telemetry, generate_battle_report
 from .rfc_checker import check_rfc_readiness, generate_structured_rfc
 from .schemas import RunStatus
 from .workflow_recommend import (
-    LaunchSelectionError, ReadinessSnapshot, build_readiness_snapshot, estimate_project_size, recommend_workflow,
-    validate_launch_selection,
+    LaunchSelectionError, ReadinessSnapshot, build_readiness_snapshot, estimate_project_size, normalize_lineup,
+    recommend_workflow, validate_launch_selection,
 )
 
 # Capture groups are passed to the handler as positional arguments. The full
@@ -240,6 +240,37 @@ def _read_lineup_store(path: Path) -> dict[str, Any]:
                 "updated_at": float(updated_at) if isinstance(updated_at, (int, float)) and math.isfinite(updated_at) else 0.0,
             }
     return {"profiles": profiles, "last_used": last_used}
+
+
+def _normalize_store_entry(entry: dict[str, Any], catalog: Sequence[Any]) -> tuple[dict[str, Any], tuple[dict[str, str], ...]]:
+    fixed, changes = normalize_lineup(
+        {"roles": dict(entry["roles"]), "model_overrides": dict(entry["model_overrides"])}, catalog,
+    )
+    return {**entry, "model_overrides": fixed["model_overrides"]}, changes
+
+
+def _correct_lineup_store(path: Path, catalog: Sequence[Any]) -> dict[str, Any]:
+    """Read the saved teams, put every effort its tool does not offer back in range, and save the fix.
+
+    The result carries ``corrections`` ({where, role, before, after, reason}) so the page can say once
+    what changed; an unchanged store is not rewritten.
+    """
+    with _LINEUP_PROFILES_LOCK:
+        store = _read_lineup_store(path)
+        corrections: list[dict[str, str]] = []
+        profiles = []
+        for profile in store["profiles"]:
+            fixed, changes = _normalize_store_entry(profile, catalog)
+            profiles.append(fixed)
+            corrections.extend({"where": profile["name"], **change} for change in changes)
+        last_used = store["last_used"]
+        if isinstance(last_used, dict):
+            last_used, changes = _normalize_store_entry(last_used, catalog)
+            corrections.extend({"where": "last_used", **change} for change in changes)
+        next_store = {"profiles": profiles, "last_used": last_used}
+        if corrections:
+            _write_lineup_store(path, next_store)
+    return {**next_store, "corrections": corrections}
 
 
 def _write_lineup_store(path: Path, data: Mapping[str, Any]) -> None:
@@ -1517,10 +1548,15 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             raise _BadRequest("force must be a boolean")
         cache_path = _model_catalog_cache_path(self.server.credentials_path)
         fetcher = getattr(self.server, "pricing_fetcher", None)
+        cli_probe = getattr(self.server, "cli_model_probe", model_catalog.probe_cli_models)
         kwargs: dict[str, Any] = {
             "force": force,
             "cache_path": cache_path,
-            "cli_probe": getattr(self.server, "cli_model_probe", model_catalog.probe_cli_models),
+            "cli_probe": cli_probe,
+            # Ask the real CLIs for their declared efforts only alongside the real model probe.
+            "declared_probe": getattr(self.server, "cli_declared_probe", None) or (
+                model_catalog.probe_cli_declared_efforts if cli_probe is model_catalog.probe_cli_models else None
+            ),
         }
         if fetcher is not None:
             kwargs["fetcher"] = fetcher
@@ -1600,9 +1636,14 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json(200, {"fingerprints": fingerprints})
 
+    def _catalog_models(self) -> list[Any]:
+        """The resolved model catalog (per-provider allowed efforts) every saved or launched spec is checked against."""
+        cache = _model_catalog_cache_path(self.server.credentials_path)
+        return model_catalog.get_model_catalog(cache_path=cache)["models"]
+
     def _get_lineup_profiles(self) -> None:
         path = _lineup_profiles_path(self.server.credentials_path)
-        self._send_json(200, _read_lineup_store(path))
+        self._send_json(200, _correct_lineup_store(path, self._catalog_models()))
 
     def _post_lineup_profile(self) -> None:
         payload = self._read_json_body()
@@ -1613,6 +1654,8 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         profile_id = raw_id.strip() if isinstance(raw_id, str) and raw_id.strip() else None
         path = _lineup_profiles_path(self.server.credentials_path)
         try:
+            model_overrides = normalize_lineup(
+                {"roles": roles, "model_overrides": model_overrides}, self._catalog_models())[0]["model_overrides"]
             result = _save_lineup_profile(path, name, roles, model_overrides, profile_id)
         except OSError:
             self._send_json(500, {"error": "Lineup profiles could not be saved"})
@@ -1629,6 +1672,8 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         profile_name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else None
         path = _lineup_profiles_path(self.server.credentials_path)
         try:
+            model_overrides = normalize_lineup(
+                {"roles": roles, "model_overrides": model_overrides}, self._catalog_models())[0]["model_overrides"]
             result = _save_last_used_lineup(path, roles, model_overrides, profile_id, profile_name)
         except OSError:
             self._send_json(500, {"error": "Last-used lineup could not be saved"})
@@ -1785,11 +1830,13 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             for provider in model["providers"]:
                 if provider not in ready:
                     continue
-                effort = model["default_effort"]
+                # The legal default for this provider ("" when the tool takes no effort).
+                effort = model.get("provider_defaults", {}).get(provider, model["default_effort"])
                 if selected and selected.startswith(f"{provider}:{model['id']}@"):
                     effort = selected.rsplit("@", 1)[1]
+                spec = f"{provider}:{model['id']}@{effort}" if effort else f"{provider}:{model['id']}"
                 models.append({"provider": provider, "model": model["id"], "effort": effort,
-                               "spec": f"{provider}:{model['id']}@{effort}", "label": model["label"]})
+                               "spec": spec, "label": model["label"]})
         self._send_json(200, {"models": models, "auto_selected": selected})
 
     def _switch_workspace(self, raw: str) -> dict[str, Any]:
@@ -2250,7 +2297,12 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             fallback = recommend_workflow("large" if mode == "panel" else "medium", snapshot)
             if mode == "panel" and fallback.mode == "panel":
                 fallback = recommend_workflow("medium", snapshot)
-            raise _LineageError("LAUNCH_PREFLIGHT", str(exc), codes=list(exc.codes), fallback=asdict(fallback)) from exc
+            details: dict[str, Any] = {"codes": list(exc.codes), "fallback": asdict(fallback)}
+            if exc.effort_changes:
+                # The team asks for an effort its tool does not offer: refuse, and say what would work.
+                details["effort_changes"] = list(exc.effort_changes)
+                details["suggested_lineup"] = exc.suggested_lineup
+            raise _LineageError("LAUNCH_PREFLIGHT", str(exc), **details) from exc
 
     def _run_selection(self, run: dict[str, Any]) -> tuple[dict[str, Any], bool, str | None]:
         for event in reversed(self.server.store.get_events(run["id"], limit=-1)):

@@ -836,7 +836,7 @@ class TestCredentialsApi(WebServerTestCase):
     def test_lineup_profiles_crud_and_last_used_round_trip(self) -> None:
         status, _, empty = self._request(Request(self.base + "/api/lineup-profiles"))
         self.assertEqual(status, 200)
-        self.assertEqual(empty, {"profiles": [], "last_used": None})
+        self.assertEqual(empty, {"profiles": [], "last_used": None, "corrections": []})  # corrections: additive field
 
         bad_status, _, _ = self.send_json("/api/lineup-profiles", {"name": "  ", "roles": {"l0": "agy_sub"}})
         self.assertEqual(bad_status, 400)

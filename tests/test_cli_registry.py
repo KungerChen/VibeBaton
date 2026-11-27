@@ -570,7 +570,7 @@ class RecommendedLineupContractTests(unittest.TestCase):
         self.assertEqual(
             overrides,
             {
-                "tactical_planner": "gemini_http:gemini-4-neon-high",
+                "tactical_planner": "gemini_http:gemini-4-neon@high",  # model@effort form, as the engine splits it
                 "bulk_worker": "gemini_sub:gemini-2.5-pro",
             },
         )

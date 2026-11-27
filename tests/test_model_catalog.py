@@ -15,6 +15,9 @@ from vibebaton import model_catalog
 
 
 class ModelCatalogTests(unittest.TestCase):
+    # 20261127 effort source of truth: with no tool lists (no Codex cache, no ``claude --help``) Codex and
+    # Claude models get the unverified low/medium/high default, so their recommended max/xhigh become high.
+    # Gemini CLI does not offer the Gemini 4 line and takes no effort at all.
     def test_tiered_recommendations_on_full_host(self) -> None:
         all_providers = ["agy_sub", "gemini_sub", "claude_sub", "codex_sub", "dsh_opencode"]
         self.assertEqual(
@@ -23,7 +26,7 @@ class ModelCatalogTests(unittest.TestCase):
         )
         self.assertEqual(
             model_catalog.recommend_role_assignment("brainstorm_and_final_gate", ["gemini_sub", "claude_sub", "codex_sub"]),
-            {"provider": "gemini_sub", "model": "gemini-4-carbon", "effort": "medium"},
+            {"provider": "claude_sub", "model": "claude-fable-5-2", "effort": "medium"},
         )
         self.assertEqual(
             model_catalog.recommend_role_assignment("tactical_planner", all_providers),
@@ -31,7 +34,7 @@ class ModelCatalogTests(unittest.TestCase):
         )
         self.assertEqual(
             model_catalog.recommend_role_assignment("critical_executor", all_providers),
-            {"provider": "codex_sub", "model": "gpt-6.2-sol", "effort": "max"},
+            {"provider": "codex_sub", "model": "gpt-6.2-sol", "effort": "high"},
         )
         self.assertEqual(
             model_catalog.recommend_role_assignment("bulk_worker", all_providers),
@@ -46,30 +49,30 @@ class ModelCatalogTests(unittest.TestCase):
         )
         self.assertEqual(
             model_catalog.recommend_role_assignment("brainstorm_and_final_gate", ["codex_sub"]),
-            {"provider": "codex_sub", "model": "gpt-6.2-astra", "effort": "xhigh"},
+            {"provider": "codex_sub", "model": "gpt-6.2-astra", "effort": "high"},
         )
         # L1: Claude absent -> Gemini 4N Medium
         self.assertEqual(
             model_catalog.recommend_role_assignment("tactical_planner", ["gemini_sub", "codex_sub"]),
-            {"provider": "gemini_sub", "model": "gemini-4-neon", "effort": "medium"},
+            {"provider": "codex_sub", "model": "gpt-6.2-sol", "effort": "high"},
         )
         # L2: Codex absent -> Sonnet 5.5 Max, Codex & Claude absent -> Gemini 4H Max
         self.assertEqual(
             model_catalog.recommend_role_assignment("critical_executor", ["claude_sub", "gemini_sub"]),
-            {"provider": "claude_sub", "model": "claude-sonnet-5-5", "effort": "max"},
+            {"provider": "claude_sub", "model": "claude-sonnet-5-5", "effort": "high"},
         )
         self.assertEqual(
             model_catalog.recommend_role_assignment("critical_executor", ["gemini_sub"]),
-            {"provider": "gemini_sub", "model": "gemini-4-hydrogen", "effort": "max"},
+            {"provider": "gemini_sub", "model": "gemini-2.5-pro", "effort": ""},
         )
         # L3: DSH absent -> Haiku 5.5 Max -> GPT-6.1 Terra Max
         self.assertEqual(
             model_catalog.recommend_role_assignment("bulk_worker", ["claude_sub", "codex_sub"]),
-            {"provider": "claude_sub", "model": "claude-haiku-5-5", "effort": "max"},
+            {"provider": "claude_sub", "model": "claude-haiku-5-5", "effort": "high"},
         )
         self.assertEqual(
             model_catalog.recommend_role_assignment("bulk_worker", ["codex_sub"]),
-            {"provider": "codex_sub", "model": "gpt-6.1-terra", "effort": "max"},
+            {"provider": "codex_sub", "model": "gpt-6.1-terra", "effort": "high"},
         )
 
     def test_sync_merges_remote_models_while_preserving_all_bundled_legacy_models(self) -> None:
@@ -467,7 +470,9 @@ class CliReportedModelTests(unittest.TestCase):
         self.assertEqual(by_id["gemini-3.1-flash-lite"]["cost_tier"], "eco")
         self.assertEqual(by_id["gpt-6.2-sol"]["provider_efforts"]["codex_sub"][-1], "ultra")
         self.assertEqual(by_id["gpt-5.6-terra"]["provider_efforts"]["codex_sub"], ["low", "max"])
-        self.assertNotIn("openai_http", by_id["gpt-6.2-sol"]["provider_efforts"])
+        # This feed row carries no reasoning flag (the feed omits false ones), so the API channel takes no effort.
+        self.assertEqual(by_id["gpt-6.2-sol"]["provider_efforts"]["openai_http"], [])
+        self.assertEqual(by_id["gpt-6.2-sol"]["effort_sources"], {"codex_sub": "cli_models", "openai_http": "feed"})
         # The bundled roster itself is never mutated.
         self.assertEqual({m["id"]: m["provider_efforts"] for m in model_catalog.BUNDLED_MODELS}, bundled_before)
 
@@ -475,7 +480,9 @@ class CliReportedModelTests(unittest.TestCase):
         feed = {"gpt-7.1": {"litellm_provider": "openai", "mode": "chat"}}
         with tempfile.TemporaryDirectory() as tmp:
             models = _sync(Path(tmp) / "c.json", feed, cli_probe=lambda: {})["catalog"]["models"]
-        self.assertIn("gemini-4-carbon", _providers(models, "gemini_sub"))
+        # Gemini CLI never listed the Gemini 4 line; its feed-mapped older models remain.
+        self.assertIn("gemini-2.5-pro", _providers(models, "gemini_sub"))
+        self.assertNotIn("gemini-4-carbon", _providers(models, "gemini_sub"))
         self.assertIn("gpt-7.1", _providers(models, "codex_sub"))
 
     def test_old_cache_without_cli_lists_is_due_for_a_refresh(self) -> None:
@@ -642,10 +649,15 @@ class RecommendationAvailabilityTests(unittest.TestCase):
 
     def test_recommendation_falls_back_inside_the_provider_when_model_is_unavailable(self) -> None:
         models = self._cli_catalog()
-        # gemini-4-carbon is Gemini API only; the Gemini CLI's flagship is gemini-2.5-pro.
+        # gemini-4-carbon is not on the Gemini CLI, so no recommendation names gemini_sub; on its own the
+        # CLI falls back to its flagship gemini-2.5-pro, with no effort because the CLI takes none.
         self.assertEqual(
             model_catalog.recommend_role_assignment("brainstorm_and_final_gate", ["gemini_sub", "claude_sub"], models),
-            {"provider": "gemini_sub", "model": "gemini-2.5-pro", "effort": "medium"},
+            {"provider": "claude_sub", "model": "claude-fable-5-2", "effort": "medium"},
+        )
+        self.assertEqual(
+            model_catalog.recommend_role_assignment("brainstorm_and_final_gate", ["gemini_sub"], models),
+            {"provider": "gemini_sub", "model": "gemini-2.5-pro", "effort": ""},
         )
         self.assertEqual(
             model_catalog.recommend_role_assignment("brainstorm_and_final_gate", ["gemini_http"], models),
@@ -654,7 +666,7 @@ class RecommendationAvailabilityTests(unittest.TestCase):
         # deepseek-v4.1-flash is OpenCode-only; the official API gets its own eco model.
         self.assertEqual(
             model_catalog.recommend_role_assignment("bulk_worker", ["dsh_deepseek"], models),
-            {"provider": "dsh_deepseek", "model": "deepseek-v4-flash", "effort": "max"},
+            {"provider": "dsh_deepseek", "model": "deepseek-v4-flash", "effort": "high"},  # feed row has no reasoning flags
         )
         self.assertEqual(
             model_catalog.recommend_role_assignment("bulk_worker", ["dsh_opencode"], models),

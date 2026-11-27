@@ -16,7 +16,9 @@ from pathlib import Path
 from typing import Literal, NotRequired, TypedDict, cast
 
 from .config import BatonConfig, FallbackTarget, ProviderConfig
-from .model_catalog import BUNDLED_MODELS, TIER_RECOMMENDATIONS, ModelCatalogEntry, recommend_role_assignment
+from .model_catalog import (
+    BUNDLED_MODELS, TIER_RECOMMENDATIONS, ModelCatalogEntry, normalize_spec, recommend_role_assignment,
+)
 from .rfc_checker import RFCReadiness, check_rfc_readiness
 from .workflow_recommend import ProjectSize, ReadinessSnapshot
 
@@ -928,12 +930,12 @@ def auto_select_l0_model(
             if provider in ready and any(
                 model["id"] == recommendation["model"] and provider in model["providers"] for model in models
             ):
-                return f"{provider}:{recommendation['model']}@{recommendation['effort']}"
+                return normalize_spec(provider, recommendation["model"], recommendation["effort"], models)["spec"]
     known_ready = [provider for provider in ready if any(provider in model["providers"] for model in models)]
     choice = recommend_role_assignment("brainstorm_and_final_gate", known_ready, models)
     if choice is None or not choice["model"]:
         return None
-    return f"{choice['provider']}:{choice['model']}@{choice['effort']}"
+    return normalize_spec(choice["provider"], choice["model"], choice["effort"], models)["spec"]
 
 
 def _safe_error(exc: BaseException) -> str:

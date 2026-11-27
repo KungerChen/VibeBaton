@@ -27,7 +27,7 @@
       "label": "Visual & Structure Specialist",
       "role": "specialist_reviewer",
       "position": { "x": 80, "y": 200 },
-      "config": { "provider": "gemini_http", "model": "gemini-4-neon-high", "read_only": true }
+      "config": { "provider": "gemini_http", "model": "gemini-4-neon@high", "read_only": true }
     },
     {
       "id": "source_safety_specialist",

@@ -78,6 +78,21 @@ class SizeTierTests(unittest.TestCase):
                 self.assertEqual(result.reason_code, "custom_lineup_kept")
                 self.assertEqual(result.explanation_codes[:2], ("size_from_model", "custom_lineup_kept"))
 
+    def test_a_kept_custom_team_has_impossible_efforts_corrected_and_explained(self) -> None:
+        custom = deepcopy(self.confirmed)
+        custom["roles"]["bulk_worker"] = "dsh_opencode"
+        custom["model_overrides"]["bulk_worker"] = "dsh_opencode:deepseek-v4.1-flash@medium"
+        custom["customized"] = True
+        result = recommend_workflow("medium", self.snapshot, previous_lineup=custom)
+        self.assertEqual(result.reason_code, "custom_lineup_kept")
+        self.assertEqual(result.lineup["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@max")
+        self.assertIn("effort_adjusted", result.explanation_codes)
+        self.assertEqual(result.effort_changes, ({
+            "role": "bulk_worker", "before": "dsh_opencode:deepseek-v4.1-flash@medium",
+            "after": "dsh_opencode:deepseek-v4.1-flash@max", "reason": "effort_adjusted",
+        },))
+        self.assertEqual(custom["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@medium")  # input untouched
+
     def test_panel_needs_every_panelist_but_launch_tolerates_missing_members(self) -> None:
         snapshot = build_readiness_snapshot(Path("."), self.cfg, scan_result=example_scan(("claude",), http_key=True))
         result = recommend_workflow("large", snapshot)

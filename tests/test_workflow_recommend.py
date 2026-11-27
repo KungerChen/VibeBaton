@@ -234,7 +234,7 @@ class WorkflowRecommendationTests(unittest.TestCase):
         previous = {"roles": {"bulk_worker": "gemini_http"}, "model_overrides": {}, "size": "small"}
         # A previous team without a resolvable model is not reused; the catalog team replaces it.
         self.assertEqual(recommend_workflow("medium", snapshot, previous_lineup=previous).lineup["model_overrides"],
-                         {"bulk_worker": "gemini_http:gemini-4-hydrogen@max"})
+                         {"bulk_worker": "gemini_http:gemini-4-hydrogen@high"})  # no feed flags: low/medium/high
         with self.assertRaises(LaunchSelectionError) as caught:
             validate_launch_selection("overnight", snapshot, lineup=previous)
         self.assertEqual(caught.exception.codes, ("lineup_unavailable",))

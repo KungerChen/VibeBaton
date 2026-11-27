@@ -171,7 +171,7 @@ class TestPresetsModule(unittest.TestCase):
                 self.assertTrue(node.config.get("read_only"))
         self.assertEqual(
             {node.config["model"] for node in specialists},
-            {"opus@high", "gemini-4-neon-high", "gpt-6.2-sol@max"},
+            {"opus@high", "gemini-4-neon@high", "gpt-6.2-sol@max"},
         )
 
         synthesizer = next(node for node in graph.nodes if node.label == "Synthesizer")
