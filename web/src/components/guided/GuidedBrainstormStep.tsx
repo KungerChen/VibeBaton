@@ -1023,7 +1023,7 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
         <div className="guided-brainstorm__toolbar">
           <fieldset className="guided-brainstorm__model-controls" disabled={busy || !!pendingLaunch || !sessionReady}>
             <L0ModelSwitcher models={models.models} selected={modelChoice} autoSelected={models.auto_selected}
-              loading={modelsLoading} error={modelError} onChange={changeModel} onRetry={() => setModelsAttempt((value) => value + 1)} />
+              loading={modelsLoading} error={modelError} catalog={catalog} onChange={changeModel} onRetry={() => setModelsAttempt((value) => value + 1)} />
           </fieldset>
           <label className="guided-brainstorm__switch">
             <input type="checkbox" checked={typewriterOn} onChange={toggleTypewriter} />

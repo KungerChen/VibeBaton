@@ -23,6 +23,10 @@
   max-width: 20rem;
 }
 
+.l0-model-switcher__effort {
+  min-width: 6.5rem;
+}
+
 .l0-model-switcher__current {
   display: inline-flex;
   align-items: baseline;

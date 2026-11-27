@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
 import { MESSAGES } from '../../i18n/messages';
+import { BUILTIN_MODEL_CATALOG } from './GuidedSetupStep';
 import { Button } from '../ui/button';
 import { Select } from '../ui/input';
 import {
@@ -176,6 +177,33 @@ describe('L0ModelSwitcher', () => {
     html = renderSwitcher('en', { models: [] });
     expect(html).toContain(copy.unavailable);
     expect(html).not.toContain(copy.failed);
+  });
+
+  test('renders custom thinking effort selector when catalog is passed and emits updated effort spec', () => {
+    const onChange = vi.fn();
+    const html = renderSwitcher('zh', { catalog: BUILTIN_MODEL_CATALOG, onChange });
+    const effortSelect = vi.mocked(Select).mock.calls
+      .map((call) => call[0])
+      .find((props) => props['aria-label'] === MESSAGES.zh.guided.m3.lineup.effort);
+    expect(effortSelect).toBeTruthy();
+    expect(html).toContain('value="high"');
+    expect(html).toContain('value="xhigh"');
+
+    effortSelect?.onChange?.({ currentTarget: { value: 'xhigh' } } as never);
+    expect(onChange).toHaveBeenLastCalledWith('codex_sub:gpt-test@xhigh');
+  });
+
+  test('matches a custom effort selection to its base model without marking it unavailable', () => {
+    const html = renderSwitcher('en', {
+      catalog: BUILTIN_MODEL_CATALOG,
+      selected: 'codex_sub:gpt-test@xhigh',
+    });
+    const modelSelect = vi.mocked(Select).mock.calls
+      .map((call) => call[0])
+      .find((props) => props.className?.includes('l0-model-switcher__select'));
+    expect(modelSelect?.value).toBe(MODELS[0].spec);
+    expect(html).toContain(`<strong>${MODELS[0].label} · XHigh</strong>`);
+    expect(html).not.toContain('codex_sub:gpt-test@xhigh</option>');
   });
 });
 
