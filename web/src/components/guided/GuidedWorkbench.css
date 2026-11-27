@@ -235,6 +235,12 @@
   background: var(--muted);
 }
 
+.guided-workbench__session-bar {
+  justify-content: flex-end;
+  padding: 0.45rem 1rem;
+  background: transparent;
+}
+
 .guided-workbench__replan-context {
   margin-top: 1rem;
   padding: 1rem;

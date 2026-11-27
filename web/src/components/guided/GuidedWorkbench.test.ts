@@ -456,4 +456,22 @@ describe('GuidedWorkbench live interactions', () => {
     expect(replanContextFromSession(stored)).toBeNull();
     expect(find((node) => node.props.children === 'Go to current run')).toBeTruthy();
   });
+
+  test('keeps strictly two direct grid children (.guided-workbench__rail and __body) when session is present', async () => {
+    setup(snapshot({ id: 'r1', status: 'RUNNING' }));
+    await mount();
+    const grid = find((node) => node.type === 'div' && node.props.className === 'guided-workbench');
+    const directChildren = Children.toArray(grid.props.children as ReactNode).filter(
+      (child): child is ReactElement<Record<string, unknown>> => isValidElement(child) && typeof child.type === 'string',
+    );
+    expect(directChildren.map((child) => child.props.className)).toEqual([
+      'guided-workbench__rail',
+      'guided-workbench__body',
+    ]);
+    const body = directChildren[1];
+    const sessionBar = elements(body).find(
+      (node) => typeof node.props.className === 'string' && node.props.className.includes('guided-workbench__session-bar'),
+    );
+    expect(sessionBar).toBeTruthy();
+  });
 });

@@ -686,19 +686,18 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
         })}
       </ol>
 
-      {session ? <div className="guided-workbench__notice">
-        {confirmReset ? <div role="group" aria-label={copy.m3.session.reset}>
-          <span>{copy.m3.session.resetConfirm}</span>{' '}
-          <button type="button" className="guided-workbench__button" disabled={resetBusy || childBusy || stopBusy || stopPending}
-            onClick={() => void resetSession()}>{copy.m3.session.confirmReset}</button>{' '}
-          <button type="button" className="guided-workbench__button" disabled={resetBusy}
-            onClick={() => setConfirmReset(false)}>{copy.m3.session.cancel}</button>
-        </div> : <button type="button" className="guided-workbench__button" disabled={childBusy || stopBusy || stopPending}
-          onClick={() => setConfirmReset(true)}>{copy.m3.session.reset}</button>}
-        {resetError ? <p className="guided-workbench__error" role="alert">{resetError}</p> : null}
-      </div> : null}
-
       <section className="guided-workbench__body" data-step={shownStep}>
+        {session ? <div className="guided-workbench__notice guided-workbench__session-bar">
+          {confirmReset ? <div role="group" aria-label={copy.m3.session.reset}>
+            <span>{copy.m3.session.resetConfirm}</span>{' '}
+            <button type="button" className="guided-workbench__button" disabled={resetBusy || childBusy || stopBusy || stopPending}
+              onClick={() => void resetSession()}>{copy.m3.session.confirmReset}</button>{' '}
+            <button type="button" className="guided-workbench__button" disabled={resetBusy}
+              onClick={() => setConfirmReset(false)}>{copy.m3.session.cancel}</button>
+          </div> : <button type="button" className="guided-workbench__button" disabled={childBusy || stopBusy || stopPending}
+            onClick={() => setConfirmReset(true)}>{copy.m3.session.reset}</button>}
+          {resetError ? <p className="guided-workbench__error" role="alert">{resetError}</p> : null}
+        </div> : null}
         {session && guidedSession.error ? <div className="guided-workbench__notice" role="alert">
           <span className="guided-workbench__error">{localizeGuidedError(guidedSession.error, locale)}</span>{' '}
           <button type="button" className="guided-workbench__button" onClick={() => void flushSession().catch(() => {})}>
