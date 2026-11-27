@@ -4,6 +4,7 @@ import type {
   WorkflowMode, WorkflowRecommendation,
 } from '../../api/client';
 import { useI18n } from '../../i18n';
+import { formatProviderDisplay, translateRole } from '../../i18n/presets';
 import {
   applySavedLineup, assignRoleModelSpec, assignRoleProvider, coerceEffort,
   effortOptionsFor, modelsForProvider, parseRoleSpec,
@@ -43,7 +44,7 @@ export function GuidedLaunchBar({
   profiles, pending, disabled, locked = false, profileError, onLineupChange, onModeChange,
   onSwitch, onDismissSwitch, onSaveProfile, onDeleteProfile, onLaunch,
 }: GuidedLaunchBarProps) {
-  const { messages } = useI18n();
+  const { locale, messages } = useI18n();
   const copy = messages.guided.m3;
   const setup = messages.guided.setup;
   const panelHint = useId();
@@ -56,6 +57,13 @@ export function GuidedLaunchBar({
   const reasonText = (reason: string) => copy.recommendation.reasons[reason as keyof typeof copy.recommendation.reasons]
     ?? copy.recommendation.unknownReason;
   const choices = [...new Set([...providers, ...Object.values(lineup.roles)])];
+  const teamSummary = Object.entries(lineup.roles)
+    .map(([role, provider]) => {
+      const spec = parseRoleSpec(lineup.model_overrides?.[role] ?? '', provider);
+      const target = spec.model ? `${formatProviderDisplay(provider)}:${spec.model}${spec.effort ? `@${spec.effort}` : ''}` : formatProviderDisplay(provider);
+      return `${translateRole(role, locale)}: ${target}`;
+    })
+    .join(locale === 'zh' ? '；' : '; ');
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -78,8 +86,9 @@ export function GuidedLaunchBar({
         <ul>{reasons.map((reason) => <li key={reason}>{reasonText(reason)}</li>)}</ul>
         {recommendation.substitutions.length ? (
           <p>{copy.recommendation.substitutions}: {recommendation.substitutions.map((item) =>
-            `${item.role}: ${item.preferred_provider} → ${item.chosen_provider}`).join(', ')}</p>
+            `${translateRole(item.role, locale)}: ${formatProviderDisplay(item.preferred_provider)} → ${formatProviderDisplay(item.chosen_provider)}`).join(', ')}</p>
         ) : null}
+        {teamSummary ? <p>{messages.guided.workbench.currentTeamPrefix} {teamSummary}</p> : null}
       </div>
       {showSwitch ? (
         <WorkflowSwitchPill currentSize={previousSize} recommendedSize={recommendation.size}
@@ -96,10 +105,10 @@ export function GuidedLaunchBar({
           const efforts = effortOptionsFor(selectedModel, provider, catalog.efforts);
           return (
             <fieldset key={role} disabled={controlsDisabled} className="guided-launch-bar__role">
-              <legend>{role}</legend>
+              <legend>{translateRole(role, locale)}</legend>
               <label>{copy.lineup.provider}
                 <select value={provider} onChange={(event) => onLineupChange(assignRoleProvider(lineup, role, event.currentTarget.value, catalog))}>
-                  {choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+                  {choices.map((choice) => <option key={choice} value={choice}>{formatProviderDisplay(choice)}</option>)}
                 </select>
               </label>
               <label>{copy.lineup.model}

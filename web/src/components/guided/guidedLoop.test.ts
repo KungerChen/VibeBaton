@@ -476,7 +476,7 @@ describe('mounted four-stage loop', () => {
 
   test('returning to Workspace persists the stage before refresh', async () => {
     server = fakeServer(blueprintSession()); await mount();
-    await click(button('Change Team'));
+    await click(button('Workspace & Tools'));
     expect(server.saved().active_stage).toBe('setup');
     await unmount(); await mount();
     expect(propsOf(byClass('guided-workbench__body'))['data-step']).toBe('setup');

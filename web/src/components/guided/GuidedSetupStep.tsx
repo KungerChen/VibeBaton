@@ -1254,14 +1254,22 @@ function GuidedSetupBody({
       {effectiveLineup ? (
         <section className="guided-setup__card" data-ready={effectiveLineup.ready}>
           {effectiveLineup.ready ? (
-            <div className="guided-setup__team-actions">
-              <button type="button" className="guided-setup__button guided-setup__button--primary"
-                disabled={isBusy || sessionUnavailable || !workspaceSaved || !historyAllowsBuild(workspace)}
-                onClick={handleConfirmLineup}>
-                {copy.useLineup}
-              </button>
-              {!historyAllowsBuild(workspace) ? <p className="guided-setup__git" data-git={false}>{copy.continueNeedsHistory}</p> : null}
-            </div>
+            <>
+              <p className="guided-setup__lineup">{lineupNotes(effectiveLineup, locale)}</p>
+              <p className="guided-setup__reason">
+                {locale === 'zh'
+                  ? '在下一步中，L0 架构伙伴完成蓝图后会自动推荐工作流，届时你可以直接在蓝图卡底部自定义各角色模型或加载已保存的工作流方案。'
+                  : 'In the next step, VibeBaton recommends a workflow once the blueprint is ready, and lets you customize every role model or load saved presets.'}
+              </p>
+              <div className="guided-setup__team-actions">
+                <button type="button" className="guided-setup__button guided-setup__button--primary"
+                  disabled={isBusy || sessionUnavailable || !workspaceSaved || !historyAllowsBuild(workspace)}
+                  onClick={handleConfirmLineup}>
+                  {copy.useLineup}
+                </button>
+                {!historyAllowsBuild(workspace) ? <p className="guided-setup__git" data-git={false}>{copy.continueNeedsHistory}</p> : null}
+              </div>
+            </>
           ) : <p className="guided-setup__next">{lineupNotes(effectiveLineup, locale)}</p>}
           {pendingApiDrivers.length > 0 ? (
             <div className="guided-setup__api-hint" role="note">
