@@ -194,6 +194,7 @@ describe('GuidedWorkbench live interactions', () => {
   let current: LiveRunSnapshot;
   let api: BatonApiClient;
   let follow: ReturnType<typeof vi.fn>;
+  let resetSpy: ReturnType<typeof vi.fn>;
   let mode: ApiMode | null | undefined;
 
   function find(predicate: (node: ReactElement<Record<string, unknown>>) => boolean) {
@@ -207,7 +208,12 @@ describe('GuidedWorkbench live interactions', () => {
     vi.stubGlobal('window', { HTMLIFrameElement: class HTMLIFrameElement {} });
     const container = { nodeType: 1, tagName: 'DIV', ownerDocument: null, addEventListener() {} };
     root = createRoot(container as unknown as HTMLElement);
-    function Probe() { view = useGuidedWorkbenchView({ locale: 'en', client: api, apiMode: mode, liveSnapshot: current, onFollowRun: follow }); return null; }
+    function Probe() {
+      view = useGuidedWorkbenchView({
+        locale: 'en', client: api, apiMode: mode, liveSnapshot: current, onFollowRun: follow, onResetSession: resetSpy,
+      });
+      return null;
+    }
     await act(async () => { root!.render(createElement(Probe)); });
     return async () => { await act(async () => { root!.render(createElement(Probe)); }); };
   }
@@ -218,6 +224,7 @@ describe('GuidedWorkbench live interactions', () => {
     current = run;
     mode = undefined;
     follow = vi.fn();
+    resetSpy = vi.fn();
     api = {
       getGuidedSession: vi.fn(async () => structuredClone(stored)),
       saveGuidedSession: vi.fn(async (patch: GuidedSessionPatch) => {
@@ -473,5 +480,17 @@ describe('GuidedWorkbench live interactions', () => {
       (node) => typeof node.props.className === 'string' && node.props.className.includes('guided-workbench__session-bar'),
     );
     expect(sessionBar).toBeTruthy();
+  });
+
+  test('invokes onResetSession after resetGuidedSession resolves', async () => {
+    setup(snapshot({ id: 'r1', status: 'FAILED' }));
+    api.resetGuidedSession = vi.fn(async () => structuredClone(buildSession()));
+    await mount();
+    const startReset = find((node) => node.type === 'button' && node.props.children === MESSAGES.en.guided.m3.session.reset);
+    await act(async () => { (startReset.props.onClick as () => void)(); });
+    const confirm = find((node) => node.type === 'button' && node.props.children === MESSAGES.en.guided.m3.session.confirmReset);
+    await act(async () => { (confirm.props.onClick as () => void)(); });
+    expect(api.resetGuidedSession).toHaveBeenCalledTimes(1);
+    expect(resetSpy).toHaveBeenCalledTimes(1);
   });
 });

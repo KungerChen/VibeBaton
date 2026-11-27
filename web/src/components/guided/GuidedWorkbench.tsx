@@ -322,10 +322,12 @@ export interface GuidedWorkbenchProps {
   liveSnapshot: LiveRunSnapshot | null;
   /** Asks the app to follow (and refetch) this run: after launch and after a sign-off action. */
   onFollowRun(runId: string): void;
+  /** Dismisses stale app-level alerts when the user starts a fresh guided session. */
+  onResetSession?: () => void;
 }
 
 /** Guided Mode shell: Workspace → Blueprint → Build (live canvas) → Sign-Off. */
-export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, onFollowRun }: GuidedWorkbenchProps) {
+export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, onFollowRun, onResetSession }: GuidedWorkbenchProps) {
   const copy = MESSAGES[locale].guided;
   const [step, setStep] = useState<GuidedStep>('setup');
   const [lineup, setLineup] = useState<RecommendedLineup | null>(null);
@@ -607,6 +609,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
       setStaleRunId(null);
       setStep('setup');
       setConfirmReset(false);
+      onResetSession?.();
     } catch (failure) {
       setResetError(localizeGuidedError(failure, locale));
     } finally { setResetBusy(false); }

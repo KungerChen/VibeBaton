@@ -1025,6 +1025,12 @@ function AppContent() {
   const glossaryDrawer = (
     <GlossaryDrawer open={glossaryOpen} onClose={() => setGlossaryOpen(false)} locale={locale} />
   );
+  const dismissCurrentAttention = () => {
+    if (fingerprint) {
+      setDismissedFingerprints((current) => recordDismissedFingerprint(fingerprint, current));
+      void client.dismissAttention(fingerprint).catch(() => {});
+    }
+  };
   const attentionBanner = (
     <AttentionBanner
       key={visibleFingerprint}
@@ -1043,12 +1049,7 @@ function AppContent() {
         setBattleReportToken((n) => n + 1);
       }}
       onEnableNotifications={() => void onEnableNotifications()}
-      onDismiss={() => {
-        if (fingerprint) {
-          setDismissedFingerprints((current) => recordDismissedFingerprint(fingerprint, current));
-          void client.dismissAttention(fingerprint).catch(() => {});
-        }
-      }}
+      onDismiss={dismissCurrentAttention}
     />
   );
 
@@ -1070,6 +1071,7 @@ function AppContent() {
               setLiveViewActive(true);
               void onSelectRunId(followRunId);
             }}
+            onResetSession={dismissCurrentAttention}
           />
         </div>
       )}
