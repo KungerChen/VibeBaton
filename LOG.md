@@ -303,3 +303,11 @@ is pre-task commit `53299ce`; no new commit has been made. The whitelist exclude
 - 验证边界：本轮使用本地 HTTP 服务、真实会话存储与测试模型派发，没有调用真实在线模型或执行完整浏览器验收。当前 Studio 蓝图恢复仍使用浏览器本地存储，尚未接入 `/api/guided/session`；服务端会话的 Studio 接入与端到端刷新验收留待后续阶段。推荐类型层次、provider dispatch 的 `assert` 和通用工作区 ignore 模板为本次未处理的非阻塞建议。
 - 状态：已自测待用户验收。分支 `baton/e33e97/ms-m2-r1`；无新提交。回退参考为基线 `c7ecca7` 与本轮工作区差异；README 按约定等待用户确认后同步。
 - 数量更正：上文中间版本全量门禁为运行 952 项，其中 948 项通过、4 项跳过。
+
+## 20261126-183037-m3-t6-guided-loop
+
+- 时间：2026-11-26 18:30，America/Los_Angeles。目标及授权：在 M3-T6 白名单内接通四阶段 Guided 闭环、服务端会话恢复及集成验证；分支 `baton/e33e97/m3-t6`，基线 `5ecabce`，开始时工作区干净。
+- 改动：工作台、蓝图和验收面板共享工作区会话与客户端；恢复四阶段、草稿、工作流和人工门禁，提供重置入口。修订及失败重规划先保存意图并停止父运行，返回蓝图后通过 `request-changes` 创建带修订蓝图的子运行；服务端继承并校验原团队，界面锁定相应控件。恢复不确定的修订响应前核对父运行事件、请求内容和子运行。验收接入血缘加载、合并与三种回退；回退后可继续运行或停止并返回蓝图。重置不会停止已有运行。变更包括 `web/src/components/guided/`、`web/src/i18n/messages.ts`、`docs/guided2/frontend_contract.md` 和 `tests/test_web_fullstack.py`；Pro 画布与节点类型未改动。
+- 验证：新跨组件测试覆盖四阶段刷新、重复开工、门禁、失败重规划、两种修订回退、刷新后合并撤销及并发恢复身份检查；真实本地 HTTP 测试覆盖会话、幂等开工、停止、修订、回退、合并和撤销。前端完整测试与构建在工作树使用 `--configLoader runner` 通过，TypeScript 检查通过。原样 npm 命令在工作树因共享 `node_modules/.vite-temp` 只读而报 EPERM；在最终版本的 220 个前端源文件逐个哈希一致、依赖入口可写的隔离副本中，原样测试 865 项及构建通过，副本已清理。
+- Python 全量最终复跑 `python -m unittest discover -s tests`：954 项、950 项通过、4 项跳过，472.405 秒，退出码 0。跳过项单独核实为两项缺 Docker CLI、一项缺 Windows 目录符号链接权限、一项本地数据库没有运行记录；输出包含既有 `ResourceWarning` 与用户级 Git ignore 文件权限警告。首轮 Python 全量同为 954 项、跳过 4 项且通过，但启动后补充了全栈合并及撤销断言。最终版本的前一次复跑 954 项、跳过 4 项、1 项失败：白名单外 `tests/test_allocation.py::TestAllocationReport::test_report_without_allocation_events_matches_legacy_bytes` 将实时耗时固定断言为 `0.0s`，当次实际为 `0.1s`；单项原样重跑通过，本轮未改该测试。三次日志分别为 `%TEMP%/vibebaton-m3-t6-python-discovery.log`、`%TEMP%/vibebaton-m3-t6-python-discovery-final.log` 和 `%TEMP%/vibebaton-m3-t6-python-discovery-retry.log`。`python -m vibebaton --version` 输出 1.2.0，8 个预设均为 0 错误、0 警告。`git diff --check` 通过。
+- 状态：已自测待用户验收。浏览器连接因当前审批策略不允许而受阻，真实浏览器交互、真实模型和 daemon 端到端运行尚未验证；HTTP 用例使用临时 Git 仓库和模拟 daemon。回退参考为基线 `5ecabce` 与本轮工作区差异；尚无提交。README 和 SPEC 按本轮要求未修改。

@@ -20,3 +20,4 @@ ID | 日期 | 摘要 | 日志路径与锚点 | 状态
 20261126-123140-m2-gates | 2026-11-26 | M2 前三项门禁、panel 夹具和历史记录迁移 | [LOG.md](LOG.md#20261126-123140-m2-gates) | 已自测待用户验收
 20261126-123645-m2-scan-stale-response | 2026-11-26 | 扫描期间草稿更新和重置的过时响应保护 | [LOG.md](LOG.md#20261126-123645-m2-scan-stale-response) | 已自测待用户验收
 20261126-124814-m2-remediation-verification | 2026-11-26 | M2 最终四项门禁、跳过项与验收边界 | [LOG.md](LOG.md#20261126-124814-m2-remediation-verification) | 已自测待用户验收
+20261126-183037-m3-t6-guided-loop | 2026-11-26 | M3 Guided 四阶段闭环与会话恢复 | [LOG.md](LOG.md#20261126-183037-m3-t6-guided-loop) | 已自测待用户验收

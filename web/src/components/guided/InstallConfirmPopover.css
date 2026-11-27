@@ -1,0 +1,78 @@
+.guided-install-confirm {
+  position: relative;
+  display: inline-flex;
+}
+
+.guided-install-confirm__panel {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 50;
+  display: grid;
+  gap: 0.55rem;
+  box-sizing: border-box;
+  width: min(24rem, calc(100vw - 2rem));
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+  color: var(--foreground);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.guided-install-confirm__title,
+.guided-install-confirm__description,
+.guided-install-confirm__command-label,
+.guided-install-confirm__command,
+.guided-install-confirm__error {
+  margin: 0;
+}
+
+.guided-install-confirm__title {
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.guided-install-confirm__description {
+  color: var(--muted-foreground);
+}
+
+.guided-install-confirm__command-label {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.guided-install-confirm__command {
+  min-width: 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--muted);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.guided-install-confirm__command code {
+  font: inherit;
+}
+
+.guided-install-confirm__error {
+  color: var(--rose);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.guided-install-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}

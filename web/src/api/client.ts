@@ -32,10 +32,29 @@ import { checkRfcReadiness, generateStructuredRfc } from './offlineRfc';
 
 export type ApiMode = 'local' | 'demo';
 
+/** Known error details are retained alongside any future server fields. */
+export interface ApiErrorDetails {
+  error?: string;
+  code?: string;
+  codes?: string[];
+  conflicts?: string[];
+  base_head?: string;
+  gates?: GateCommandResult[];
+  fallback?: WorkflowRecommendation;
+  merged_commit?: string;
+  guidance?: string;
+  run_id?: string;
+  [key: string]: unknown;
+}
+
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(public readonly status: number, message: string, public readonly data?: ApiErrorDetails) {
     super(message);
     this.name = 'ApiError';
+  }
+
+  get code(): string | undefined {
+    return typeof this.data?.code === 'string' ? this.data.code : undefined;
   }
 }
 
@@ -255,6 +274,19 @@ export interface BrainstormChatRequest {
   model_overrides?: Record<string, string>;
   /** The Guided lineup's L0 provider when it has no explicit model. */
   role_providers?: Record<string, string>;
+  requested_l0_model?: string | null;
+  latest_rfc_draft?: string;
+  revision_context?: RevisionContext | null;
+  /** Backwards-compatible server alias for revision_context. */
+  revision?: RevisionContext | null;
+  failure_context?: string;
+  previous_lineup?: WorkflowLineup | null;
+}
+
+export interface RevisionContext {
+  prior_rfc: string;
+  requested_changes: string;
+  failure_context?: string | null;
 }
 
 export interface BlueprintCard {
@@ -276,8 +308,12 @@ export interface BrainstormTurnResult {
   provider_used: string | null;
   offline: boolean;
   guide: BrainstormGuide;
-  /** Short reason when a live turn failed and the offline composer answered instead. */
+  /** Sanitized reason for an offline fallback or a protected-draft retry. */
   error: string | null;
+  requested_model?: string | null;
+  responding_model?: string | null;
+  retryable?: boolean;
+  recommendation?: WorkflowRecommendation;
 }
 
 export type ChecklistId = 'what' | 'who' | 'scope' | 'limits' | 'done';
@@ -297,7 +333,118 @@ export interface BrainstormGuide {
   options: string[];
   /** Always the five ids, in order: what, who, scope, limits, done. */
   checklist: ChecklistItem[];
+  size?: ProjectSize | null;
 }
+
+export type ProjectSize = 'small' | 'medium' | 'large';
+export type WorkflowMode = 'interactive' | 'overnight' | 'panel';
+export interface WorkflowLineup {
+  roles: Record<string, string>;
+  model_overrides: Record<string, string>;
+  size?: ProjectSize;
+}
+
+export interface WorkflowRecommendation {
+  mode: WorkflowMode;
+  preset: string | null;
+  lineup: WorkflowLineup | null;
+  size: ProjectSize | null;
+  reason_code: string;
+  explanation_key: string;
+  fallback: boolean;
+  size_changed: boolean | null;
+  explanation_codes: string[];
+  substitutions: { role: string; preferred_provider: string; chosen_provider: string }[];
+}
+
+export type GuidedStage = 'setup' | 'blueprint' | 'build' | 'signoff';
+export interface GuidedSession {
+  schema_version: number;
+  active_stage: GuidedStage;
+  workspace_path: string | null;
+  brainstorm: {
+    messages: BrainstormMessage[];
+    checklist: ChecklistItem[];
+    latest_rfc_draft: string;
+    selected_l0_model: string | null;
+    has_online_draft: boolean;
+    [key: string]: unknown;
+  };
+  workflow: {
+    mode: WorkflowMode | null;
+    lineup: WorkflowLineup;
+    preset: string | null;
+    panel_enabled: boolean;
+    launch_request_id: string | null;
+    [key: string]: unknown;
+  };
+  active_run_id: string | null;
+  open_human_gate: { run_id: string; task_id: string | null } | null;
+  open_drawer: { run_id: string; task_id: string } | null;
+  [key: string]: unknown;
+}
+
+/** Object fields merge, arrays replace; null entries delete lineup map entries. */
+export interface GuidedSessionPatch {
+  schema_version?: number;
+  active_stage?: GuidedStage;
+  workspace_path?: string | null;
+  brainstorm?: Partial<GuidedSession['brainstorm']>;
+  workflow?: {
+    mode?: WorkflowMode | null;
+    preset?: string | null;
+    panel_enabled?: boolean;
+    launch_request_id?: string | null;
+    lineup?: { roles?: Record<string, string | null>; model_overrides?: Record<string, string | null>; size?: ProjectSize };
+    [key: string]: unknown;
+  };
+  active_run_id?: string | null;
+  open_human_gate?: GuidedSession['open_human_gate'];
+  open_drawer?: GuidedSession['open_drawer'];
+  [key: string]: unknown;
+}
+
+export interface L0ModelOption {
+  provider: string;
+  model: string;
+  effort: string;
+  spec: string;
+  label: string;
+}
+export interface L0ModelsResult {
+  models: L0ModelOption[];
+  auto_selected: string | null;
+}
+
+export type RunStatus = 'PENDING' | 'PLANNING' | 'RUNNING' | 'PAUSED' | 'WAITING_HUMAN'
+  | 'READY_FOR_FINAL_GATE' | 'COMPLETED' | 'FAILED' | 'SUPERSEDED';
+export interface RunLineageFields {
+  parent_run_id: string | null;
+  base_ref: string | null;
+  start_sha: string | null;
+  result_sha: string | null;
+  launch_request_id?: string | null;
+}
+export type LineageRunListItem = Omit<RunListItem, 'status'> & RunLineageFields & { status: RunStatus | (string & {}) };
+export type LineageRunSnapshot = Omit<LiveRunSnapshot, 'run'> & {
+  run: (Record<string, unknown> & RunLineageFields & { status?: RunStatus | (string & {}) }) | null;
+};
+
+export type GuidedLaunchRunRequest = Omit<LaunchRunRequest, 'role_providers' | 'model_overrides'> & ({
+  lineup: WorkflowLineup;
+  role_providers?: never;
+  model_overrides?: never;
+} | {
+  lineup?: never;
+  role_providers?: Record<string, string>;
+  model_overrides?: Record<string, string>;
+}) & {
+  launch_request_id?: string;
+  preset?: string | null;
+};
+export type StartRunResult =
+  | { run_id: string; daemon_pid: number; status: 'STARTED'; reused?: false }
+  | { run_id: string; daemon_pid: null; status: string; reused: true };
 
 export interface BlueprintConfirmResult {
   rfc_path: string;
@@ -357,11 +504,58 @@ export interface FinalizeResult {
   /** approve */
   merged_commit?: string;
   changed_files?: string[];
+  reintegrated?: boolean;
+  gates?: GateCommandResult[];
   /** rollback */
   restored_to?: string;
   /** revise */
   revisions_path?: string;
+  revision_run_id?: string;
+  revision_status?: string;
+  daemon_pid?: number;
 }
+
+export interface GateCommandResult {
+  command: string;
+  passed: boolean;
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+  duration_sec: number;
+}
+
+export type RevisionResult = FinalizeResult & {
+  action: 'revise'; status: 'SUPERSEDED'; revisions_path: string;
+  revision_run_id: string; revision_status: string; daemon_pid: number;
+};
+export type RollbackMode = 'revert_revision' | 'abandon_all' | 'undo';
+export interface RollbackResult {
+  ok: true;
+  run_id: string;
+  mode: RollbackMode;
+  status: 'PAUSED';
+  restored_to: string;
+  base_branch: string;
+  base_head: string;
+}
+export interface StopAndReplanResult {
+  ok: true;
+  status: 'SUPERSEDED';
+  run_id: string;
+  failed_tasks: Record<string, unknown>[];
+  last_errors: Record<string, string>;
+  current_sha: string;
+  run_summary: string;
+}
+export type ApprovalSuccessResult = FinalizeResult & {
+  action: 'approve'; status: 'COMPLETED'; merged_commit: string; changed_files: string[];
+};
+/** Approval keeps the server's 409 conflict and gate details distinct from success. */
+export type ApproveAndMergeResult =
+  | { kind: 'merged'; result: ApprovalSuccessResult & { reintegrated?: false } }
+  | { kind: 'reintegrated'; result: ApprovalSuccessResult & { reintegrated: true; gates: GateCommandResult[] } }
+  | { kind: 'conflict'; error: ApiError; conflicts: string[]; base_head: string }
+  | { kind: 'gate_failed'; error: ApiError; gates: GateCommandResult[] };
 
 const DEMO_DOCTOR_LATENCY_MS = 5000;
 export const DEFAULT_START_RUN_TIMEOUT_MS = 15_000;
@@ -641,6 +835,18 @@ export class BatonApiClient {
     return this.requestJson(`/api/runs/${encodeURIComponent(id)}`);
   }
 
+  listLineageRuns(): Promise<LineageRunListItem[]> {
+    return this.listRuns() as Promise<LineageRunListItem[]>;
+  }
+
+  getLatestLineageRun(): Promise<LineageRunSnapshot> {
+    return this.getLatestRun() as Promise<LineageRunSnapshot>;
+  }
+
+  getLineageRun(id: string): Promise<LineageRunSnapshot> {
+    return this.getRun(id) as Promise<LineageRunSnapshot>;
+  }
+
   async getRunReport(id: string, lang?: 'en' | 'zh'): Promise<string> {
     const query = lang ? `?lang=${encodeURIComponent(lang)}` : '';
     const { battle_report_markdown } = await this.requestJson<{ battle_report_markdown: string }>(
@@ -670,10 +876,12 @@ export class BatonApiClient {
     return result.bundle;
   }
 
+  startRun(payload: GuidedLaunchRunRequest & ({ launch_request_id: string } | { lineup: WorkflowLineup } | { preset: string }), timeoutMs?: number): Promise<StartRunResult>;
+  startRun(payload: LaunchRunRequest, timeoutMs?: number): Promise<{ run_id: string; daemon_pid: number; status: string }>;
   async startRun(
-    payload: LaunchRunRequest,
+    payload: GuidedLaunchRunRequest,
     timeoutMs = DEFAULT_START_RUN_TIMEOUT_MS,
-  ): Promise<{ run_id: string; daemon_pid: number; status: string }> {
+  ): Promise<StartRunResult | { run_id: string; daemon_pid: number; status: string }> {
     if (this.mode === 'demo') throw new ApiError(0, 'Not available in standalone demo');
     const controller = new AbortController();
     let timedOut = false;
@@ -693,6 +901,10 @@ export class BatonApiClient {
     } finally {
       if (timer !== undefined) clearTimeout(timer);
     }
+  }
+
+  startGuidedRun(payload: GuidedLaunchRunRequest & { launch_request_id: string }, timeoutMs?: number): Promise<StartRunResult> {
+    return this.startRun(payload, timeoutMs);
   }
 
   controlRun(id: string, action: 'pause' | 'resume'): Promise<{
@@ -796,6 +1008,29 @@ export class BatonApiClient {
     return this.requestJson('/api/brainstorm/chat', { method: 'POST', body: payload });
   }
 
+  async getGuidedSession(): Promise<GuidedSession> {
+    const { session } = await this.requestJson<{ session: GuidedSession }>('/api/guided/session');
+    return session;
+  }
+
+  async saveGuidedSession(session: GuidedSessionPatch): Promise<GuidedSession> {
+    const response = await this.requestJson<{ session: GuidedSession }>('/api/guided/session', {
+      method: 'PUT', body: { session },
+    });
+    return response.session;
+  }
+
+  async resetGuidedSession(): Promise<GuidedSession> {
+    const { session } = await this.requestJson<{ session: GuidedSession }>('/api/guided/session/reset', {
+      method: 'POST', body: {},
+    });
+    return session;
+  }
+
+  getL0Models(): Promise<L0ModelsResult> {
+    return this.requestJson('/api/guided/l0-models');
+  }
+
   brainstormConfirm(rfcMarkdown: string): Promise<BlueprintConfirmResult> {
     return this.requestJson('/api/brainstorm/confirm', { method: 'POST', body: { rfc_markdown: rfcMarkdown } });
   }
@@ -843,6 +1078,45 @@ export class BatonApiClient {
     });
   }
 
+  requestChanges(runId: string, note: string): Promise<RevisionResult> {
+    return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/request-changes`, {
+      method: 'POST', body: { note },
+    });
+  }
+
+  async approveAndMerge(runId: string, note = ''): Promise<ApproveAndMergeResult> {
+    try {
+      const result = await this.finalizeRun(runId, { action: 'approve', note }) as ApprovalSuccessResult;
+      return result.reintegrated
+        ? { kind: 'reintegrated', result: result as ApprovalSuccessResult & { reintegrated: true; gates: GateCommandResult[] } }
+        : { kind: 'merged', result: result as ApprovalSuccessResult & { reintegrated?: false } };
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        const data = error.data;
+        if (error.code === 'INTEGRATION_CONFLICT' && Array.isArray(data?.conflicts)
+          && data.conflicts.every((path: unknown) => typeof path === 'string') && typeof data.base_head === 'string') {
+          return { kind: 'conflict', error, conflicts: data.conflicts as string[], base_head: data.base_head };
+        }
+        if (error.code === 'GATE_FAILED' && Array.isArray(data?.gates)) {
+          return { kind: 'gate_failed', error, gates: data.gates as GateCommandResult[] };
+        }
+      }
+      throw error;
+    }
+  }
+
+  rollbackRun(runId: string, mode: RollbackMode, note = ''): Promise<RollbackResult> {
+    return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/rollback`, {
+      method: 'POST', body: { mode, note },
+    });
+  }
+
+  stopAndReplan(runId: string, timeoutSec?: number): Promise<StopAndReplanResult> {
+    return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/stop-and-replan`, {
+      method: 'POST', body: timeoutSec === undefined ? {} : { timeout_sec: timeoutSec },
+    });
+  }
+
   streamUrl(): string {
     return `${this.baseUrl}/api/runs/stream`;
   }
@@ -875,7 +1149,7 @@ export class BatonApiClient {
       const message = isRecord(body) && typeof body.error === 'string'
         ? body.error
         : response.statusText || `HTTP ${response.status}`;
-      throw new ApiError(response.status, message);
+      throw new ApiError(response.status, message, isRecord(body) ? body : undefined);
     }
     return response.json() as Promise<T>;
   }

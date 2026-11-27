@@ -1,0 +1,30 @@
+.guided-failed-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--rose) 35%, var(--border));
+  border-radius: 0.75rem;
+  background: var(--rose-soft);
+}
+
+.guided-failed-banner__content {
+  display: grid;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.guided-failed-banner h2,
+.guided-failed-banner p {
+  margin: 0;
+}
+
+.guided-failed-banner__detail {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 35rem) {
+  .guided-failed-banner { flex-direction: column; }
+}

@@ -21,6 +21,7 @@ from urllib.request import Request, urlopen
 
 from vibebaton import __version__, credentials
 from vibebaton.db import StateStore
+from vibebaton.schemas import RunStatus
 from vibebaton.web_server import create_server
 
 REPO = Path(__file__).resolve().parents[1]
@@ -38,12 +39,13 @@ class WebFullStackTests(unittest.TestCase):
         for key in credentials.SUPPORTED_KEYS:
             os.environ.pop(key, None)
 
-    def start_server(self, static_dir: Path | None = None) -> str:
+    def start_server(self, static_dir: Path | None = None, daemon_spawner: Any = None) -> str:
         server = create_server(
             self.repo,
             host="127.0.0.1",
             port=0,
             static_dir=static_dir,
+            daemon_spawner=daemon_spawner,
             credentials_path=self.credentials_path,
             provider_probe=partial(
                 credentials.probe_role_or_provider,
@@ -60,14 +62,15 @@ class WebFullStackTests(unittest.TestCase):
         return f"http://127.0.0.1:{server.server_address[1]}/"
 
     def request_json(
-        self, base: str, path: str, *, method: str = "GET", payload: dict[str, str] | None = None
+        self, base: str, path: str, *, method: str = "GET", payload: dict[str, Any] | None = None,
+        expected_status: int = 200,
     ) -> dict[str, Any]:
         request = Request(urljoin(base, path), method=method)
         if payload is not None:
             request.data = json.dumps(payload).encode("utf-8")
             request.add_header("Content-Type", "application/json")
         with urlopen(request, timeout=5) as response:
-            self.assertEqual(response.status, 200)
+            self.assertEqual(response.status, expected_status)
             self.assertEqual(response.headers.get_content_type(), "application/json")
             body = json.load(response)
         self.assertIsInstance(body, dict)
@@ -156,6 +159,81 @@ class WebFullStackTests(unittest.TestCase):
         self.assertIs(readiness["safe_for_overnight"], True)
         self.assertEqual(readiness["missing_sections"], [])
         self.assertEqual(readiness["detected_commands"], ["python -m unittest"])
+
+    def test_built_studio_serves_session_and_lineage_loop(self) -> None:
+        built_index = REPO / "web" / "dist" / "index.html"
+        if not built_index.is_file():
+            subprocess.run(
+                ["npm.cmd" if os.name == "nt" else "npm", "run", "build", "--", "--configLoader", "runner"],
+                cwd=REPO / "web", check=True, timeout=120,
+            )
+
+        def git(*args: str) -> str:
+            return subprocess.run(
+                ["git", *args], cwd=self.repo, check=True, text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            ).stdout.strip()
+
+        git("init", "-q", "-b", "main")
+        git("config", "user.name", "Studio Test")
+        git("config", "user.email", "studio-test@example.invalid")
+        git("commit", "--allow-empty", "-q", "-m", "initial")
+        a = git("rev-parse", "HEAD")
+        spawns: list[str] = []
+        def spawn(_repo: Path, _config: Path, run_id: str) -> int:
+            spawns.append(run_id)
+            return 12345
+
+        base = self.start_server(daemon_spawner=spawn)
+        with urlopen(base, timeout=5) as response:
+            self.assertEqual(response.read(), built_index.read_bytes())
+        saved = self.request_json(base, "/api/guided/session", method="PUT", payload={"session": {
+            "active_stage": "blueprint", "brainstorm": {"latest_rfc_draft": "# Blueprint\n"},
+            "workflow": {"mode": "overnight"},
+        }})["session"]
+        self.assertEqual(saved["brainstorm"]["latest_rfc_draft"], "# Blueprint\n")
+        launch = {"rfc_markdown": "# Blueprint\n", "launch_request_id": "fullstack-one"}
+        first = self.request_json(base, "/api/runs/start", method="POST", payload=launch, expected_status=201)["run_id"]
+        replay = self.request_json(base, "/api/runs/start", method="POST", payload=launch)
+        self.assertEqual((replay["run_id"], replay["reused"]), (first, True))
+        self.assertEqual(spawns, [first])
+        self.assertEqual(self.request_json(base, "/api/guided/session")["session"]["active_run_id"], first)
+
+        store = StateStore(self.repo / ".baton" / "state.sqlite")
+        def settle(run_id: str, contents: str) -> str:
+            git("checkout", "-q", f"baton/runs/{run_id}")
+            (self.repo / "feature.txt").write_text(contents, encoding="utf-8")
+            git("add", "-f", "feature.txt")
+            git("commit", "-q", "-m", contents)
+            sha = git("rev-parse", "HEAD")
+            git("checkout", "-q", "main")
+            store.set_run_result_sha(run_id, sha)
+            store.update_run_status(run_id, RunStatus.READY_FOR_FINAL_GATE)
+            return sha
+
+        b = settle(first, "first")
+        stopped = self.request_json(base, f"/api/runs/{first}/stop-and-replan", method="POST", payload={})
+        self.assertEqual((stopped["status"], stopped["current_sha"]), ("SUPERSEDED", b))
+        self.assertEqual(self.request_json(base, "/api/guided/session")["session"]["active_stage"], "blueprint")
+        child = self.request_json(base, f"/api/runs/{first}/request-changes", method="POST",
+                                  payload={"note": "Revise the blueprint"})["revision_run_id"]
+        self.assertEqual(self.request_json(base, "/api/guided/session")["session"]["active_run_id"], child)
+        child_run = self.request_json(base, f"/api/runs/{child}")["run"]
+        self.assertEqual((child_run["parent_run_id"], child_run["start_sha"]), (first, b))
+        c = settle(child, "second")
+        self.assertNotEqual(c, b)
+        rolled = self.request_json(base, f"/api/runs/{child}/rollback", method="POST",
+                                   payload={"mode": "revert_revision"})
+        self.assertEqual(rolled["restored_to"], b)
+        self.assertEqual(git("rev-parse", f"baton/runs/{child}"), b)
+        self.assertEqual(git("rev-parse", "main"), a)
+        restored = self.request_json(base, "/api/guided/session")["session"]
+        self.assertEqual((restored["active_stage"], restored["active_run_id"]), ("signoff", child))
+        store.update_run_status(child, RunStatus.READY_FOR_FINAL_GATE)
+        approved = self.request_json(base, f"/api/runs/{child}/finalize", method="POST", payload={"action": "approve"})
+        self.assertEqual((approved["status"], git("rev-parse", "main")), ("COMPLETED", b))
+        undone = self.request_json(base, f"/api/runs/{child}/rollback", method="POST", payload={"mode": "undo"})
+        self.assertEqual((undone["restored_to"], git("rev-parse", "main")), (a, a))
 
     def test_serves_multi_resolution_favicon(self) -> None:
         public_dir = REPO / "web" / "public"

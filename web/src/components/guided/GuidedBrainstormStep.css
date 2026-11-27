@@ -87,6 +87,14 @@
   white-space: normal;
 }
 
+.guided-brainstorm__model {
+  display: block;
+  font-size: .75rem;
+  opacity: .75;
+  margin-bottom: .3rem;
+  overflow-wrap: anywhere;
+}
+
 .guided-brainstorm__turn--assistant .markdown-view {
   gap: 0.45rem;
   font-size: inherit;
@@ -252,11 +260,19 @@
 
 .guided-brainstorm__toolbar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
   color: var(--muted-foreground);
   font-size: 0.85rem;
+}
+
+.guided-brainstorm__model-controls {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 .guided-brainstorm__switch {

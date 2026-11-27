@@ -398,6 +398,24 @@
   line-height: 1.45;
 }
 
+.guided-sign-off__confirm p {
+  margin: 0 0 0.5rem;
+}
+
+.guided-sign-off__command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.guided-sign-off__done pre,
+.guided-sign-off__error pre {
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 30rem) {
   .guided-sign-off {
     padding: 0.85rem;

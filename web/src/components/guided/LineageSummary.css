@@ -1,0 +1,141 @@
+.guided-lineage-summary {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--panel);
+}
+
+.guided-lineage-summary__chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guided-lineage-summary__node {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 10rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--panel-subtle);
+}
+
+.guided-lineage-summary__node[data-node='current'] {
+  border-color: var(--border-strong);
+}
+
+.guided-lineage-summary__label {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.guided-lineage-summary__sha,
+.guided-lineage-summary__run,
+.guided-lineage-summary__ref code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.guided-lineage-summary__sha {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.guided-lineage-summary__ref {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.guided-lineage-summary__ref code {
+  color: var(--text-strong);
+}
+
+.guided-lineage-summary__status {
+  justify-self: start;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+
+.guided-lineage-summary__status[data-status='PENDING'],
+.guided-lineage-summary__status[data-status='PLANNING'],
+.guided-lineage-summary__status[data-status='RUNNING'],
+.guided-lineage-summary__status[data-status='PAUSED'],
+.guided-lineage-summary__status[data-status='WAITING_HUMAN'],
+.guided-lineage-summary__status[data-status='READY_FOR_FINAL_GATE'] {
+  border-color: color-mix(in srgb, var(--sky) 35%, var(--border));
+  background: var(--sky-soft);
+  color: var(--sky);
+}
+
+.guided-lineage-summary__status[data-status='COMPLETED'] {
+  border-color: color-mix(in srgb, var(--emerald) 35%, var(--border));
+  background: var(--emerald-soft);
+  color: var(--emerald);
+}
+
+.guided-lineage-summary__status[data-status='FAILED'] {
+  border-color: color-mix(in srgb, var(--rose) 35%, var(--border));
+  background: var(--rose-soft);
+  color: var(--rose);
+}
+
+.guided-lineage-summary__status[data-status='SUPERSEDED'] {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--border));
+  border-style: dashed;
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.guided-lineage-summary__merged {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+.guided-lineage-summary__drift {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, var(--border));
+  border-radius: 0.5rem;
+  background: var(--amber-soft);
+}
+
+.guided-lineage-summary__drift strong {
+  color: var(--amber);
+}
+
+.guided-lineage-summary__drift p {
+  margin: 0;
+}
+
+.guided-lineage-summary__current-base {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+@media (max-width: 35rem) {
+  .guided-lineage-summary__chain { flex-direction: column; }
+  .guided-lineage-summary__node { min-width: 0; }
+}

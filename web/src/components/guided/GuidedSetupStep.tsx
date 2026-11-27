@@ -6,7 +6,7 @@ import {
   type CliDriver,
   type CliLoginResult,
   type CliScanEntry,
-  type LastUsedLineup,
+  type CliScanResult,
   type ModelCatalogEntry,
   type ModelCatalogResponse,
   type RecommendedLineup,
@@ -18,6 +18,9 @@ import { MESSAGES, type Locale } from '../../i18n/messages';
 import { formatProviderDisplay, translateRole } from '../../i18n/presets';
 import type { CredentialStatus } from '../../types/graph';
 import { localizeGuidedError } from './guidedErrors';
+import { CliSummaryBar } from './CliSummaryBar';
+import { InstallConfirmPopover } from './InstallConfirmPopover';
+import { useGuidedSession, type GuidedSessionApi, type GuidedSessionState } from './useGuidedSession';
 
 /** The client methods this step needs; inject a fake in tests. */
 export type GuidedSetupApi = Pick<
@@ -27,6 +30,7 @@ export type GuidedSetupApi = Pick<
   BatonApiClient,
   'browseWorkspace' | 'getRoles' | 'listCredentials' | 'saveCredentials' | 'getModelCatalog' | 'syncModelCatalog'
   | 'getLineupProfiles' | 'saveLineupProfile' | 'deleteLineupProfile' | 'saveLastUsedLineup'
+  | 'getGuidedSession' | 'saveGuidedSession' | 'resetGuidedSession'
 >>;
 
 let defaultApi: GuidedSetupApi | null = null;
@@ -461,7 +465,7 @@ function lineupNotes(lineup: RecommendedLineup, locale: Locale): string {
   return (locale === 'zh' ? lineup.notes_zh : lineup.notes_en).replace(DSH_TEXT_RE, 'DSH');
 }
 
-/** Install is offered only for a missing CLI, and only after the user ticked the consent box. */
+/** An install may run only for a missing CLI after explicit confirmation. */
 export function canInstall(entry: Pick<CliScanEntry, 'status'> | undefined, consent: boolean): boolean {
   return consent === true && entry?.status === 'missing';
 }
@@ -519,13 +523,19 @@ export interface GuidedDriverRowProps {
   locale: Locale;
   driver: CliDriver;
   entry: CliScanEntry | undefined;
-  consent: boolean;
+  /** Retained for callers using the previous row contract; installation now uses a popover. */
+  consent?: boolean;
   busy: boolean;
   activeAction?: string | null;
   feedback?: string | null;
   needsApiKey?: string | null;
   login: CliLoginResult | null;
-  onConsentChange(consent: boolean): void;
+  onConsentChange?(consent: boolean): void;
+  installOpen?: boolean;
+  installError?: string | null;
+  highlightSignIn?: boolean;
+  onOpenInstall?(): void;
+  onCancelInstall?(): void;
   onInstall(): void;
   onLogin(): void;
   onConfigureApiKey?: (envKey: string) => void;
@@ -533,8 +543,9 @@ export interface GuidedDriverRowProps {
 
 /** One toolkit row: name, tier badge, status pill, diagnostics, and action. */
 export function GuidedDriverRow({
-  locale, driver, entry, consent, busy, activeAction = null, feedback = null, needsApiKey = null, login,
-  onConsentChange, onInstall, onLogin, onConfigureApiKey,
+  locale, driver, entry, busy, activeAction = null, feedback = null, needsApiKey = null, login,
+  installOpen = false, installError = null, highlightSignIn = false,
+  onOpenInstall, onCancelInstall, onInstall, onLogin, onConfigureApiKey,
 }: GuidedDriverRowProps) {
   const copy = MESSAGES[locale].guided.setup;
   const status = entry?.status ?? 'missing';
@@ -578,19 +589,16 @@ export function GuidedDriverRow({
       {status !== 'ready' && reason ? <p className="guided-setup__reason">{reason}</p> : null}
       {status === 'missing' ? (
         <div className="guided-setup__actions">
-          <label className="guided-setup__consent">
-            <input type="checkbox" checked={consent} disabled={busy} onChange={(event) => onConsentChange(event.target.checked)} />
-            <span>{copy.installConsent}</span>
-            <code>{driverText(driver, driver.install_cmd.join(' '))}</code>
-          </label>
-          <button type="button" className="guided-setup__button" disabled={busy || !canInstall(entry, consent)} onClick={onInstall}>
+          <button type="button" className="guided-setup__button" disabled={busy || !entry} onClick={onOpenInstall}>
             {isInstalling ? copy.installing : copy.install}
           </button>
+          <InstallConfirmPopover driver={driver} open={installOpen} busy={busy} error={installError}
+            onConfirm={onInstall} onCancel={() => onCancelInstall?.()} />
         </div>
       ) : null}
       {status === 'installed_unauthenticated' ? (
         <div className="guided-setup__actions">
-          <button type="button" className="guided-setup__button" disabled={busy} onClick={onLogin}>
+          <button type="button" className={`guided-setup__button${highlightSignIn ? ' guided-setup__button--sign-in' : ''}`} disabled={busy} onClick={onLogin}>
             {isLoggingIn ? copy.openingLogin : copy.login}
           </button>
         </div>
@@ -623,13 +631,35 @@ export interface GuidedSetupStepProps {
   initialModelOverrides?: Record<string, string> | null;
   /** Defaults to a `BatonApiClient`; tests pass a fake. */
   api?: GuidedSetupApi;
+  /** Share the parent session owner so every queued write is flushed before a workspace switch. */
+  guidedSession?: GuidedSessionState;
+  /** Called after the selected workspace has been persisted. */
+  onWorkspaceChanged?(workspace: WorkspaceInfo): void;
 }
 
-/** Guided step 1: pick the workspace, turn on Git, inspect/install AI coding tools, and customize the team. */
-export function GuidedSetupStep({
-  locale, onReady, apiMode, initialRoles = null, initialModelOverrides = null, api: injectedApi,
-}: GuidedSetupStepProps) {
-  const api = injectedApi ?? getDefaultApi();
+function hasSessionApi(api: GuidedSetupApi): api is GuidedSetupApi & GuidedSessionApi {
+  return typeof api.getGuidedSession === 'function' && typeof api.saveGuidedSession === 'function'
+    && typeof api.resetGuidedSession === 'function';
+}
+
+/** Guided step 1: choose a workspace, prepare Git and inspect the available coding tools. */
+export function GuidedSetupStep(props: GuidedSetupStepProps) {
+  const api = props.api ?? getDefaultApi();
+  if (props.guidedSession) return <GuidedSetupBody {...props} api={api} guidedSession={props.guidedSession} />;
+  if (props.apiMode !== null && hasSessionApi(api)) {
+    return <GuidedSetupWithSession {...props} api={api} />;
+  }
+  return <GuidedSetupBody {...props} api={api} guidedSession={null} />;
+}
+
+function GuidedSetupWithSession(props: GuidedSetupStepProps & { api: GuidedSetupApi & GuidedSessionApi }) {
+  const guidedSession = useGuidedSession(props.api);
+  return <GuidedSetupBody {...props} guidedSession={guidedSession} />;
+}
+
+function GuidedSetupBody({
+  locale, onReady, apiMode, initialRoles = null, initialModelOverrides = null, api, guidedSession, onWorkspaceChanged,
+}: Omit<GuidedSetupStepProps, 'api' | 'guidedSession'> & { api: GuidedSetupApi; guidedSession: GuidedSessionState | null }) {
   const copy = MESSAGES[locale].guided.setup;
   const credentialLabels = MESSAGES[locale].credentials;
   const apiKeysCardRef = useRef<HTMLElement>(null);
@@ -640,12 +670,9 @@ export function GuidedSetupStep({
   const [httpApiKeysPresent, setHttpApiKeysPresent] = useState<string[]>([]);
   const [lineup, setLineup] = useState<RecommendedLineup | null>(null);
   const [configuredProviders, setConfiguredProviders] = useState<string[] | undefined>(undefined);
-  const [providerCommands, setProviderCommands] = useState<Record<string, string[]>>({});
   const [modelCatalog, setModelCatalog] = useState<Pick<ModelCatalogResponse, 'models' | 'tier_recommendations' | 'role_tiers' | 'efforts'>>(
     () => BUILTIN_MODEL_CATALOG,
   );
-  const [catalogFeedback, setCatalogFeedback] = useState<string | null>(null);
-  const [catalogSyncFailed, setCatalogSyncFailed] = useState(false);
   const cancelCatalogRefetch = useRef<(() => void) | null>(null);
   const [credentials, setCredentials] = useState<CredentialStatus[]>([]);
   const [apiKeysOpen, setApiKeysOpen] = useState(false);
@@ -655,47 +682,97 @@ export function GuidedSetupStep({
   const [customRoles, setCustomRoles] = useState<Record<string, string> | null>(() => initialRoles);
   const [customModelOverrides, setCustomModelOverrides] = useState<Record<string, string> | null>(() => initialModelOverrides);
   const [savedProfiles, setSavedProfiles] = useState<SavedLineupProfile[]>([]);
-  const [lastUsedLineup, setLastUsedLineup] = useState<LastUsedLineup | null>(null);
-  const [lastUsedApplied, setLastUsedApplied] = useState(false);
-  const [profileNameInput, setProfileNameInput] = useState('');
-  const [profileFeedback, setProfileFeedback] = useState<string | null>(null);
-  const [roleEditorOpen, setRoleEditorOpen] = useState(false);
   const [driverFilter, setDriverFilter] = useState<DriverFilter>('all');
-  const [consent, setConsent] = useState<Record<string, boolean>>({});
+  const [scanResult, setScanResult] = useState<CliScanResult | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [installOpen, setInstallOpen] = useState<string | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [highlightSignIn, setHighlightSignIn] = useState<Record<string, boolean>>({});
+  const [workspaceSaved, setWorkspaceSaved] = useState(true);
+  const scanInFlight = useRef<{ path: string | undefined; generation: number; promise: Promise<void> } | null>(null);
+  const scanGeneration = useRef(0);
+  const mounted = useRef(true);
+  const workspacePath = useRef<string | undefined>(undefined);
+  const signInRefresh = useRef<{ driverId: string; state: 'starting' | 'waiting' | 'requested' } | null>(null);
+  const installInFlight = useRef(false);
   const [logins, setLogins] = useState<Record<string, CliLoginResult>>({});
-  const [installFeedback, setInstallFeedback] = useState<Record<string, string>>({});
   const [workspaceFeedback, setWorkspaceFeedback] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const busyGeneration = useRef(0);
   const [error, setError] = useState<string | null>(null);
 
   const run = useCallback(async (key: string, task: () => Promise<void>) => {
+    const generation = ++busyGeneration.current;
     setBusy(key);
     setError(null);
     try {
       await task();
     } catch (failure) {
-      setError(errorText(failure, locale));
+      if (mounted.current) setError(errorText(failure, locale));
     } finally {
-      setBusy(null);
+      if (mounted.current && generation === busyGeneration.current) setBusy(null);
     }
   }, [locale]);
 
-  const scanRegistry = useCallback(async (repoPath?: string) => {
-    const result = await api.scanCliRegistry(repoPath);
-    setEntries(Object.fromEntries(result.scan.drivers.map((entry) => [entry.id, entry])));
-    setHttpApiKeysPresent(result.scan.http_api_keys_present);
-    setLineup(result.lineup);
+  const scanRegistry = useCallback((repoPath?: string): Promise<void> => {
+    const inFlight = scanInFlight.current;
+    if (inFlight && inFlight.path === repoPath && inFlight.generation === scanGeneration.current) return inFlight.promise;
+    const generation = ++scanGeneration.current;
+    setScanning(true);
+    const promise = api.scanCliRegistry(repoPath).then((result) => {
+      if (!mounted.current || generation !== scanGeneration.current) return;
+      if (signInRefresh.current && result.scan.drivers.some((entry) =>
+        entry.id === signInRefresh.current?.driverId && entry.status === 'ready')) signInRefresh.current = null;
+      setScanResult(result.scan);
+      setEntries(Object.fromEntries(result.scan.drivers.map((entry) => [entry.id, entry])));
+      setInstallOpen((current) => current && result.scan.drivers.some((entry) => entry.id === current && entry.status === 'missing') ? current : null);
+      setHttpApiKeysPresent(result.scan.http_api_keys_present);
+      setLineup(result.lineup);
+    }).finally(() => {
+      if (scanInFlight.current?.promise === promise) {
+        scanInFlight.current = null;
+        if (mounted.current) setScanning(false);
+      }
+    });
+    scanInFlight.current = { path: repoPath, generation, promise };
+    return promise;
   }, [api]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; scanGeneration.current += 1; signInRefresh.current = null; };
+  }, []);
+
+  useEffect(() => {
+    workspacePath.current = workspace?.path;
+  }, [workspace?.path]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onFocus = () => {
+      const pending = signInRefresh.current;
+      if (pending?.state === 'starting') {
+        pending.state = 'requested';
+      } else if (pending?.state === 'waiting') {
+        void scanRegistry(workspacePath.current).catch((failure: unknown) => {
+          if (mounted.current) setError(errorText(failure, locale));
+        });
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [locale, scanRegistry]);
 
   const applyRemoteCatalog = useCallback((catalog: ModelCatalogResponse) => {
     setModelCatalog(catalog);
-    setCatalogSyncFailed(Boolean(catalog.cache?.last_error));
   }, []);
 
   const scan = useCallback((repoPath?: string) => run('scan', () => scanRegistry(repoPath)), [run, scanRegistry]);
 
   useEffect(() => {
     if (apiMode === null) return;
+    let active = true;
     void run('load', async () => {
       const [info, registry, rolesCfg, creds, remoteCatalog, lineupStore] = await Promise.all([
         api.getWorkspaceInfo(),
@@ -705,17 +782,14 @@ export function GuidedSetupStep({
         api.getModelCatalog ? api.getModelCatalog().catch(() => null) : Promise.resolve(null),
         api.getLineupProfiles ? api.getLineupProfiles().catch(() => null) : Promise.resolve(null),
       ]);
+      if (!active) return;
       setWorkspace(info);
       setPathInput(info.path);
       setDrivers(registry.drivers);
       setConfiguredProviders(rolesCfg ? Object.keys(rolesCfg.providers) : undefined);
-      setProviderCommands(rolesCfg
-        ? Object.fromEntries(Object.entries(rolesCfg.providers).map(([id, provider]) => [id, provider.command ?? []]))
-        : {});
       setCredentials(creds);
       if (lineupStore) {
         setSavedProfiles(lineupStore.profiles);
-        setLastUsedLineup(lineupStore.last_used);
         if (
           initialRoles === null
           && initialModelOverrides === null
@@ -724,7 +798,6 @@ export function GuidedSetupStep({
         ) {
           setCustomRoles(lineupStore.last_used.roles);
           setCustomModelOverrides(lineupStore.last_used.model_overrides);
-          setLastUsedApplied(true);
         }
       }
       if (remoteCatalog) {
@@ -736,19 +809,10 @@ export function GuidedSetupStep({
       }
       await scanRegistry(info.path);
     });
+    return () => { active = false; };
   }, [api, apiMode, initialModelOverrides, initialRoles, run, scanRegistry, applyRemoteCatalog]);
 
   useEffect(() => () => cancelCatalogRefetch.current?.(), []);
-
-  const syncModels = () => {
-    if (!api.syncModelCatalog) return;
-    void run('models_sync', async () => {
-      setCatalogFeedback(null);
-      const res = await api.syncModelCatalog!(true);
-      applyRemoteCatalog(res.catalog);
-      setCatalogFeedback(res.ok ? copy.modelsSyncedDone(res.added_count) : copy.modelsSyncFailed);
-    });
-  };
 
   const openApiKeyEditor = (envKey?: string) => {
     setApiKeysOpen(true);
@@ -778,15 +842,37 @@ export function GuidedSetupStep({
     setConfiguredProviders(rolesCfg ? Object.keys(rolesCfg.providers) : undefined);
   }, [api]);
 
-  const selectFolder = () => run('workspace', async () => {
-    setWorkspaceFeedback(null);
-    const info = await api.selectWorkspace(pathInput.trim());
+  const rememberWorkspace = async (path: string) => {
+    if (!guidedSession) return;
+    guidedSession.save({ workspace_path: path });
+    await guidedSession.flush();
+  };
+
+  const applyWorkspace = async (info: WorkspaceInfo) => {
+    setWorkspaceSaved(false);
+    scanGeneration.current += 1;
+    workspacePath.current = info.path;
     setWorkspace(info);
     setPathInput(info.path);
     setCustomRoles(null);
     setCustomModelOverrides(null);
+    setLineup(null);
+    setEntries({});
+    setScanResult(null);
+    setDetailsOpen(false);
+    signInRefresh.current = null;
+    await rememberWorkspace(info.path);
+    setWorkspaceSaved(true);
+    onWorkspaceChanged?.(info);
     await Promise.all([scanRegistry(info.path), refreshRolesConfig()]);
     setWorkspaceFeedback(copy.folderSelected);
+  };
+
+  const selectFolder = () => run('workspace', async () => {
+    setWorkspaceFeedback(null);
+    if (guidedSession) await guidedSession.flush();
+    const info = await api.selectWorkspace(pathInput.trim());
+    await applyWorkspace(info);
   });
 
   const browseFolder = () => run('browse', async () => {
@@ -795,14 +881,10 @@ export function GuidedSetupStep({
       await selectFolder();
       return;
     }
+    if (guidedSession) await guidedSession.flush();
     const picked = await api.browseWorkspace();
     if (picked.cancelled) return;
-    setWorkspace(picked.workspace);
-    setPathInput(picked.workspace.path);
-    setCustomRoles(null);
-    setCustomModelOverrides(null);
-    await Promise.all([scanRegistry(picked.workspace.path), refreshRolesConfig()]);
-    setWorkspaceFeedback(copy.folderSelected);
+    await applyWorkspace(picked.workspace);
   });
 
   const initGit = () => run('git', async () => {
@@ -812,22 +894,53 @@ export function GuidedSetupStep({
     setWorkspaceFeedback(repairing ? copy.firstCommitDone : copy.gitEnabledDone);
   });
 
-  const install = (driver: CliDriver) => run(`install:${driver.id}`, async () => {
-    setInstallFeedback((current) => {
-      const next = { ...current };
-      delete next[driver.id];
-      return next;
-    });
-    if (await installWithConsent(api, entries[driver.id], consent[driver.id] === true)) {
-      setConsent((current) => ({ ...current, [driver.id]: false }));
-      await scanRegistry(workspace?.path);
-      setInstallFeedback((current) => ({ ...current, [driver.id]: copy.installedDone }));
-    }
-  });
+  const install = (driver: CliDriver) => {
+    if (installOpen !== driver.id || installInFlight.current || busy !== null || scanning) return;
+    const currentEntry = entries[driver.id];
+    if (!canInstall(currentEntry, true)) return;
+    installInFlight.current = true;
+    setInstallError(null);
+    setBusy(`install:${driver.id}`);
+    void (async () => {
+      try {
+        await installWithConsent(api, currentEntry, true);
+        if (!mounted.current) return;
+        const installed = { ...currentEntry!, status: 'installed_unauthenticated' as const, reason_en: '', reason_zh: '' };
+        setEntries((current) => ({ ...current, [driver.id]: installed }));
+        setScanResult((current) => current ? {
+          ...current, drivers: current.drivers.map((item) => item.id === driver.id ? installed : item),
+        } : current);
+        setHighlightSignIn((current) => ({ ...current, [driver.id]: true }));
+        setInstallOpen(null);
+      } catch (failure) {
+        if (mounted.current) setInstallError(errorText(failure, locale));
+      } finally {
+        installInFlight.current = false;
+        if (mounted.current) setBusy(null);
+      }
+    })();
+  };
 
   const login = (driver: CliDriver) => run(`login:${driver.id}`, async () => {
-    const result = await api.loginCli(driver.id);
+    signInRefresh.current = { driverId: driver.id, state: 'starting' };
+    let result: CliLoginResult;
+    try {
+      result = await api.loginCli(driver.id);
+    } catch (failure) {
+      signInRefresh.current = null;
+      throw failure;
+    }
+    if (!mounted.current) return;
     setLogins((current) => ({ ...current, [driver.id]: result }));
+    if (result.launched) setHighlightSignIn((current) => ({ ...current, [driver.id]: false }));
+    if (!result.launched) {
+      signInRefresh.current = null;
+    } else if (signInRefresh.current?.state === 'requested') {
+      signInRefresh.current.state = 'waiting';
+      await scanRegistry(workspacePath.current);
+    } else if (signInRefresh.current) {
+      signInRefresh.current.state = 'waiting';
+    }
   });
 
   const selectableProviders = useMemo(
@@ -889,74 +1002,36 @@ export function GuidedSetupStep({
     return { ...baselineLineup, roles: nextRoles, model_overrides: nextOverrides };
   }, [baselineLineup, customModelOverrides, customRoles, modelCatalog, selectableProviders]);
 
-  const resetCustomization = () => {
-    setCustomRoles(null);
-    setCustomModelOverrides(null);
-    setLastUsedApplied(false);
-    setProfileFeedback(null);
-  };
-
-  const applyCustomLineup = (updated: RecommendedLineup) => {
-    setCustomRoles(updated.roles);
-    setCustomModelOverrides(updated.model_overrides ?? null);
-    setLastUsedApplied(false);
-    setProfileFeedback(null);
-  };
-
   const matchedProfile = useMemo(
     () => matchSavedProfile(savedProfiles, effectiveLineup),
     [effectiveLineup, savedProfiles],
   );
 
-  const applyProfile = (profile: SavedLineupProfile) => {
-    if (!baselineLineup) return;
-    applyCustomLineup(applySavedLineup(baselineLineup, profile, selectableProviders, modelCatalog));
-    setProfileFeedback(copy.profileApplied(profile.name));
-  };
-
-  const saveCurrentProfile = () => {
-    if (!api.saveLineupProfile || !effectiveLineup || !effectiveLineup.ready) return;
-    const cleanName = profileNameInput.trim();
-    if (!cleanName) return;
-    void run('save_profile', async () => {
-      setProfileFeedback(null);
-      const res = await api.saveLineupProfile!({
-        name: cleanName,
-        roles: effectiveLineup.roles,
-        model_overrides: effectiveLineup.model_overrides ?? {},
-      });
-      setSavedProfiles(res.profiles);
-      setLastUsedLineup(res.last_used);
-      setProfileNameInput('');
-      setProfileFeedback(copy.profileSaved(res.profile.name));
-    });
-  };
-
-  const removeSavedProfile = (profileId: string) => {
-    if (!api.deleteLineupProfile) return;
-    void run(`delete_profile:${profileId}`, async () => {
-      const res = await api.deleteLineupProfile!(profileId);
-      setSavedProfiles(res.profiles);
-      setLastUsedLineup(res.last_used);
-    });
-  };
-
   const handleConfirmLineup = () => {
-    if (!effectiveLineup || !effectiveLineup.ready || !historyAllowsBuild(workspace)) return;
-    if (api.saveLastUsedLineup) {
-      void api.saveLastUsedLineup({
-        roles: effectiveLineup.roles,
-        model_overrides: effectiveLineup.model_overrides ?? {},
-        profile_id: matchedProfile?.id ?? null,
-        profile_name: matchedProfile?.name ?? null,
-      }).catch(() => {});
-    }
-    confirmLineup(effectiveLineup, onReady);
+    if (!effectiveLineup?.ready || !historyAllowsBuild(workspace) || !workspaceSaved) return;
+    void run('continue', async () => {
+      if (workspace?.path) await rememberWorkspace(workspace.path);
+      if (api.saveLastUsedLineup) {
+        void api.saveLastUsedLineup({
+          roles: effectiveLineup.roles,
+          model_overrides: effectiveLineup.model_overrides ?? {},
+          profile_id: matchedProfile?.id ?? null,
+          profile_name: matchedProfile?.name ?? null,
+        }).catch(() => {});
+      }
+      confirmLineup(effectiveLineup, onReady);
+    });
   };
 
-  const isCustomized = isLineupCustomized(baselineLineup, effectiveLineup);
   const readyCount = drivers.filter((driver) => entries[driver.id]?.status === 'ready').length;
+  const previousReadyCount = useRef(0);
+  useEffect(() => {
+    if (readyCount === 0 || previousReadyCount.current === 0) setDetailsOpen(false);
+    previousReadyCount.current = readyCount;
+  }, [readyCount]);
   const visibleDrivers = filterDrivers(drivers, entries, driverFilter);
+  const isBusy = busy !== null || scanning;
+  const sessionUnavailable = Boolean(guidedSession && !guidedSession.session);
 
   const historyState = workspaceHistoryState(workspace);
   const workspaceBusyLabel = busy === 'browse'
@@ -975,7 +1050,7 @@ export function GuidedSetupStep({
           <button
             type="button"
             className="guided-setup__button guided-setup__button--primary"
-            disabled={busy !== null}
+            disabled={isBusy || sessionUnavailable}
             onClick={() => void browseFolder()}
           >
             {busy === 'browse' ? copy.browsing : copy.pickFolder}
@@ -989,7 +1064,7 @@ export function GuidedSetupStep({
             aria-label={copy.currentFolder}
             onChange={(event) => setPathInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && busy === null && pathInput.trim() !== '') {
+              if (event.key === 'Enter' && !isBusy && !sessionUnavailable && pathInput.trim() !== '') {
                 event.preventDefault();
                 void selectFolder();
               }
@@ -998,7 +1073,7 @@ export function GuidedSetupStep({
           <button
             type="button"
             className="guided-setup__button"
-            disabled={busy !== null || pathInput.trim() === ''}
+            disabled={isBusy || sessionUnavailable || pathInput.trim() === ''}
             onClick={() => void selectFolder()}
           >
             {busy === 'workspace' ? copy.switchingFolder : copy.applyPath}
@@ -1017,7 +1092,7 @@ export function GuidedSetupStep({
           </p>
         ) : null}
         {historyState === 'missing' || historyState === 'no-commits' ? (
-          <button type="button" className="guided-setup__button guided-setup__button--primary" disabled={busy !== null} onClick={() => void initGit()}>
+          <button type="button" className="guided-setup__button guided-setup__button--primary" disabled={isBusy || sessionUnavailable} onClick={() => void initGit()}>
             {historyState === 'no-commits'
               ? (busy === 'git' ? copy.creatingFirstCommit : copy.createFirstCommit)
               : (busy === 'git' ? copy.initializingGit : copy.initGit)}
@@ -1025,66 +1100,60 @@ export function GuidedSetupStep({
         ) : null}
       </section>
 
-      <section className="guided-setup__card">
-        <div className="guided-setup__row guided-setup__row--spread guided-setup__row--wrap">
-          <div className="guided-setup__title-group">
-            <h3 className="guided-setup__title">{copy.scanClis}</h3>
-            {drivers.length > 0 ? (
-              <span className="guided-setup__count" data-ready={readyCount > 0}>
+      {readyCount > 0 ? (
+        <CliSummaryBar scan={scanResult} scanning={isBusy} onScan={() => void scan(workspace?.path)}
+          onOpenDetails={() => setDetailsOpen(true)} />
+      ) : null}
+      {readyCount === 0 || detailsOpen ? (
+        <section className="guided-setup__card">
+          <div className="guided-setup__row guided-setup__row--spread guided-setup__row--wrap">
+            <div className="guided-setup__title-group">
+              <h3 className="guided-setup__title">{copy.scanClis}</h3>
+              {drivers.length > 0 ? <span className="guided-setup__count" data-ready={readyCount > 0}>
                 {copy.scanSummary(readyCount, drivers.length)}
-              </span>
-            ) : null}
-          </div>
-          <button type="button" className="guided-setup__button" disabled={busy !== null} onClick={() => void scan(workspace?.path)}>
-            {busy === 'scan' || busy === 'load' ? copy.scanning : copy.scanClis}
-          </button>
-        </div>
-        {drivers.length > 0 ? (
-          <div className="guided-setup__filters" role="group" aria-label={copy.scanClis}>
-            {([
-              ['all', copy.filterAll],
-              ['ready', copy.filterReady],
-              ['needs_setup', copy.filterNeedsSetup],
-            ] as const).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                className="guided-setup__chip"
-                aria-pressed={driverFilter === key}
-                onClick={() => setDriverFilter(key)}
-              >
-                {label}
+              </span> : null}
+            </div>
+            <div className="guided-setup__actions">
+              <button type="button" className="guided-setup__button" disabled={isBusy} onClick={() => void scan(workspace?.path)}>
+                {scanning || busy === 'load' ? copy.scanning : copy.scanClis}
               </button>
+              {readyCount > 0 ? <button type="button" className="guided-setup__button"
+                onClick={() => { setDetailsOpen(false); setInstallOpen(null); }}>
+                {MESSAGES[locale].glossary.close}
+              </button> : null}
+            </div>
+          </div>
+          {drivers.length > 0 ? (
+            <div className="guided-setup__filters" role="group" aria-label={copy.scanClis}>
+              {([
+                ['all', copy.filterAll], ['ready', copy.filterReady], ['needs_setup', copy.filterNeedsSetup],
+              ] as const).map(([key, label]) => (
+                <button key={key} type="button" className="guided-setup__chip" aria-pressed={driverFilter === key}
+                  onClick={() => setDriverFilter(key)}>{label}</button>
+              ))}
+            </div>
+          ) : null}
+          {scanning || busy === 'load' ? (
+            <div className="guided-setup__progress-wrap" role="status" aria-live="polite">
+              <div className="guided-setup__progress" aria-hidden="true"><div className="guided-setup__progress-bar" /></div>
+              <span className="guided-setup__progress-text">{copy.scanning}</span>
+            </div>
+          ) : null}
+          <ul className="guided-setup__drivers">
+            {visibleDrivers.map((driver) => (
+              <GuidedDriverRow key={driver.id} locale={locale} driver={driver} entry={entries[driver.id]}
+                busy={isBusy} activeAction={busy}
+                needsApiKey={pendingApiKeyByDriver[driver.id] ?? null} login={logins[driver.id] ?? null}
+                installOpen={installOpen === driver.id} installError={installOpen === driver.id ? installError : null}
+                highlightSignIn={highlightSignIn[driver.id] === true}
+                onOpenInstall={() => { setInstallError(null); setInstallOpen(driver.id); }}
+                onCancelInstall={() => { if (!installInFlight.current) setInstallOpen(null); }}
+                onInstall={() => install(driver)} onLogin={() => void login(driver)}
+                onConfigureApiKey={api.listCredentials ? (envKey) => openApiKeyEditor(envKey) : undefined} />
             ))}
-          </div>
-        ) : null}
-        {busy === 'scan' || busy === 'load' ? (
-          <div className="guided-setup__progress-wrap" role="status" aria-live="polite">
-            <div className="guided-setup__progress" aria-hidden="true"><div className="guided-setup__progress-bar" /></div>
-            <span className="guided-setup__progress-text">{copy.scanning}</span>
-          </div>
-        ) : null}
-        <ul className="guided-setup__drivers">
-          {visibleDrivers.map((driver) => (
-            <GuidedDriverRow
-              key={driver.id}
-              locale={locale}
-              driver={driver}
-              entry={entries[driver.id]}
-              consent={consent[driver.id] === true}
-              busy={busy !== null}
-              activeAction={busy}
-              feedback={installFeedback[driver.id] ?? null}
-              needsApiKey={pendingApiKeyByDriver[driver.id] ?? null}
-              login={logins[driver.id] ?? null}
-              onConsentChange={(value) => setConsent((current) => ({ ...current, [driver.id]: value }))}
-              onInstall={() => void install(driver)}
-              onLogin={() => void login(driver)}
-              onConfigureApiKey={api.listCredentials ? (envKey) => openApiKeyEditor(envKey) : undefined}
-            />
-          ))}
-        </ul>
-      </section>
+          </ul>
+        </section>
+      ) : null}
 
       {api.listCredentials ? (
         <section className="guided-setup__card" ref={apiKeysCardRef}>
@@ -1153,7 +1222,7 @@ export function GuidedSetupStep({
                         className="guided-setup__input"
                         value={draft}
                         placeholder={copy.apiKeyPlaceholder}
-                        disabled={busy !== null}
+                        disabled={isBusy || sessionUnavailable}
                         onChange={(event) => setKeyDrafts((current) => ({ ...current, [key]: event.target.value }))}
                       />
                       <button
@@ -1167,7 +1236,7 @@ export function GuidedSetupStep({
                         <button
                           type="button"
                           className="guided-setup__button"
-                          disabled={busy !== null}
+                          disabled={isBusy || sessionUnavailable}
                           onClick={() => saveApiKey(key, '')}
                         >
                           {credentialLabels.clear}
@@ -1184,268 +1253,29 @@ export function GuidedSetupStep({
 
       {effectiveLineup ? (
         <section className="guided-setup__card" data-ready={effectiveLineup.ready}>
-          <div className="guided-setup__row guided-setup__row--spread guided-setup__row--wrap">
-            <div className="guided-setup__title-group">
-              <h3 className="guided-setup__title">{effectiveLineup.ready ? copy.lineupReady : copy.lineupMissing}</h3>
-              {lastUsedApplied && (matchedProfile?.name ?? lastUsedLineup?.profile_name) ? (
-                <span className="guided-setup__pill" data-status="ready">
-                  {copy.lastUsedNamedBadge((matchedProfile?.name ?? lastUsedLineup?.profile_name)!)}
-                </span>
-              ) : lastUsedApplied ? (
-                <span className="guided-setup__pill" data-status="ready">{copy.lastUsedBadge}</span>
-              ) : matchedProfile ? (
-                <span className="guided-setup__pill" data-status="ready">{matchedProfile.name}</span>
-              ) : isCustomized ? (
-                <span className="guided-setup__pill" data-status="ready">{copy.customBadge}</span>
-              ) : null}
-            </div>
-            <div className="guided-setup__team-actions">
-              {api.syncModelCatalog ? (
-                <button
-                  type="button"
-                  className="guided-setup__button"
-                  disabled={busy !== null}
-                  onClick={syncModels}
-                >
-                  {busy === 'models_sync' ? copy.syncingModels : copy.syncModels}
-                </button>
-              ) : null}
-              {effectiveLineup.ready && Object.keys(effectiveLineup.roles).length > 0 ? (
-                <button
-                  type="button"
-                  className="guided-setup__button"
-                  aria-expanded={roleEditorOpen}
-                  onClick={() => setRoleEditorOpen((open) => !open)}
-                >
-                  {roleEditorOpen ? copy.hideCustomizeRoles : copy.customizeRoles}
-                </button>
-              ) : null}
-            </div>
-          </div>
-          {Object.keys(effectiveLineup.roles).length > 0 ? (
-            <p className="guided-setup__lineup">{lineupSummary(effectiveLineup, locale, modelCatalog.models)}</p>
-          ) : null}
-          <p className="guided-setup__reason">{copy.modelsDailyHint}</p>
-          {catalogFeedback ? <p className="guided-setup__done-note" role="status">{catalogFeedback}</p> : null}
-          {!catalogFeedback && catalogSyncFailed ? (
-            <p className="guided-setup__done-note" role="status">{copy.modelsSyncFailed}</p>
-          ) : null}
-          {effectiveLineup.ready && baselineLineup && selectableProviders.length > 1 ? (
-            <div className="guided-setup__presets" role="group" aria-label={copy.customizeRoles}>
-              <button
-                type="button"
-                className="guided-setup__chip"
-                aria-pressed={!isCustomized}
-                onClick={resetCustomization}
-              >
-                {copy.presetRecommended}
-              </button>
-              {selectableProviders.map((providerId) => {
-                const uniform = Object.values(effectiveLineup.roles).every((assigned) => assigned === providerId);
-                return (
-                  <button
-                    key={providerId}
-                    type="button"
-                    className="guided-setup__chip"
-                    aria-pressed={uniform}
-                    onClick={() => applyCustomLineup(assignAllRoles(baselineLineup, providerId, modelCatalog))}
-                  >
-                    {copy.presetAllProvider(formatProviderDisplay(providerId))}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-          {effectiveLineup.ready && baselineLineup && roleEditorOpen && Object.keys(effectiveLineup.roles).length > 0 ? (
-            <div className="guided-setup__role-grid">
-              {Object.entries(effectiveLineup.roles).map(([role, assignedProvider]) => {
-                const tier = modelCatalog.role_tiers[role] ?? 'L2';
-                const parsed = parseRoleSpec(effectiveLineup.model_overrides?.[role] ?? '', assignedProvider);
-                const providerModels = modelsForProvider(modelCatalog.models, assignedProvider);
-                const latestModels = providerModels.filter((m) => m.status === 'latest');
-                // Legacy and synced models share one list ranked by version.
-                const otherModels = providerModels.filter((m) => m.status !== 'latest');
-                const selectedModel = parsed.model || providerModels[0]?.id || '';
-                const tierEffort = tier === 'L0' || tier === 'L1' ? 'medium' : 'max';
-                const effortFor = (modelId: string) => effortOptionsFor(
-                  providerModels.find((m) => m.id === modelId), assignedProvider, modelCatalog.efforts,
-                );
-                const effortOptions = effortFor(selectedModel);
-                const selectedEffort = coerceEffort(parsed.effort || tierEffort, effortOptions, tierEffort);
-                const pickers = providerTemplateSupport(providerCommands[assignedProvider]);
-                return (
-                  <div key={role} className="guided-setup__role-row">
-                    <div className="guided-setup__role-head">
-                      <span className="guided-setup__tier" data-tier="official">{tier}</span>
-                      <span className="guided-setup__role-label">{translateRole(role, locale)}</span>
-                    </div>
-                    <div className="guided-setup__role-controls">
-                      <select
-                        className="guided-setup__select"
-                        aria-label={`${translateRole(role, locale)} · ${copy.providerColumnLabel}`}
-                        value={assignedProvider}
-                        onChange={(event) => applyCustomLineup(assignRoleProvider(effectiveLineup, role, event.currentTarget.value, modelCatalog))}
-                      >
-                        {selectableProviders.map((providerId) => (
-                          <option key={providerId} value={providerId}>
-                            {formatProviderDisplay(providerId)}
-                          </option>
-                        ))}
-                      </select>
-                      {pickers.model && providerModels.length > 0 ? (
-                        <select
-                          className="guided-setup__select guided-setup__select--model"
-                          aria-label={`${translateRole(role, locale)} · ${copy.modelColumnLabel}`}
-                          value={selectedModel}
-                          onChange={(event) => applyCustomLineup(
-                            assignRoleModelSpec(
-                              effectiveLineup, role, assignedProvider, event.currentTarget.value,
-                              coerceEffort(selectedEffort, effortFor(event.currentTarget.value), tierEffort),
-                            ),
-                          )}
-                        >
-                          {latestModels.length > 0 ? (
-                            <optgroup label={copy.modelGroupLatest}>
-                              {latestModels.map((entry) => (
-                                <option key={entry.id} value={entry.id}>{entry.label}</option>
-                              ))}
-                            </optgroup>
-                          ) : null}
-                          {otherModels.length > 0 ? (
-                            <optgroup label={copy.modelGroupLegacy}>
-                              {otherModels.map((entry) => (
-                                <option key={entry.id} value={entry.id}>{entry.label}</option>
-                              ))}
-                            </optgroup>
-                          ) : null}
-                        </select>
-                      ) : null}
-                      {pickers.effort ? (
-                        <select
-                          className="guided-setup__select guided-setup__select--effort"
-                          aria-label={`${translateRole(role, locale)} · ${copy.effortColumnLabel}`}
-                          value={selectedEffort}
-                          onChange={(event) => applyCustomLineup(
-                            assignRoleModelSpec(effectiveLineup, role, assignedProvider, selectedModel, event.currentTarget.value),
-                          )}
-                        >
-                          {effortOptions.map((eff) => (
-                            <option key={eff.id} value={eff.id}>{eff.label}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="guided-setup__effort-note">{copy.effortUnsupported}</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : null}
-          {effectiveLineup.ready && baselineLineup && savedProfiles.length > 0 ? (
-            <div className="guided-setup__saved-profiles" role="group" aria-label={copy.savedProfilesTitle}>
-              <span className="guided-setup__saved-label">{copy.savedProfilesTitle}</span>
-              {savedProfiles.map((profile) => (
-                <span key={profile.id} className="guided-setup__profile-chip">
-                  <button
-                    type="button"
-                    className="guided-setup__chip"
-                    aria-pressed={matchedProfile?.id === profile.id}
-                    disabled={busy !== null}
-                    onClick={() => applyProfile(profile)}
-                  >
-                    {profile.name}
-                  </button>
-                  {api.deleteLineupProfile ? (
-                    <button
-                      type="button"
-                      className="guided-setup__profile-delete"
-                      aria-label={copy.deleteProfileAria(profile.name)}
-                      disabled={busy !== null}
-                      onClick={() => removeSavedProfile(profile.id)}
-                    >
-                      ×
-                    </button>
-                  ) : null}
-                </span>
-              ))}
-            </div>
-          ) : null}
-          {effectiveLineup.ready && api.saveLineupProfile ? (
-            <form
-              className="guided-setup__save-profile"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (busy === null && profileNameInput.trim()) saveCurrentProfile();
-              }}
-            >
-              <input
-                className="guided-setup__input"
-                aria-label={copy.saveProfileButton}
-                placeholder={copy.saveProfilePlaceholder}
-                value={profileNameInput}
-                disabled={busy !== null}
-                onChange={(event) => setProfileNameInput(event.currentTarget.value)}
-              />
-              <button
-                type="submit"
-                className="guided-setup__button"
-                disabled={busy !== null || !profileNameInput.trim()}
-              >
-                {busy === 'save_profile' ? copy.savingProfile : copy.saveProfileButton}
-              </button>
-            </form>
-          ) : null}
-          {profileFeedback ? <p className="guided-setup__done-note" role="status">{profileFeedback}</p> : null}
           {effectiveLineup.ready ? (
             <div className="guided-setup__team-actions">
-              <button
-                type="button"
-                className="guided-setup__button guided-setup__button--primary"
-                disabled={busy !== null || !historyAllowsBuild(workspace)}
-                onClick={handleConfirmLineup}
-              >
-                {isCustomized ? copy.useCustomLineup : copy.useLineup}
+              <button type="button" className="guided-setup__button guided-setup__button--primary"
+                disabled={isBusy || sessionUnavailable || !workspaceSaved || !historyAllowsBuild(workspace)}
+                onClick={handleConfirmLineup}>
+                {copy.useLineup}
               </button>
-              {!historyAllowsBuild(workspace) ? (
-                <p className="guided-setup__git" data-git={false}>{copy.continueNeedsHistory}</p>
-              ) : null}
-              {isCustomized ? (
-                <button
-                  type="button"
-                  className="guided-setup__button"
-                  disabled={busy !== null}
-                  onClick={resetCustomization}
-                >
-                  {copy.resetLineup}
-                </button>
-              ) : null}
+              {!historyAllowsBuild(workspace) ? <p className="guided-setup__git" data-git={false}>{copy.continueNeedsHistory}</p> : null}
             </div>
-          ) : (
-            <p className="guided-setup__next">{lineupNotes(effectiveLineup, locale)}</p>
-          )}
+          ) : <p className="guided-setup__next">{lineupNotes(effectiveLineup, locale)}</p>}
           {pendingApiDrivers.length > 0 ? (
             <div className="guided-setup__api-hint" role="note">
-              <span>
-                {copy.teamNeedsApiKeyNote(
-                  pendingApiDrivers.map(({ driver }) => driverDisplayName(driver)).join(locale === 'zh' ? '、' : ', '),
-                  [...new Set(pendingApiDrivers.map(({ envKey }) => envKey))].join(locale === 'zh' ? '、' : ', '),
-                )}
-              </span>
-              {api.listCredentials ? (
-                <button
-                  type="button"
-                  className="guided-setup__button"
-                  disabled={busy !== null}
-                  onClick={() => openApiKeyEditor(pendingApiDrivers[0]?.envKey)}
-                >
-                  {copy.configureApiKeyAction}
-                </button>
-              ) : null}
+              <span>{copy.teamNeedsApiKeyNote(
+                pendingApiDrivers.map(({ driver }) => driverDisplayName(driver)).join(locale === 'zh' ? '、' : ', '),
+                [...new Set(pendingApiDrivers.map(({ envKey }) => envKey))].join(locale === 'zh' ? '、' : ', '),
+              )}</span>
+              {api.listCredentials ? <button type="button" className="guided-setup__button" disabled={isBusy}
+                onClick={() => openApiKeyEditor(pendingApiDrivers[0]?.envKey)}>{copy.configureApiKeyAction}</button> : null}
             </div>
           ) : null}
         </section>
       ) : null}
+      {guidedSession?.error ? <p className="guided-setup__error" role="alert">{errorText(guidedSession.error, locale)}</p> : null}
 
       {error ? <p className="guided-setup__error" role="alert">{error}</p> : null}
     </div>

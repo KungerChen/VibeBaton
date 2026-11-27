@@ -1,10 +1,14 @@
-import { createElement } from 'react';
+import { act, createElement, StrictMode } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, test, vi } from 'vitest';
-import type { CliDriver, CliScanEntry, ModelCatalogEntry, RecommendedLineup, WorkspaceInfo } from '../../api/client';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import type { CliDriver, CliInstallResult, CliLoginResult, CliRegistryScanResponse, CliScanEntry, GuidedSession, GuidedSessionPatch, ModelCatalogEntry, RecommendedLineup, WorkspaceInfo } from '../../api/client';
+import { I18nProvider } from '../../i18n';
+import { MESSAGES } from '../../i18n/messages';
 import {
   BUILTIN_MODEL_CATALOG,
   GuidedDriverRow,
+  GuidedSetupStep,
   applySavedLineup,
   assignAllRoles,
   assignRoleModelSpec,
@@ -31,6 +35,7 @@ import {
   historyAllowsBuild,
   workspaceHistoryState,
   type GuidedDriverRowProps,
+  type GuidedSetupStepProps,
 } from './GuidedSetupStep';
 
 const dsh: CliDriver = {
@@ -178,10 +183,14 @@ describe('GuidedDriverRow', () => {
     }
   });
 
-  test('install button stays disabled until consent is ticked', () => {
-    expect(renderRow({ consent: false })).toMatch(/<button[^>]*disabled=""[^>]*>Install<\/button>/);
-    expect(renderRow({ consent: true })).toMatch(/<button[^>]*>Install<\/button>/);
-    expect(renderRow({ consent: true })).not.toMatch(/disabled=""[^>]*>Install/);
+  test('offers installation without a checkbox and shows the exact command in its confirmation', () => {
+    const closed = renderRow({ consent: false });
+    expect(closed).toMatch(/<button[^>]*>Install<\/button>/);
+    expect(closed).not.toContain('type="checkbox"');
+    expect(closed).not.toContain('role="dialog"');
+    const open = renderRow({ installOpen: true });
+    expect(open).toContain('role="dialog"');
+    expect(open).toContain('npm install -g @deepseek-ai/dsh');
   });
 
   test('after login shows the official URL and the terminal-window note', () => {
@@ -487,5 +496,494 @@ describe('saved lineup profiles & last-used restoration', () => {
     };
     expect(matchSavedProfile([profile], restored)?.id).toBe('p-1');
     expect(matchSavedProfile([profile], baseline)).toBeNull();
+  });
+});
+
+type SetupListener = (event: { key?: string; target?: SetupNode }) => void;
+interface SetupDocument {
+  documentElement: { lang: string };
+  title: string;
+  createElement(tag: string): SetupNode;
+  createElementNS(namespace: string, tag: string): SetupNode;
+  createTextNode(text: string): SetupNode;
+  addEventListener(type: string, listener: SetupListener): void;
+  removeEventListener(type: string, listener: SetupListener): void;
+}
+
+// A small host DOM lets the actual component, effects and event handlers run in Vitest's node environment.
+class SetupNode {
+  readonly nodeType: number;
+  readonly children: SetupNode[] = [];
+  readonly style: Record<string, string | number> = {};
+  readonly attrs = new Map<string, string>();
+  parentNode: SetupNode | null = null;
+  private content = '';
+  private classValue = '';
+  value = '';
+
+  constructor(readonly tagName: string, readonly ownerDocument: SetupDocument, text = '') {
+    this.nodeType = tagName === '#text' ? 3 : 1;
+    this.content = text;
+  }
+  get className() { return this.classValue; }
+  set className(value: string) { this.classValue = value; this.attrs.set('class', value); }
+  get textContent(): string { return this.content + this.children.map((child) => child.textContent).join(''); }
+  set textContent(value: string) { this.content = value; this.children.length = 0; }
+  get nodeValue() { return this.content; }
+  set nodeValue(value: string) { this.content = value; }
+  addEventListener() {}
+  removeEventListener() {}
+  setAttribute(name: string, value: string) { this.attrs.set(name, String(value)); if (name === 'class') this.classValue = String(value); }
+  removeAttribute(name: string) { this.attrs.delete(name); if (name === 'class') this.classValue = ''; }
+  getAttribute(name: string) { return this.attrs.get(name) ?? null; }
+  appendChild(child: SetupNode) { this.insertBefore(child, null); }
+  insertBefore(child: SetupNode, sibling: SetupNode | null) {
+    if (child.parentNode) child.parentNode.removeChild(child);
+    const index = sibling ? this.children.indexOf(sibling) : this.children.length;
+    this.children.splice(index, 0, child);
+    child.parentNode = this;
+  }
+  removeChild(child: SetupNode) {
+    const index = this.children.indexOf(child);
+    if (index >= 0) this.children.splice(index, 1);
+    child.parentNode = null;
+  }
+  contains(node: SetupNode): boolean { return node === this || this.children.some((child) => child.contains(node)); }
+  find(predicate: (node: SetupNode) => boolean): SetupNode | undefined {
+    if (predicate(this)) return this;
+    for (const child of this.children) {
+      const match = child.find(predicate);
+      if (match) return match;
+    }
+    return undefined;
+  }
+  reactProps(): Record<string, unknown> {
+    const key = Object.keys(this).find((name) => name.startsWith('__reactProps$'));
+    if (!key) throw new Error(`Missing React props for ${this.tagName}`);
+    return (this as unknown as Record<string, Record<string, unknown>>)[key];
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+const claudeDriver: CliDriver = {
+  ...dsh, id: 'claude', name: 'Claude Code', binary: 'claude', provider_ids: ['claude_sub'],
+  install_cmd: ['npm', 'install', '-g', '@anthropic-ai/claude-code'],
+};
+const repo: WorkspaceInfo = { path: '/repo', is_git_repo: true, branch: 'main', has_commits: true, has_rfc: false };
+const sixRoles = {
+  brainstorm_and_final_gate: 'claude_sub', tactical_planner: 'claude_sub', milestone_reviewer: 'claude_sub',
+  critical_executor: 'claude_sub', micro_orchestrator: 'claude_sub', bulk_worker: 'claude_sub',
+};
+function scanResponse(statuses: [CliScanEntry['status'], CliScanEntry['status']]): CliRegistryScanResponse {
+  const ready = statuses.includes('ready');
+  return {
+    scan: { drivers: [entry(statuses[0], 'dsh'), entry(statuses[1], 'claude')], http_api_keys_present: [], scanned_at: 1 },
+    lineup: { ...lineup(ready), roles: ready ? sixRoles : {} },
+  };
+}
+function setupApi(statuses: [CliScanEntry['status'], CliScanEntry['status']]) {
+  return {
+    getWorkspaceInfo: vi.fn().mockResolvedValue(repo),
+    selectWorkspace: vi.fn(async (path: string) => ({ ...repo, path })),
+    initGitWorkspace: vi.fn().mockResolvedValue({ ...repo, created: true }),
+    getCliRegistry: vi.fn().mockResolvedValue({ schema_version: 1, drivers: [dsh, claudeDriver], tags: [] }),
+    scanCliRegistry: vi.fn().mockResolvedValue(scanResponse(statuses)),
+    installCli: vi.fn().mockResolvedValue({ id: 'dsh', ok: true, command: dsh.install_cmd, returncode: 0, output: '' }),
+    loginCli: vi.fn().mockResolvedValue({ id: 'dsh', launched: true, command: ['dsh'], message_en: 'Sign in', message_zh: '登录' }),
+  };
+}
+
+let setupRoot: Root | undefined;
+async function mountSetup(api: ReturnType<typeof setupApi>, onReady = vi.fn(), extra: Partial<GuidedSetupStepProps> = {}, strict = false) {
+  const windowListeners = new Map<string, Set<SetupListener>>();
+  const documentListeners = new Map<string, Set<SetupListener>>();
+  const documentObj: SetupDocument = {
+    documentElement: { lang: '' }, title: '',
+    createElement: (tag) => new SetupNode(tag, documentObj),
+    createElementNS: (_namespace, tag) => new SetupNode(tag, documentObj),
+    createTextNode: (text) => new SetupNode('#text', documentObj, text),
+    addEventListener(type, listener) {
+      const listeners = documentListeners.get(type) ?? new Set<SetupListener>();
+      listeners.add(listener);
+      documentListeners.set(type, listeners);
+    },
+    removeEventListener(type, listener) { documentListeners.get(type)?.delete(listener); },
+  };
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('document', documentObj);
+  vi.stubGlobal('window', {
+    HTMLIFrameElement: class HTMLIFrameElement {},
+    localStorage: { getItem: () => 'en' },
+    addEventListener(type: string, listener: SetupListener) {
+      const listeners = windowListeners.get(type) ?? new Set<SetupListener>();
+      listeners.add(listener);
+      windowListeners.set(type, listeners);
+    },
+    removeEventListener(type: string, listener: SetupListener) { windowListeners.get(type)?.delete(listener); },
+  });
+  const container = new SetupNode('DIV', documentObj);
+  setupRoot = createRoot(container as unknown as HTMLElement);
+  await act(async () => {
+    const content = createElement(I18nProvider, {
+      children: createElement(GuidedSetupStep, { ...extra, locale: 'en', api, onReady }),
+    });
+    setupRoot!.render(strict ? createElement(StrictMode, null, content) : content);
+  });
+  function button(label: string, within: SetupNode = container): SetupNode {
+    const node = within.find((item) => item.tagName === 'button' && item.textContent === label);
+    if (!node) throw new Error(`Missing button ${label}; rendered: ${within.textContent}`);
+    return node;
+  }
+  async function click(node: SetupNode) {
+    const props = node.reactProps();
+    expect(props.disabled).not.toBe(true);
+    await act(async () => { (props.onClick as (event: object) => void)({ currentTarget: node }); });
+  }
+  return {
+    container, button, click, onReady,
+    focus() { for (const listener of windowListeners.get('focus') ?? []) listener({}); },
+    focusListenerCount() { return windowListeners.get('focus')?.size ?? 0; },
+    async unmount() { await act(async () => { setupRoot?.unmount(); }); setupRoot = undefined; },
+  };
+}
+
+afterEach(() => {
+  if (setupRoot) act(() => setupRoot?.unmount());
+  setupRoot = undefined;
+  vi.unstubAllGlobals();
+});
+
+describe('GuidedSetupStep interactions', () => {
+  test('keeps cards expanded with no ready CLI, and shows no role lineup table', async () => {
+    const api = setupApi(['missing', 'installed_unauthenticated']);
+    const screen = await mountSetup(api);
+    expect(screen.container.find((node) => node.className === 'guided-setup__drivers')).toBeDefined();
+    expect(screen.container.find((node) => node.className === 'cli-summary-bar')).toBeUndefined();
+    expect(screen.container.find((node) => node.className === 'guided-setup__role-grid' || node.tagName === 'table')).toBeUndefined();
+    expect(screen.container.textContent).not.toContain(MESSAGES.en.guided.setup.customizeRoles);
+  });
+
+  test('one ready CLI collapses cards, opens on demand and can collapse again', async () => {
+    const api = setupApi(['missing', 'ready']);
+    const screen = await mountSetup(api);
+    expect(screen.container.find((node) => node.className === 'cli-summary-bar')).toBeDefined();
+    expect(screen.container.find((node) => node.className === 'guided-setup__drivers')).toBeUndefined();
+    expect(screen.container.find((node) => node.className === 'guided-setup__role-grid' || node.tagName === 'table')).toBeUndefined();
+    await screen.click(screen.button(MESSAGES.en.guided.m3.cliSummary.details));
+    expect(screen.container.find((node) => node.className === 'guided-setup__drivers')).toBeDefined();
+    await screen.click(screen.button(MESSAGES.en.glossary.close));
+    expect(screen.container.find((node) => node.className === 'guided-setup__drivers')).toBeUndefined();
+    expect(screen.container.textContent).not.toContain(MESSAGES.en.guided.setup.customizeRoles);
+  });
+
+  test('confirmation is required; a successful install highlights Sign In without starting login', async () => {
+    const api = setupApi(['missing', 'missing']);
+    const install = deferred<CliInstallResult>();
+    api.installCli.mockReturnValue(install.promise);
+    const screen = await mountSetup(api);
+    const card = screen.container.find((node) => node.className === 'guided-setup__driver' && node.textContent.includes('DSH'))!;
+    await screen.click(screen.button('Install', card));
+    let dialog = card.find((node) => node.getAttribute('role') === 'dialog')!;
+    expect(dialog.textContent).toContain('npm install -g @deepseek-ai/dsh');
+    expect(api.installCli).not.toHaveBeenCalled();
+    await screen.click(screen.button(MESSAGES.en.guided.m3.installConfirm.cancel, dialog));
+    expect(api.installCli).not.toHaveBeenCalled();
+    await screen.click(screen.button('Install', card));
+    dialog = card.find((node) => node.getAttribute('role') === 'dialog')!;
+    const confirm = screen.button(MESSAGES.en.guided.m3.installConfirm.confirm, dialog);
+    const onConfirm = confirm.reactProps().onClick as (event: object) => void;
+    await act(async () => { onConfirm({}); onConfirm({}); });
+    expect(api.installCli).toHaveBeenCalledExactlyOnceWith({ cliId: 'dsh', confirmed: true });
+    expect(api.loginCli).not.toHaveBeenCalled();
+    await act(async () => { install.resolve({ id: 'dsh', ok: true, command: dsh.install_cmd, returncode: 0, output: '' }); });
+    const signIn = screen.button(MESSAGES.en.guided.setup.login, card);
+    expect(signIn.className).toContain('guided-setup__button--sign-in');
+    expect(card.find((node) => node.getAttribute('role') === 'dialog')).toBeUndefined();
+    expect(api.loginCli).not.toHaveBeenCalled();
+    await screen.click(signIn);
+    expect(api.loginCli).toHaveBeenCalledExactlyOnceWith('dsh');
+  });
+
+  test('installing from expanded details keeps the highlighted sign-in visible when another CLI is ready', async () => {
+    const api = setupApi(['missing', 'ready']);
+    const screen = await mountSetup(api);
+    await screen.click(screen.button(MESSAGES.en.guided.m3.cliSummary.details));
+    const card = screen.container.find((node) => node.className === 'guided-setup__driver' && node.textContent.includes('DSH'))!;
+    await screen.click(screen.button('Install', card));
+    const dialog = card.find((node) => node.getAttribute('role') === 'dialog')!;
+    await screen.click(screen.button('Install', dialog));
+    expect(screen.button(MESSAGES.en.guided.setup.login, card).className).toContain('guided-setup__button--sign-in');
+    expect(api.loginCli).not.toHaveBeenCalled();
+  });
+
+  test('a failed sign-in launch keeps the post-install action highlighted for retry', async () => {
+    const api = setupApi(['missing', 'missing']);
+    api.loginCli.mockResolvedValue({ id: 'dsh', launched: false, command: [], message_en: 'Unavailable', message_zh: '' });
+    const screen = await mountSetup(api);
+    const card = screen.container.find((node) => node.className === 'guided-setup__driver' && node.textContent.includes('DSH'))!;
+    await screen.click(screen.button('Install', card));
+    const dialog = card.find((node) => node.getAttribute('role') === 'dialog')!;
+    await screen.click(screen.button('Install', dialog));
+    await screen.click(screen.button(MESSAGES.en.guided.setup.login, card));
+    expect(screen.button(MESSAGES.en.guided.setup.login, card).className).toContain('guided-setup__button--sign-in');
+    await act(async () => screen.focus());
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(1);
+  });
+
+  test('failed installation stays in the popover and does not offer sign-in', async () => {
+    const api = setupApi(['missing', 'missing']);
+    api.installCli.mockResolvedValue({ id: 'dsh', ok: false, command: dsh.install_cmd, returncode: 1, output: 'Install failed' });
+    const screen = await mountSetup(api);
+    const card = screen.container.find((node) => node.className === 'guided-setup__driver' && node.textContent.includes('DSH'))!;
+    await screen.click(screen.button('Install', card));
+    const dialog = card.find((node) => node.getAttribute('role') === 'dialog')!;
+    await screen.click(screen.button('Install', dialog));
+    expect(dialog.textContent).toContain('Install failed');
+    expect(card.textContent).not.toContain(MESSAGES.en.guided.setup.login);
+    expect(api.loginCli).not.toHaveBeenCalled();
+  });
+
+  test('focus after sign-in starts exactly one rescan, with no listener after unmount', async () => {
+    const api = setupApi(['installed_unauthenticated', 'missing']);
+    const screen = await mountSetup(api);
+    expect(screen.focusListenerCount()).toBe(1);
+    await act(async () => screen.focus());
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(1);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.login));
+    const scan = deferred<CliRegistryScanResponse>();
+    api.scanCliRegistry.mockReturnValueOnce(scan.promise);
+    await act(async () => { screen.focus(); screen.focus(); });
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(2);
+    await act(async () => { scan.resolve(scanResponse(['ready', 'missing'])); });
+    await act(async () => screen.focus());
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(2);
+    expect(screen.container.find((node) => node.className === 'cli-summary-bar')).toBeDefined();
+    await screen.unmount();
+    expect(screen.focusListenerCount()).toBe(0);
+    screen.focus();
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(2);
+  });
+
+  test('returns to scanning on each later focus until sign-in is ready', async () => {
+    const api = setupApi(['installed_unauthenticated', 'missing']);
+    const screen = await mountSetup(api);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.login));
+    await act(async () => screen.focus());
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(2);
+    api.scanCliRegistry.mockResolvedValueOnce(scanResponse(['ready', 'missing']));
+    await act(async () => screen.focus());
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(3);
+    await act(async () => screen.focus());
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(3);
+  });
+
+  test('StrictMode leaves one focus listener and removes it on unmount', async () => {
+    const api = setupApi(['installed_unauthenticated', 'missing']);
+    const screen = await mountSetup(api, vi.fn(), {}, true);
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(1);
+    expect(screen.focusListenerCount()).toBe(1);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.login));
+    await act(async () => screen.focus());
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(2);
+    await screen.unmount();
+    expect(screen.focusListenerCount()).toBe(0);
+  });
+
+  test('a focus while login is starting waits for launch and shares any in-flight scan', async () => {
+    const api = setupApi(['installed_unauthenticated', 'missing']);
+    const login = deferred<CliLoginResult>();
+    api.loginCli.mockReturnValue(login.promise);
+    const screen = await mountSetup(api);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.login));
+    await act(async () => { screen.focus(); screen.focus(); });
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(1);
+    const scan = deferred<CliRegistryScanResponse>();
+    api.scanCliRegistry.mockReturnValueOnce(scan.promise);
+    await act(async () => { login.resolve({ id: 'dsh', launched: true, command: ['dsh'], message_en: '', message_zh: '' }); });
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(2);
+    await act(async () => { screen.focus(); scan.resolve(scanResponse(['ready', 'missing'])); });
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(2);
+  });
+});
+
+function sessionFor(path: string, draft: string): GuidedSession {
+  return {
+    schema_version: 1, active_stage: 'setup', workspace_path: path,
+    brainstorm: { messages: [], checklist: [], latest_rfc_draft: draft, selected_l0_model: null, has_online_draft: Boolean(draft) },
+    workflow: { mode: null, lineup: { roles: {}, model_overrides: {} }, preset: null, panel_enabled: false, launch_request_id: null },
+    active_run_id: null, open_human_gate: null, open_drawer: null,
+  };
+}
+
+function sessionBackedApi() {
+  const api = setupApi(['missing', 'ready']);
+  let currentPath = '/repo';
+  const sessions = new Map<string, GuidedSession>([
+    ['/repo', sessionFor('/repo', '# Old draft')],
+    ['/next', sessionFor('/next', '# Existing next draft')],
+  ]);
+  const calls: string[] = [];
+  const client = Object.assign(api, {
+    getGuidedSession: vi.fn(async () => structuredClone(sessions.get(currentPath)!)),
+    saveGuidedSession: vi.fn(async (patch: GuidedSessionPatch) => {
+      calls.push(`save:${currentPath}:${patch.workspace_path}`);
+      const saved = { ...sessions.get(currentPath)!, ...patch } as GuidedSession;
+      sessions.set(currentPath, saved);
+      return structuredClone(saved);
+    }),
+    resetGuidedSession: vi.fn(async () => structuredClone(sessions.get(currentPath)!)),
+    browseWorkspace: vi.fn(async () => {
+      calls.push('browse');
+      currentPath = '/next';
+      return { cancelled: false, path: currentPath, workspace: { ...repo, path: currentPath } };
+    }),
+  });
+  client.selectWorkspace.mockImplementation(async (path) => {
+    calls.push(`select:${path}`);
+    currentPath = path;
+    return { ...repo, path };
+  });
+  return { client, sessions, calls };
+}
+
+describe('GuidedSetupStep workspace and scan coordination', () => {
+  test('Git initialization unlocks continuing once the workspace has a first commit', async () => {
+    const api = setupApi(['missing', 'ready']);
+    api.getWorkspaceInfo.mockResolvedValueOnce({ ...repo, is_git_repo: false, branch: null, has_commits: false });
+    const screen = await mountSetup(api);
+    expect(screen.button(MESSAGES.en.guided.setup.useLineup).reactProps().disabled).toBe(true);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.initGit));
+    expect(api.initGitWorkspace).toHaveBeenCalledOnce();
+    expect(screen.button(MESSAGES.en.guided.setup.useLineup).reactProps().disabled).toBe(false);
+  });
+
+  test('preserves the existing initial role and model overrides when continuing', async () => {
+    const api = setupApi(['ready', 'ready']);
+    const onReady = vi.fn();
+    const screen = await mountSetup(api, onReady, {
+      initialRoles: { tactical_planner: 'dsh_opencode' },
+      initialModelOverrides: { tactical_planner: 'dsh_opencode:deepseek-v4.1-flash@max' },
+    });
+    await screen.click(screen.button(MESSAGES.en.guided.setup.useLineup));
+    expect(onReady).toHaveBeenCalledOnce();
+    expect(onReady.mock.calls[0][0]).toMatchObject({
+      roles: { tactical_planner: 'dsh_opencode' },
+      model_overrides: { tactical_planner: 'dsh_opencode:deepseek-v4.1-flash@max' },
+    });
+  });
+
+  test('persists a browsed workspace through the session before continuing, preserving both drafts', async () => {
+    const { client, sessions, calls } = sessionBackedApi();
+    const screen = await mountSetup(client);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.pickFolder));
+    expect(calls).toEqual(['browse', 'save:/next:/next']);
+    expect(sessions.get('/repo')?.brainstorm.latest_rfc_draft).toBe('# Old draft');
+    expect(sessions.get('/next')?.brainstorm.latest_rfc_draft).toBe('# Existing next draft');
+    expect(sessions.get('/next')?.workspace_path).toBe('/next');
+    await screen.click(screen.button(MESSAGES.en.guided.setup.useLineup));
+    expect(screen.onReady).toHaveBeenCalledOnce();
+    expect(sessions.get('/next')?.workspace_path).toBe('/next');
+  });
+
+  test('a workspace save failure blocks continuing and can be retried without discarding the destination draft', async () => {
+    const { client, sessions } = sessionBackedApi();
+    client.saveGuidedSession.mockRejectedValueOnce(new Error('Cannot save workspace'));
+    const screen = await mountSetup(client);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.pickFolder));
+    expect(screen.container.textContent).toContain('Cannot save workspace');
+    expect(screen.onReady).not.toHaveBeenCalled();
+    expect(screen.container.textContent).not.toContain(MESSAGES.en.guided.setup.useLineup);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.applyPath));
+    expect(sessions.get('/next')?.brainstorm.latest_rfc_draft).toBe('# Existing next draft');
+    expect(sessions.get('/next')?.workspace_path).toBe('/next');
+    await screen.click(screen.button(MESSAGES.en.guided.setup.useLineup));
+    expect(screen.onReady).toHaveBeenCalledOnce();
+  });
+
+  test('a supplied parent session flushes queued writes before switching and reports the persisted workspace', async () => {
+    const { client } = sessionBackedApi();
+    const events: string[] = [];
+    const parentSession = {
+      session: sessionFor('/repo', '# Old draft'), loading: false, saving: false, error: null,
+      save: vi.fn((patch: GuidedSessionPatch) => { events.push(`save:${patch.workspace_path}`); }),
+      flush: vi.fn(async () => { events.push('flush'); return sessionFor('/repo', '# Old draft'); }),
+      reset: vi.fn(async () => sessionFor('/repo', '')),
+      ensureLaunchRequestId: vi.fn(async () => 'request-id'),
+    };
+    client.browseWorkspace.mockImplementation(async () => {
+      events.push('browse');
+      return { cancelled: false, path: '/next', workspace: { ...repo, path: '/next' } };
+    });
+    const screen = await mountSetup(client, vi.fn(), {
+      guidedSession: parentSession,
+      onWorkspaceChanged: (info) => events.push(`changed:${info.path}`),
+    });
+    expect(client.getGuidedSession).not.toHaveBeenCalled();
+    await screen.click(screen.button(MESSAGES.en.guided.setup.pickFolder));
+    expect(events).toEqual(['flush', 'browse', 'save:/next', 'flush', 'changed:/next']);
+  });
+
+  test('a manual rescan and the sign-in focus share the same in-flight request', async () => {
+    const api = setupApi(['installed_unauthenticated', 'missing']);
+    const screen = await mountSetup(api);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.login));
+    const scan = deferred<CliRegistryScanResponse>();
+    api.scanCliRegistry.mockReturnValueOnce(scan.promise);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.scanClis));
+    await act(async () => { screen.focus(); screen.focus(); });
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(2);
+    await act(async () => { scan.resolve(scanResponse(['ready', 'missing'])); });
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(2);
+  });
+
+  test('a scan from the previous workspace cannot overwrite the new workspace scan', async () => {
+    const api = setupApi(['installed_unauthenticated', 'missing']);
+    const selection = deferred<WorkspaceInfo>();
+    api.selectWorkspace.mockReturnValueOnce(selection.promise);
+    const screen = await mountSetup(api);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.login));
+    const input = screen.container.find((node) => node.tagName === 'input'
+      && node.reactProps()['aria-label'] === MESSAGES.en.guided.setup.currentFolder)!;
+    await act(async () => { (input.reactProps().onChange as (event: object) => void)({ target: { value: '/next' } }); });
+    await screen.click(screen.button(MESSAGES.en.guided.setup.applyPath));
+    const oldScan = deferred<CliRegistryScanResponse>();
+    api.scanCliRegistry.mockReturnValueOnce(oldScan.promise).mockResolvedValueOnce(scanResponse(['missing', 'missing']));
+    await act(async () => screen.focus());
+    await act(async () => { selection.resolve({ ...repo, path: '/next' }); });
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(3);
+    await act(async () => { oldScan.resolve(scanResponse(['ready', 'missing'])); });
+    expect(screen.container.find((node) => node.className === 'cli-summary-bar')).toBeUndefined();
+    expect(screen.container.find((node) => node.className === 'guided-setup__drivers')).toBeDefined();
+  });
+
+  test('reselecting the same path starts a fresh scan after invalidating the old one', async () => {
+    const api = setupApi(['installed_unauthenticated', 'missing']);
+    const selection = deferred<WorkspaceInfo>();
+    api.selectWorkspace.mockReturnValueOnce(selection.promise);
+    const screen = await mountSetup(api);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.login));
+    await screen.click(screen.button(MESSAGES.en.guided.setup.applyPath));
+    const oldScan = deferred<CliRegistryScanResponse>();
+    api.scanCliRegistry.mockReturnValueOnce(oldScan.promise).mockResolvedValueOnce(scanResponse(['missing', 'ready']));
+    await act(async () => screen.focus());
+    await act(async () => { selection.resolve(repo); });
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(3);
+    expect(screen.container.find((node) => node.className === 'cli-summary-bar')).toBeDefined();
+    await act(async () => { oldScan.resolve(scanResponse(['missing', 'missing'])); });
+    expect(screen.container.find((node) => node.className === 'cli-summary-bar')).toBeDefined();
+  });
+
+  test('a sign-in that does not launch does not schedule a focus rescan', async () => {
+    const api = setupApi(['installed_unauthenticated', 'missing']);
+    api.loginCli.mockResolvedValue({ id: 'dsh', launched: false, command: [], message_en: 'Unavailable', message_zh: '' });
+    const screen = await mountSetup(api);
+    await screen.click(screen.button(MESSAGES.en.guided.setup.login));
+    await act(async () => screen.focus());
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(1);
   });
 });

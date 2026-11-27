@@ -6,7 +6,7 @@ import { Button } from '../ui/button';
 import { Label, Textarea } from '../ui/input';
 import { Modal } from '../ui/Modal';
 import { GlossaryTerm, useGlossaryHighlights } from './GlossaryTerm';
-import { localizeGuidedError } from './guidedErrors';
+import { isStaleRunError, localizeGuidedError } from './guidedErrors';
 
 export interface GuidedDecisionOption {
   /** Only choices the backend /resolve endpoint accepts. */
@@ -35,6 +35,8 @@ export interface GuidedDecisionModalProps {
   onResolved(): void;
   locale: Locale;
   resolver?: GuidedDecisionResolver;
+  /** A stale run must no longer offer a decision. */
+  onStale?(): void;
 }
 
 const DEFAULT_OPTIONS: readonly GuidedDecisionOption[] = [
@@ -154,7 +156,8 @@ function ignoreClose(): void {
   // A human gate can only be left through onResolved, after the decision succeeds.
 }
 
-export function GuidedDecisionModal({
+/** Shared decision form and submission state for the modal and non-modal drawer. */
+export function useGuidedDecisionContent({
   open,
   runId,
   taskId,
@@ -163,6 +166,7 @@ export function GuidedDecisionModal({
   onResolved,
   locale,
   resolver = defaultResolver,
+  onStale,
 }: GuidedDecisionModalProps) {
   const copy = MESSAGES[locale].guided.decision;
   const questionId = useId();
@@ -198,7 +202,8 @@ export function GuidedDecisionModal({
       await resolver(buildResolvePayload(runId, taskId, choice, note));
       onResolved();
     } catch (cause) {
-      setError(localizeGuidedError(cause, locale));
+      if (isStaleRunError(cause) && onStale) onStale();
+      else setError(localizeGuidedError(cause, locale));
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
@@ -206,7 +211,6 @@ export function GuidedDecisionModal({
   }
 
   return (
-    <Modal open={open} title={copy.title} onClose={ignoreClose}>
       <div className="guided-decision">
         <p className="guided-decision__intro">{copy.intro}</p>
         <p className="guided-decision__question" id={questionId}>
@@ -273,6 +277,12 @@ export function GuidedDecisionModal({
           </div>
         </form>
       </div>
-    </Modal>
   );
+}
+
+/** Compatibility modal; the workbench uses the same decision form in a non-modal drawer. */
+export function GuidedDecisionModal(props: GuidedDecisionModalProps) {
+  const content = useGuidedDecisionContent(props);
+  if (!props.open) return null;
+  return <Modal open={props.open} title={MESSAGES[props.locale].guided.decision.title} onClose={ignoreClose}>{content}</Modal>;
 }

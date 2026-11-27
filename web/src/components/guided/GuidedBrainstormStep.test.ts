@@ -1,18 +1,22 @@
-import { createElement } from 'react';
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, test, vi } from 'vitest';
-import type { BlueprintCard, BrainstormTurnResult, ChecklistItem, RecommendedLineup } from '../../api/client';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import { ApiError, type BlueprintCard, type BrainstormTurnResult, type ChecklistItem, type GuidedSession, type RecommendedLineup } from '../../api/client';
 import { MESSAGES } from '../../i18n/messages';
+import { BUILTIN_MODEL_CATALOG } from './GuidedSetupStep';
 import {
   appendTurn,
   applyExample,
   BRAINSTORM_SCENARIOS,
   BrainstormTurn,
+  brainstormRequestContext,
   brainstormStorageKey,
   canLaunch,
   checklistProgress,
   clearBrainstorm,
   confirmAndStart,
+  createLaunchFlight,
   editPrefill,
   FEATURED_SCENARIO_IDS,
   GuidedBrainstormStep,
@@ -22,9 +26,11 @@ import {
   notReadyReason,
   retryBrainstormTurn,
   retryTranscript,
+  selectBrainstormResult,
   saveBrainstorm,
   saveTypewriterPref,
   sendBrainstormTurn,
+  startKeyedLaunch,
   shouldSubmitOnKey,
   typewriterFrames,
   TYPEWRITER_MAX_MS,
@@ -191,6 +197,110 @@ describe('pure helpers', () => {
   });
 });
 
+describe('protected online blueprint and keyed launch', () => {
+  test('a retryable response keeps the prior blueprint and exposes a retry', () => {
+    const previous = turnResult('Original blueprint', true, { offline: false, responding_model: 'first-model' });
+    const failure = turnResult('Online request failed', false, {
+      error: 'timeout', retryable: true, offline: false, responding_model: null,
+    });
+    const selected = selectBrainstormResult(previous, failure);
+    expect(selected.turn).toBe(previous);
+    expect(selected.retryError).toBe('timeout');
+    expect(selectBrainstormResult(null, failure).turn).toBe(failure);
+    const offline = turnResult('Offline template', false, { error: 'unavailable', offline: true });
+    expect(selectBrainstormResult(null, offline).turn).toBe(offline);
+  });
+
+  test('two rapid launch attempts share a single in-flight operation', async () => {
+    const flight = createLaunchFlight();
+    let finish!: (value: string) => void;
+    const launch = vi.fn(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const first = flight(launch);
+    const second = flight(launch);
+    expect(launch).toHaveBeenCalledTimes(1);
+    finish('run-id');
+    await expect(first).resolves.toBe('run-id');
+    await expect(second).resolves.toBe('run-id');
+  });
+
+  test('persists one request ID and exact payload before two rapid clicks dispatch one start call', async () => {
+    const session: GuidedSession = {
+      schema_version: 1, active_stage: 'blueprint', workspace_path: '/repo', active_run_id: 'old-run',
+      brainstorm: { messages: [], checklist: [], latest_rfc_draft: '# draft', selected_l0_model: null, has_online_draft: true },
+      workflow: { mode: 'overnight', lineup: { roles: LINEUP.roles, model_overrides: {} }, preset: null,
+        panel_enabled: false, launch_request_id: 'old-key' }, open_human_gate: null, open_drawer: null,
+    };
+    const calls: string[] = [];
+    let resolve!: (value: { run_id: string }) => void;
+    const startRun = vi.fn((_payload: Parameters<GuidedBrainstormApi['startRun']>[0]) => {
+      calls.push('start'); return new Promise<{ run_id: string }>((done) => { resolve = done; });
+    });
+    const persistence = {
+      save: vi.fn(() => { calls.push('save'); }),
+      flush: vi.fn(async () => { calls.push('flush'); return session; }),
+      ensureLaunchRequestId: vi.fn(async () => { calls.push('key'); return 'new-stable-key'; }),
+    };
+    const onPrepared = vi.fn();
+    const options = { api: { startRun }, session, persistence, pending: null, draft: '# revised',
+      lineup: { roles: LINEUP.roles, model_overrides: {} }, mode: 'overnight' as const, preset: null, onPrepared };
+    const flight = createLaunchFlight();
+    const first = flight(() => startKeyedLaunch(options));
+    const second = flight(() => startKeyedLaunch(options));
+    await vi.waitFor(() => expect(startRun).toHaveBeenCalledOnce());
+    expect(persistence.ensureLaunchRequestId).toHaveBeenCalledOnce();
+    expect(persistence.save).toHaveBeenCalledWith({ workflow: { launch_request_id: null, guided_launch_parent: 'old-run' } });
+    expect(calls.indexOf('flush')).toBeLessThan(calls.indexOf('start'));
+    expect(startRun).toHaveBeenCalledWith(expect.objectContaining({ launch_request_id: 'new-stable-key', rfc_markdown: '# revised' }));
+    expect(onPrepared).toHaveBeenCalledWith(startRun.mock.calls[0][0]);
+    resolve({ run_id: 'new-run' });
+    await expect(first).resolves.toBe('new-run');
+    await expect(second).resolves.toBe('new-run');
+  });
+
+  test('switches requested models without changing the prior transcript and reports the actual model', async () => {
+    const api = fakeApi([turnResult('First response', true, { offline: false, responding_model: 'actual-first' }),
+      turnResult('Second response', true, { offline: false, responding_model: 'actual-second' })]);
+    const first = await sendBrainstormTurn(api, [], 'Idea', null, 'en', undefined, { requested_l0_model: 'one:first@high' });
+    const second = await sendBrainstormTurn(api, first.messages, 'Change it', null, 'en', undefined, { requested_l0_model: 'two:second@high' });
+    expect(second.messages.slice(0, 2)).toEqual(first.messages);
+    expect(api.brainstormChat).toHaveBeenLastCalledWith(expect.objectContaining({ requested_l0_model: 'two:second@high' }));
+    expect(renderToStaticMarkup(createElement(BrainstormTurn, { message: second.messages[3],
+      modelLabel: 'Responded with', respondingModel: second.turn.responding_model }))).toContain('actual-second');
+  });
+
+  test('revision requests carry the previous draft, failure details, lineup and automatic model', () => {
+    const session: GuidedSession = {
+      schema_version: 1, active_stage: 'blueprint', workspace_path: '/repo', active_run_id: 'run-1',
+      brainstorm: { messages: [], checklist: [], latest_rfc_draft: '# prior', selected_l0_model: null, has_online_draft: true,
+        replan_contexts: { 'run-1': JSON.stringify({ run_summary: 'Build failed',
+          failed_tasks: [{ id: 'T1', title: 'Tests' }], last_errors: { T1: 'pytest failed' } }) } },
+      workflow: { mode: 'overnight', preset: null, panel_enabled: false, launch_request_id: null,
+        lineup: { roles: LINEUP.roles, model_overrides: {}, size: 'medium' } },
+      open_human_gate: null, open_drawer: null,
+    };
+    expect(brainstormRequestContext(session, '# prior', 'Fix the tests', null, 'codex:strong@high')).toEqual({
+      requested_l0_model: 'codex:strong@high',
+      revision_context: { prior_rfc: '# prior', requested_changes: 'Fix the tests' },
+      failure_context: 'Build failed\nT1 — Tests\nT1: pytest failed',
+      previous_lineup: session.workflow.lineup,
+    });
+    expect(brainstormRequestContext(null, '', 'Idea', 'chosen:model', 'auto:model')).toEqual({ requested_l0_model: 'chosen:model' });
+  });
+
+  test('replays the persisted payload unchanged after an uncertain start', async () => {
+    const pending = { launch_request_id: 'same-key', rfc_markdown: '# original', mode: 'panel' as const,
+      lineup: { roles: { planner: 'codex_sub' }, model_overrides: {}, size: 'large' as const }, preset: 'specialist_panel' };
+    const session = { active_run_id: 'parent' } as GuidedSession;
+    const api = { startRun: vi.fn().mockResolvedValue({ run_id: 'recovered-run' }) };
+    const persistence = { save: vi.fn(), flush: vi.fn(), ensureLaunchRequestId: vi.fn() };
+    const result = await startKeyedLaunch({ api, session, persistence, pending, draft: '# changed',
+      lineup: { roles: {}, model_overrides: {} }, mode: 'overnight', preset: null, onPrepared: vi.fn() });
+    expect(result).toBe('recovered-run');
+    expect(api.startRun).toHaveBeenCalledWith(pending);
+    expect(persistence.ensureLaunchRequestId).not.toHaveBeenCalled();
+  });
+});
+
 describe('local persistence', () => {
   const saved = {
     messages: [{ role: 'user' as const, content: 'Build a todo app' }, { role: 'assistant' as const, content: 'Who is it for?' }],
@@ -346,14 +456,13 @@ describe('GuidedBrainstormStep render', () => {
     );
   }
 
-  test('launch is disabled before any blueprint exists', () => {
-    expect(render('en')).toMatch(/<button type="button" class="guided-brainstorm__launch" disabled="">/);
+  test('launch bar is absent before a blueprint is ready', () => {
+    expect(render('en')).not.toContain('guided-launch-bar');
   });
 
   test('opens with one sentence box, a few examples and the rest folded away', () => {
     const zh = render('zh');
     expect(zh).toContain('用一句话说说你想做什么');
-    expect(zh).toContain('确认蓝图并开始施工');
     expect(zh).toContain('更多灵感');
     expect(zh).toContain('<details class="guided-brainstorm__more">');
     for (const item of BRAINSTORM_SCENARIOS) expect(zh).toContain(item.title_zh);
@@ -366,7 +475,6 @@ describe('GuidedBrainstormStep render', () => {
     expect(FEATURED_SCENARIO_IDS.length).toBeLessThanOrEqual(4);
     const en = render('en');
     expect(en).toContain('Tell me in one sentence what you want to make');
-    expect(en).toContain('Confirm Blueprint &amp; Start Building');
   });
 
   test('the blueprint shows all five checklist items as not discussed yet', () => {
@@ -426,3 +534,250 @@ describe('GuidedBrainstormStep render', () => {
     expect(userMarkup).not.toContain('<strong>');
   });
 });
+
+// The project runs Vitest in Node; this small host supports mounting the real
+// component and invoking its handlers without adding a DOM dependency.
+class TestNode {
+  childNodes: TestNode[] = [];
+  parentNode: TestNode | null = null;
+  nodeValue: string | null = null;
+  constructor(public nodeType: number, public nodeName: string, public ownerDocument: TestDocument) {}
+  appendChild(node: TestNode) { node.parentNode?.removeChild(node); this.childNodes.push(node); node.parentNode = this; return node; }
+  removeChild(node: TestNode) { this.childNodes.splice(this.childNodes.indexOf(node), 1); node.parentNode = null; return node; }
+  insertBefore(node: TestNode, before: TestNode) {
+    node.parentNode?.removeChild(node); this.childNodes.splice(this.childNodes.indexOf(before), 0, node); node.parentNode = this; return node;
+  }
+  get firstChild() { return this.childNodes[0] ?? null; }
+  get textContent(): string { return this.nodeValue ?? this.childNodes.map((child) => child.textContent).join(''); }
+  set textContent(value: string) {
+    this.childNodes = [];
+    this.nodeValue = this.nodeType === 3 ? value : null;
+    if (this.nodeType !== 3 && value) this.appendChild(this.ownerDocument.createTextNode(value));
+  }
+  addEventListener() {}
+  removeEventListener() {}
+}
+
+class TestElement extends TestNode {
+  tagName: string;
+  namespaceURI = 'http://www.w3.org/1999/xhtml';
+  style: Record<string, string> = {};
+  attributes: Record<string, string> = {};
+  value = '';
+  checked = false;
+  selected = false;
+  disabled = false;
+  multiple = false;
+  constructor(tag: string, document: TestDocument) { super(1, tag.toUpperCase(), document); this.tagName = this.nodeName; }
+  setAttribute(name: string, value: string) { this.attributes[name] = String(value); }
+  removeAttribute(name: string) { delete this.attributes[name]; }
+  setAttributeNS(_namespace: string, name: string, value: string) { this.setAttribute(name, value); }
+  get options(): TestElement[] {
+    return this.childNodes.flatMap((child) => child instanceof TestElement
+      ? child.tagName === 'OPTION' ? [child] : child.options : []);
+  }
+  focus() { this.ownerDocument.activeElement = this; }
+}
+
+class TestDocument {
+  nodeType = 9;
+  documentElement = new TestElement('html', this);
+  body = new TestElement('body', this);
+  activeElement: TestElement | null = this.body;
+  createElement(tag: string) { return new TestElement(tag, this); }
+  createElementNS(_namespace: string, tag: string) { return this.createElement(tag); }
+  createTextNode(value: string) { const node = new TestNode(3, '#text', this); node.nodeValue = value; return node; }
+  addEventListener() {}
+  removeEventListener() {}
+}
+
+function reactProps(node: TestNode): Record<string, unknown> {
+  const key = Object.keys(node).find((name) => name.startsWith('__reactProps$'));
+  return key ? (node as unknown as Record<string, Record<string, unknown>>)[key] : {};
+}
+
+function findNode(root: TestNode, predicate: (node: TestNode, props: Record<string, unknown>) => boolean): TestNode | undefined {
+  if (predicate(root, reactProps(root))) return root;
+  for (const child of root.childNodes) {
+    const found = findNode(child, predicate);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+afterEach(() => vi.unstubAllGlobals());
+
+test('mounted step preserves, restores, launches once, and replans with failure context', async () => {
+  const document = new TestDocument();
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('window', { document, HTMLIFrameElement: class {}, matchMedia: () => ({ matches: true }),
+    localStorage: memoryStorage() });
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('crypto', { randomUUID: () => 'one-launch-id' });
+  let session: GuidedSession = {
+    schema_version: 1, active_stage: 'blueprint', workspace_path: '/repo', active_run_id: null,
+    brainstorm: { messages: [], checklist: [], latest_rfc_draft: '', selected_l0_model: null, has_online_draft: false },
+    workflow: { mode: null, lineup: { roles: {}, model_overrides: {} }, preset: null, panel_enabled: false, launch_request_id: null },
+    open_human_gate: null, open_drawer: null,
+  };
+  const recommendation = { mode: 'overnight' as const, preset: null, size: 'medium' as const,
+    lineup: { roles: LINEUP.roles, model_overrides: {}, size: 'medium' as const }, reason_code: 'medium_relay',
+    explanation_key: 'workflow.medium_relay', fallback: false, size_changed: null,
+    explanation_codes: ['medium_relay'], substitutions: [] };
+  const first = turnResult('First response', true, { offline: false, provider_used: 'one', responding_model: 'first-model', recommendation });
+  const failed = turnResult('Please retry', true, { ...first, reply: 'Please retry', error: 'timeout', retryable: true,
+    responding_model: null, blueprint: { ...first.blueprint, title: 'Incorrect replacement' } });
+  const second = turnResult('Revised response', true, { ...first, reply: 'Revised response', responding_model: 'second-model' });
+  const results = [first, failed, second];
+  const api = { ...fakeApi([]), brainstormChat: vi.fn(async (request: Parameters<GuidedBrainstormApi['brainstormChat']>[0]) => {
+    const result = results.shift()!;
+    session = { ...session, brainstorm: { ...session.brainstorm,
+      messages: [...request.messages, { role: 'assistant', content: result.reply }],
+      checklist: result.guide.checklist, latest_rfc_draft: result.rfc_markdown, has_online_draft: true } };
+    return result;
+  }) };
+  const services = {
+    getGuidedSession: vi.fn(async () => structuredClone(session)),
+    saveGuidedSession: vi.fn(async (patch: Partial<GuidedSession>) => {
+      session = { ...session, ...patch,
+        brainstorm: { ...session.brainstorm, ...patch.brainstorm },
+        workflow: { ...session.workflow, ...patch.workflow,
+          lineup: { ...session.workflow.lineup, ...patch.workflow?.lineup } } };
+      return structuredClone(session);
+    }),
+    resetGuidedSession: vi.fn(async () => session),
+    getL0Models: vi.fn(async () => ({ models: [
+      { provider: 'one', model: 'first', effort: 'high', spec: 'one:first@high', label: 'First' },
+      { provider: 'two', model: 'second', effort: 'high', spec: 'two:second@high', label: 'Second' },
+    ], auto_selected: 'one:first@high' })),
+    getModelCatalog: vi.fn(async () => ({ ...BUILTIN_MODEL_CATALOG, cache: {} })),
+    getLineupProfiles: vi.fn(async () => ({ profiles: [], last_used: null })),
+    saveLineupProfile: vi.fn(),
+    deleteLineupProfile: vi.fn(),
+    saveLastUsedLineup: vi.fn(async () => ({ profiles: [], last_used: null })),
+  };
+  const container = document.createElement('div');
+  let root = createRoot(container as unknown as HTMLElement);
+  const onLaunched = vi.fn();
+  const element = () => createElement(GuidedBrainstormStep, {
+    locale: 'en', lineup: LINEUP, onLaunched, api, projectPath: '/repo', services: services as never,
+  });
+  await act(async () => root.render(element()));
+  const byClass = (name: string) => findNode(container, (_node, props) =>
+    typeof props.className === 'string' && props.className.split(' ').includes(name))!;
+  const change = async (value: string) => act(async () => {
+    const handler = reactProps(byClass('guided-brainstorm__input')).onChange as (event: unknown) => void;
+    handler({ target: { value }, currentTarget: { value } });
+  });
+  const submit = async () => act(async () => {
+    const handler = reactProps(byClass('guided-brainstorm__composer')).onSubmit as (event: unknown) => void;
+    handler({ preventDefault() {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await change('Build it');
+  await submit();
+  expect(container.textContent).toContain('Todo app');
+  expect(container.textContent).toContain('first-model');
+  await act(async () => {
+    const select = byClass('l0-model-switcher__select');
+    (reactProps(select).onChange as (event: unknown) => void)({ currentTarget: { value: 'two:second@high' } });
+  });
+  await change('Change it');
+  await submit();
+  expect(container.textContent).toContain('Todo app');
+  expect(container.textContent).not.toContain('Incorrect replacement');
+  expect(container.textContent).toContain('Retry online');
+  await act(async () => {
+    (reactProps(byClass('guided-brainstorm__retry')).onClick as () => void)();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(api.brainstormChat).toHaveBeenLastCalledWith(expect.objectContaining({ requested_l0_model: 'two:second@high' }));
+  expect(container.textContent).toContain('second-model');
+  expect(container.textContent).toContain('Recommended workflow');
+  await vi.waitFor(() => expect(session.brainstorm.guided_turn_snapshot).toBeTruthy());
+  await act(async () => root.unmount());
+  root = createRoot(container as unknown as HTMLElement);
+  await act(async () => root.render(element()));
+  expect(container.textContent).toContain('Todo app');
+  expect(container.textContent).toContain('second-model');
+  expect(reactProps(byClass('l0-model-switcher__select')).value).toBe('two:second@high');
+  expect(container.textContent).toContain('Recommended workflow');
+
+  await act(async () => {
+    const toggle = findNode(container, (node, props) => node.nodeName === 'INPUT'
+      && props.type === 'checkbox' && props.checked === false && typeof props['aria-describedby'] !== 'string')!;
+    (reactProps(toggle).onChange as (event: unknown) => void)({ currentTarget: { checked: true } });
+  });
+  api.startRun.mockRejectedValueOnce(new ApiError(409, 'Panel unavailable', { code: 'LAUNCH_PREFLIGHT',
+    codes: ['synthesizer_credentials_missing'], fallback: { ...recommendation, size: 'large', fallback: true,
+      reason_code: 'synthesizer_credentials_missing', explanation_codes: ['synthesizer_credentials_missing'] } }));
+  await act(async () => {
+    (reactProps(byClass('guided-launch-bar__launch')).onClick as () => void)();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(container.textContent).toContain(MESSAGES.en.guided.m3.recommendation.reasons.synthesizer_credentials_missing);
+  expect(findNode(container, (node, props) => node.nodeName === 'INPUT' && props.type === 'checkbox'
+    && props.disabled === true && typeof props['aria-describedby'] === 'string')).toBeDefined();
+  api.startRun.mockClear();
+  let finish!: (value: { run_id: string }) => void;
+  api.startRun.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  await act(async () => {
+    const click = reactProps(byClass('guided-launch-bar__launch')).onClick as () => void;
+    click();
+    click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(api.startRun).toHaveBeenCalledOnce();
+  expect(api.startRun).toHaveBeenCalledWith(expect.objectContaining({ launch_request_id: 'one-launch-id' }));
+  expect(reactProps(byClass('guided-launch-bar__launch')).disabled).toBe(true);
+  await act(async () => { finish({ run_id: 'run-42' }); });
+  expect(onLaunched).toHaveBeenCalledOnce();
+  await act(async () => root.unmount());
+
+  session = { ...session, active_run_id: 'run-42', active_stage: 'blueprint',
+    brainstorm: { ...session.brainstorm, replan_contexts: { 'run-42': JSON.stringify({
+      run_summary: 'Build failed', failed_tasks: [{ id: 'T1', title: 'Tests' }], last_errors: { T1: 'pytest failed' },
+    }) } }, workflow: { ...session.workflow, mode: 'overnight', lineup: { ...session.workflow.lineup, size: 'medium' } } };
+  results.push(turnResult('Revised blueprint', true, { ...first, reply: 'Revised blueprint', responding_model: 'second-model',
+    recommendation: { ...recommendation, mode: 'panel', size: 'large', size_changed: true,
+      explanation_codes: ['previous_lineup_preserved'] } }));
+  root = createRoot(container as unknown as HTMLElement);
+  await act(async () => root.render(element()));
+  const countClear = (node: TestNode): number => {
+    const classes = reactProps(node).className;
+    return (typeof classes === 'string' && classes.includes('guided-brainstorm__item--clear') ? 1 : 0)
+      + node.childNodes.reduce((total, child) => total + countClear(child), 0);
+  };
+  expect(countClear(container)).toBe(5);
+  expect(container.textContent).toContain('Todo app');
+  expect(findNode(container, (_node, props) => props.className === 'guided-launch-bar')).toBeUndefined();
+  await change('Fix the tests');
+  await submit();
+  expect(api.brainstormChat).toHaveBeenLastCalledWith(expect.objectContaining({
+    revision_context: { prior_rfc: first.rfc_markdown, requested_changes: 'Fix the tests' },
+    failure_context: 'Build failed\nT1 — Tests\nT1: pytest failed',
+    previous_lineup: expect.objectContaining({ roles: LINEUP.roles, size: 'medium' }),
+  }));
+  expect(findNode(container, (_node, props) => props['data-current-size'] === 'medium')).toBeDefined();
+  expect(reactProps(byClass('guided-launch-bar__launch')).disabled).toBe(true);
+  expect(container.textContent).toContain('cannot attach the stopped run');
+  await act(async () => root.unmount());
+});
+
+/*
+ * Work record 20261126-182700-m3-t3 (PST), branch baton/e33e97/m3-t3, base f3852b5.
+ * Scope: the M3-T3 file whitelist. Added the session-backed brainstorm model,
+ * protected retry, recommendation and lineup drawer, and keyed single-flight
+ * launch. The whitelist excludes LOG.md and LOG-INDEX.md, so this record stays
+ * with the regression test. No commit was created; base f3852b5 is the rollback
+ * reference for the originally clean worktree.
+ * Verification: 84 targeted tests and all 850 web tests passed with
+ * --configLoader runner; TypeScript typecheck and production build passed.
+ * The exact requested command failed at startup with EPERM writing the shared
+ * node_modules/.vite-temp junction. Browser automation required an unavailable
+ * approval; real-browser and user acceptance remain unverified.
+ * Stop & Replan preserves the revision but its launch is disabled: startRun
+ * cannot attach a parent. Sign-Off currently creates a child directly without
+ * entering Blueprint. Both require parent/backend work outside this whitelist.
+ * Status: partially self-tested; integration blocked, pending user acceptance.
+ */

@@ -1,17 +1,24 @@
-import { createElement } from 'react';
+import { act, Children, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, test } from 'vitest';
-import type { BatonApiClient } from '../../api/client';
+import { afterEach, assert, describe, expect, test, vi } from 'vitest';
+import { ApiError, type ApiMode, type BatonApiClient, type GuidedSession, type GuidedSessionPatch, type StopAndReplanResult } from '../../api/client';
 import { MESSAGES } from '../../i18n/messages';
 import type { LiveRunSnapshot } from '../../types/graph';
 import workbenchSource from './GuidedWorkbench.tsx?raw';
+import { GuidedDecisionDrawer } from './GuidedDecisionDrawer';
+import { GuidedFailedBanner } from './GuidedFailedBanner';
+import { GuidedBrainstormStep, type GuidedBrainstormApi } from './GuidedBrainstormStep';
+import { NodeDetailDrawer } from './NodeDetailDrawer';
 import {
   GUIDED_STEPS,
   GuidedWorkbench,
   nextStep,
+  replanContextFromSession,
   signOffSummaryFromSnapshot,
   stepFromRun,
   taskIdFromNodeId,
+  useGuidedWorkbenchView,
   waitingDecision,
 } from './GuidedWorkbench';
 
@@ -143,5 +150,310 @@ describe('GuidedWorkbench', () => {
     expect(workbenchSource).toContain('apiMode={apiMode}');
     expect(workbenchSource).toContain('copy.workbench.changeTeam');
     expect(workbenchSource).toContain('guided-workbench__step-btn');
+  });
+});
+
+function elements(node: ReactNode): ReactElement<Record<string, unknown>>[] {
+  return Children.toArray(node).flatMap((child) => isValidElement<Record<string, unknown>>(child)
+    ? [child, ...elements(child.props.children as ReactNode)] : []);
+}
+
+function merge(base: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    const existing = result[key];
+    result[key] = value && typeof value === 'object' && !Array.isArray(value)
+      && existing && typeof existing === 'object' && !Array.isArray(existing)
+      ? merge(existing as Record<string, unknown>, value as Record<string, unknown>) : value;
+  }
+  return result;
+}
+
+function buildSession(): GuidedSession {
+  const lineup = { ready: true, roles: { brainstorm_and_final_gate: 'codex' }, model_overrides: {}, source: 'cli', notes_en: '', notes_zh: '' };
+  return {
+    schema_version: 1, active_stage: 'build', workspace_path: '/repo',
+    brainstorm: { messages: [], checklist: [], latest_rfc_draft: '# Original RFC', selected_l0_model: null, has_online_draft: true },
+    workflow: { mode: 'overnight', lineup: { roles: lineup.roles, model_overrides: {} }, preset: null,
+      panel_enabled: false, launch_request_id: null, guided_selected_lineup: lineup },
+    active_run_id: 'r1', open_human_gate: null, open_drawer: null,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((ok, fail) => { resolve = ok; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+describe('GuidedWorkbench live interactions', () => {
+  let root: Root | undefined;
+  let view: ReactNode;
+  let stored: GuidedSession;
+  let current: LiveRunSnapshot;
+  let api: BatonApiClient;
+  let follow: ReturnType<typeof vi.fn>;
+  let mode: ApiMode | null | undefined;
+
+  function find(predicate: (node: ReactElement<Record<string, unknown>>) => boolean) {
+    const node = elements(view).find(predicate);
+    assert(node, 'Expected a matching workbench element');
+    return node;
+  }
+
+  async function mount() {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('window', { HTMLIFrameElement: class HTMLIFrameElement {} });
+    const container = { nodeType: 1, tagName: 'DIV', ownerDocument: null, addEventListener() {} };
+    root = createRoot(container as unknown as HTMLElement);
+    function Probe() { view = useGuidedWorkbenchView({ locale: 'en', client: api, apiMode: mode, liveSnapshot: current, onFollowRun: follow }); return null; }
+    await act(async () => { root!.render(createElement(Probe)); });
+    return async () => { await act(async () => { root!.render(createElement(Probe)); }); };
+  }
+
+  function setup(run: LiveRunSnapshot) {
+    vi.useFakeTimers();
+    stored = buildSession();
+    current = run;
+    mode = undefined;
+    follow = vi.fn();
+    api = {
+      getGuidedSession: vi.fn(async () => structuredClone(stored)),
+      saveGuidedSession: vi.fn(async (patch: GuidedSessionPatch) => {
+        stored = merge(stored, patch as Record<string, unknown>) as unknown as GuidedSession;
+        return structuredClone(stored);
+      }),
+      resetGuidedSession: vi.fn(),
+      getWorkspaceInfo: vi.fn(async () => ({ path: '/repo' })),
+      getRun: vi.fn(async () => current),
+      getLatestRun: vi.fn(async () => snapshot({ id: 'r2', status: 'RUNNING' })),
+      brainstormChat: vi.fn(async () => ({})),
+      brainstormConfirm: vi.fn(), startRun: vi.fn(), resolveRunTask: vi.fn(),
+    } as unknown as BatonApiClient;
+  }
+
+  afterEach(() => {
+    act(() => root?.unmount());
+    root = undefined;
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  test('restores a pending gate and leaves the canvas and task inspector interactive across refresh', async () => {
+    setup(snapshot({ id: 'r1', status: 'WAITING_HUMAN', human_prompt: 'Choose' }, {
+      tasks: [{ id: 'T1', status: 'WAITING_HUMAN' }],
+    }));
+    stored.open_human_gate = { run_id: 'r1', task_id: 'T1' };
+    await mount();
+    expect(follow).toHaveBeenCalledWith('r1');
+    expect(find((node) => node.type === GuidedDecisionDrawer).props.open).toBe(true);
+    const canvas = find((node) => typeof node.type === 'function' && node.type.name === 'GuidedLiveCanvas');
+    await act(async () => { (canvas.props.onTaskClick as (id: string) => void)('T1'); vi.advanceTimersByTime(400); });
+    expect(find((node) => node.type === NodeDetailDrawer).props.taskId).toBe('T1');
+    expect(find((node) => node.type === GuidedDecisionDrawer)).toBeTruthy();
+    expect(stored.open_drawer).toEqual({ run_id: 'r1', task_id: 'T1' });
+    expect(stored.open_human_gate).toEqual({ run_id: 'r1', task_id: 'T1' });
+    act(() => root!.unmount());
+    root = undefined;
+    await mount();
+    expect(find((node) => node.type === NodeDetailDrawer).props.taskId).toBe('T1');
+    expect(find((node) => node.type === GuidedDecisionDrawer).props.open).toBe(true);
+  });
+
+  test('retries session restoration after the shared client finishes its initial health check', async () => {
+    setup(snapshot({ id: 'r1', status: 'WAITING_HUMAN' }, { tasks: [{ id: 'T1', status: 'WAITING_HUMAN' }] }));
+    mode = null;
+    api.getGuidedSession = vi.fn().mockRejectedValueOnce(new ApiError(0, 'Not available in standalone demo'))
+      .mockImplementation(async () => structuredClone(stored));
+    const rerender = await mount();
+    expect(follow).not.toHaveBeenCalled();
+    mode = 'local';
+    await rerender();
+    expect(api.getGuidedSession).toHaveBeenCalledTimes(2);
+    expect(follow).toHaveBeenCalledWith('r1');
+    expect(find((node) => node.type === GuidedDecisionDrawer)).toBeTruthy();
+  });
+
+  test('confirms once, waits for the stopped run and saves failure context before opening Step 2', async () => {
+    setup(snapshot({ id: 'r1', status: 'FAILED', summary: 'Build failed' }));
+    const stop = deferred<StopAndReplanResult>();
+    const reading = deferred<LiveRunSnapshot>();
+    const context: StopAndReplanResult = { ok: true, status: 'SUPERSEDED', run_id: 'r1',
+      failed_tasks: [{ id: 'T1', title: 'Check' }], last_errors: { T1: 'Tests failed' }, current_sha: 'abc', run_summary: 'Build failed' };
+    api.stopAndReplan = vi.fn(() => stop.promise);
+    api.getRun = vi.fn(() => reading.promise);
+    await mount();
+    const banner = find((node) => node.type === GuidedFailedBanner);
+    expect(banner.props.detail).toBe('Build failed');
+    await act(async () => { (banner.props.onStopAndReplan as () => void)(); });
+    const confirm = find((node) => node.type === 'button' && node.props.className === 'guided-workbench__button guided-workbench__button--primary');
+    await act(async () => { (confirm.props.onClick as () => void)(); (confirm.props.onClick as () => void)(); });
+    expect(api.stopAndReplan).toHaveBeenCalledOnce();
+    expect(find((node) => node.type === GuidedFailedBanner).props.busy).toBe(true);
+    stored.active_stage = 'blueprint'; // The successful stop endpoint updates the server session.
+    await act(async () => { stop.resolve(context); });
+    expect(find((node) => node.type === 'section' && node.props['data-step'] === 'live')).toBeTruthy();
+    expect(api.getRun).toHaveBeenCalledOnce();
+    await act(async () => { reading.resolve(snapshot({ id: 'r1', status: 'SUPERSEDED' })); });
+    expect(stored.active_stage).toBe('blueprint');
+    expect(replanContextFromSession(stored)).toEqual(context);
+    expect(find((node) => node.type === 'section' && node.props['data-step'] === 'brainstorm')).toBeTruthy();
+    const brainstorm = find((node) => node.type === GuidedBrainstormStep);
+    const chatApi = brainstorm.props.api as GuidedBrainstormApi;
+    await act(async () => { await chatApi.brainstormChat({ messages: [{ role: 'user', content: 'Fix the checks' }] }); });
+    expect(api.brainstormChat).toHaveBeenCalledWith(expect.objectContaining({
+      revision_context: { prior_rfc: '# Original RFC', requested_changes: 'Fix the checks' },
+      failure_context: expect.stringContaining('Tests failed'),
+    }));
+    stored.brainstorm.latest_rfc_draft = '# Revised RFC';
+    await act(async () => { await chatApi.brainstormChat({ messages: [{ role: 'user', content: 'Add coverage' }] }); });
+    expect(api.brainstormChat).toHaveBeenLastCalledWith(expect.objectContaining({
+      revision_context: { prior_rfc: '# Revised RFC', requested_changes: 'Add coverage' },
+    }));
+    stored.active_run_id = 'another-run';
+    await act(async () => {
+      await expect(chatApi.brainstormChat({ messages: [{ role: 'user', content: 'Next' }] }))
+        .rejects.toThrow(MESSAGES.en.guided.m3.brainstorm.stale);
+    });
+    expect(api.brainstormChat).toHaveBeenCalledTimes(2);
+  });
+
+  test('a superseded 409 removes actions and returns to the current run', async () => {
+    setup(snapshot({ id: 'r1', status: 'FAILED', summary: 'failed' }));
+    api.stopAndReplan = vi.fn().mockRejectedValue(new ApiError(409, 'old run', { code: 'RUN_SUPERSEDED' }));
+    await mount();
+    await act(async () => { (find((node) => node.type === GuidedFailedBanner).props.onStopAndReplan as () => void)(); });
+    const confirm = find((node) => node.type === 'button' && node.props.className === 'guided-workbench__button guided-workbench__button--primary');
+    await act(async () => { (confirm.props.onClick as () => void)(); });
+    expect(elements(view).some((node) => node.type === GuidedFailedBanner || node.type === GuidedDecisionDrawer)).toBe(false);
+    const back = find((node) => node.type === 'button' && node.props.children === 'Go to current run');
+    await act(async () => { (back.props.onClick as () => void)(); });
+    expect(follow).toHaveBeenLastCalledWith('r2');
+    await act(async () => { vi.advanceTimersByTime(400); });
+    expect(stored.active_run_id).toBe('r2');
+  });
+
+  test('returning from an old run follows the run already selected by the server session', async () => {
+    setup(snapshot({ id: 'r1', status: 'SUPERSEDED' }));
+    api.getRun = vi.fn(async () => snapshot({ id: 'r2', status: 'RUNNING' }));
+    await mount();
+    stored.active_run_id = 'r2';
+    const back = find((node) => node.type === 'button' && node.props.children === 'Go to current run');
+    await act(async () => { (back.props.onClick as () => void)(); });
+    expect(api.getRun).toHaveBeenCalledWith('r2');
+    expect(follow).toHaveBeenLastCalledWith('r2');
+    expect(api.saveGuidedSession).not.toHaveBeenCalled();
+  });
+
+  test('does not send a stop request if its recovery intent cannot be saved', async () => {
+    setup(snapshot({ id: 'r1', status: 'FAILED' }));
+    api.stopAndReplan = vi.fn();
+    api.saveGuidedSession = vi.fn().mockRejectedValue(new Error('session write failed'));
+    await mount();
+    await act(async () => { (find((node) => node.type === GuidedFailedBanner).props.onStopAndReplan as () => void)(); });
+    const confirm = find((node) => node.type === 'button' && node.props.className === 'guided-workbench__button guided-workbench__button--primary');
+    await act(async () => { (confirm.props.onClick as () => void)(); });
+    expect(api.stopAndReplan).not.toHaveBeenCalled();
+    expect(find((node) => node.props.role === 'alert' && node.props.children === 'session write failed')).toBeTruthy();
+    expect(find((node) => node.type === GuidedFailedBanner).props.busy).toBe(false);
+  });
+
+  test('does not stop the previous run when the session changes during intent persistence', async () => {
+    setup(snapshot({ id: 'r1', status: 'FAILED' }));
+    api.stopAndReplan = vi.fn();
+    api.saveGuidedSession = vi.fn(async (patch: GuidedSessionPatch) => {
+      stored.active_run_id = 'r2';
+      stored = merge(stored, patch as Record<string, unknown>) as unknown as GuidedSession;
+      return structuredClone(stored);
+    });
+    await mount();
+    await act(async () => { (find((node) => node.type === GuidedFailedBanner).props.onStopAndReplan as () => void)(); });
+    const confirm = find((node) => node.type === 'button' && node.props.className === 'guided-workbench__button guided-workbench__button--primary');
+    await act(async () => { (confirm.props.onClick as () => void)(); });
+    expect(api.stopAndReplan).not.toHaveBeenCalled();
+    expect(stored.active_run_id).toBe('r2');
+    expect(find((node) => node.props.children === 'Go to current run')).toBeTruthy();
+  });
+
+  test('STOP_PENDING stays retryable rather than falsely marking the run superseded', async () => {
+    setup(snapshot({ id: 'r1', status: 'FAILED' }));
+    api.stopAndReplan = vi.fn().mockRejectedValue(new ApiError(409, 'still settling', { code: 'STOP_PENDING' }));
+    await mount();
+    await act(async () => { (find((node) => node.type === GuidedFailedBanner).props.onStopAndReplan as () => void)(); });
+    const confirm = find((node) => node.type === 'button' && node.props.className === 'guided-workbench__button guided-workbench__button--primary');
+    await act(async () => { (confirm.props.onClick as () => void)(); });
+    expect(find((node) => node.props.children === 'Retry stop')).toBeTruthy();
+    expect(find((node) => node.props.role === 'alert' && node.props.children === 'still settling')).toBeTruthy();
+    expect(elements(view).some((node) => node.props.children === 'Go to current run')).toBe(false);
+    expect(stored.replan_pending).toEqual({ r1: JSON.stringify({ run_id: 'r1', result: null }) });
+    current = snapshot({ id: 'r1', status: 'PAUSED' });
+    act(() => root!.unmount());
+    root = undefined;
+    await mount();
+    expect(find((node) => node.props.children === 'Retry stop')).toBeTruthy();
+    expect(elements(view).some((node) => node.props.children === MESSAGES.en.guided.workbench.resumeRun)).toBe(false);
+  });
+
+  test('restores an already returned stop result and waits through a non-superseded snapshot', async () => {
+    setup(snapshot({ id: 'r1', status: 'FAILED' }));
+    const context: StopAndReplanResult = { ok: true, status: 'SUPERSEDED', run_id: 'r1',
+      failed_tasks: [], last_errors: { T1: 'failed' }, current_sha: 'abc', run_summary: 'failed' };
+    stored.active_stage = 'blueprint';
+    stored.replan_pending = { r1: JSON.stringify({ run_id: 'r1', result: context }) };
+    api.getRun = vi.fn(async () => current);
+    api.stopAndReplan = vi.fn();
+    await mount();
+    expect(find((node) => node.type === 'section' && node.props['data-step'] === 'live')).toBeTruthy();
+    expect(api.stopAndReplan).not.toHaveBeenCalled();
+    expect(stored.replan_pending).toEqual({ r1: JSON.stringify({ run_id: 'r1', result: context }) });
+    current = snapshot({ id: 'r1', status: 'SUPERSEDED' });
+    await act(async () => { vi.advanceTimersByTime(1500); });
+    expect(find((node) => node.type === 'section' && node.props['data-step'] === 'brainstorm')).toBeTruthy();
+    expect(stored.replan_pending).toEqual({ r1: null });
+    expect(replanContextFromSession(stored)).toEqual(context);
+  });
+
+  test('does not overwrite a newer active run when the previous stop finishes', async () => {
+    setup(snapshot({ id: 'r1', status: 'FAILED' }));
+    const context: StopAndReplanResult = { ok: true, status: 'SUPERSEDED', run_id: 'r1',
+      failed_tasks: [], last_errors: {}, current_sha: 'abc', run_summary: 'failed' };
+    stored.active_stage = 'blueprint';
+    stored.replan_pending = { r1: JSON.stringify({ run_id: 'r1', result: context }) };
+    const reading = deferred<LiveRunSnapshot>();
+    api.getRun = vi.fn(() => reading.promise);
+    await mount();
+    stored.active_run_id = 'r2';
+    stored.active_stage = 'build';
+    await act(async () => { reading.resolve(snapshot({ id: 'r1', status: 'SUPERSEDED' })); });
+    expect(stored.active_run_id).toBe('r2');
+    expect(stored.active_stage).toBe('build');
+    expect(stored.brainstorm.replan_contexts).toBeUndefined();
+    expect(find((node) => node.props.children === 'Go to current run')).toBeTruthy();
+  });
+
+  test('a concurrent run switch during the session write preserves the newer stop and stays read-only', async () => {
+    setup(snapshot({ id: 'r1', status: 'SUPERSEDED' }));
+    const context: StopAndReplanResult = { ok: true, status: 'SUPERSEDED', run_id: 'r1',
+      failed_tasks: [], last_errors: {}, current_sha: 'abc', run_summary: 'failed' };
+    stored.active_stage = 'blueprint';
+    stored.replan_pending = { r1: JSON.stringify({ run_id: 'r1', result: context }) };
+    api.getRun = vi.fn(async () => snapshot({ id: 'r1', status: 'SUPERSEDED' }));
+    api.saveGuidedSession = vi.fn(async (patch: GuidedSessionPatch) => {
+      if (patch.brainstorm?.replan_contexts) {
+        stored.active_run_id = 'r2';
+        stored.active_stage = 'build';
+        stored.replan_pending = { ...(stored.replan_pending as Record<string, unknown>),
+          r2: JSON.stringify({ run_id: 'r2', result: null }) };
+      }
+      stored = merge(stored, patch as Record<string, unknown>) as unknown as GuidedSession;
+      return structuredClone(stored);
+    });
+    await mount();
+    expect(stored.active_run_id).toBe('r2');
+    expect(stored.active_stage).toBe('build');
+    expect(stored.replan_pending).toEqual({ r1: null, r2: JSON.stringify({ run_id: 'r2', result: null }) });
+    expect(replanContextFromSession(stored)).toBeNull();
+    expect(find((node) => node.props.children === 'Go to current run')).toBeTruthy();
   });
 });

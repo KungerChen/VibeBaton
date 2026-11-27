@@ -212,6 +212,24 @@ describe('i18n guarantees', () => {
     expect(MESSAGES.zh.guided.steps).toHaveLength(4);
   });
 
+  test('M3 copy covers each planned Guided area and every server recommendation reason', () => {
+    const groups = [
+      'stepper', 'cliSummary', 'installConfirm', 'signin', 'l0Model', 'brainstorm', 'launch',
+      'lineup', 'recommendation', 'workflowSwitch', 'humanGate', 'failed', 'signOff', 'revision',
+      'rollback', 'drift', 'session', 'errors',
+    ];
+    const reasons = [
+      'small_eco', 'medium_relay', 'large_panel', 'size_defaulted_to_medium', 'previous_lineup_preserved',
+      'eco_model_unavailable', 'provider_substituted', 'no_ready_provider', 'lineup_unavailable',
+      'preset_unavailable', 'synthesizer_not_configured', 'synthesizer_provider_unavailable',
+      'synthesizer_credentials_missing', 'panelist_unavailable',
+    ];
+    for (const locale of ['en', 'zh'] as const) {
+      expect(Object.keys(MESSAGES[locale].guided.m3).sort()).toEqual(groups.sort());
+      expect(Object.keys(MESSAGES[locale].guided.m3.recommendation.reasons).sort()).toEqual(reasons.sort());
+    }
+  });
+
   test('no message in either locale uses condescending wording', () => {
     for (const { path, text } of collectStrings(MESSAGES, 'MESSAGES')) {
       expect(text, `Condescending wording at ${path}`).not.toMatch(CONDESCENDING_PATTERN);

@@ -1,4 +1,4 @@
-import { expect, test, vi } from 'vitest';
+import { expect, expectTypeOf, test, vi } from 'vitest';
 import { presetToItem, specialist_panel, starter_2tier } from '../data/presets';
 import goldenCase from '../engine/__fixtures__/goldenCase.json';
 import { filterPresets } from '../components/recipePlaza';
@@ -15,6 +15,7 @@ import type {
   PricingStatusResponse,
   PricingSyncResponse,
   RfcBrainstormResult,
+  RunListItem,
   SimulationResult,
 } from '../types/graph';
 import {
@@ -29,6 +30,8 @@ import {
   type CliRegistry,
   type CliRegistryScanResponse,
   type FinalizeResult,
+  type GuidedSession,
+  type WorkflowRecommendation,
   type InitGitResult,
   type ResolveRunTaskResult,
   type RunTaskDetail,
@@ -63,6 +66,137 @@ test('probes the configured local server and loads its presets', async () => {
   expect(fetchImpl.mock.calls).toEqual([
     [`${baseUrl}/api/health`, { method: 'GET', signal: expect.any(AbortSignal) }],
     [`${baseUrl}/api/presets`, { method: 'GET' }],
+  ]);
+});
+
+test('M3 session, model and brainstorm routes preserve their typed wire contracts', async () => {
+  const session: GuidedSession = {
+    schema_version: 1, active_stage: 'blueprint', workspace_path: '/repo',
+    brainstorm: { messages: [], checklist: [], latest_rfc_draft: '# draft', selected_l0_model: null, has_online_draft: true },
+    workflow: { mode: null, lineup: { roles: {}, model_overrides: {} }, preset: null, panel_enabled: false, launch_request_id: null },
+    active_run_id: null, open_human_gate: null, open_drawer: null,
+  };
+  const recommendation: WorkflowRecommendation = {
+    mode: 'overnight', preset: 'solo_coder_3tier', lineup: { roles: {}, model_overrides: {} },
+    size: 'medium', reason_code: 'medium_relay', explanation_key: 'workflow.medium_relay', fallback: false,
+    size_changed: null, explanation_codes: ['medium_relay'], substitutions: [],
+  };
+  const models = { models: [{ provider: 'codex_sub', model: 'test', effort: 'high', spec: 'codex_sub:test@high', label: 'Test' }], auto_selected: 'codex_sub:test@high' };
+  const turn: BrainstormTurnResult = {
+    reply: 'Retry', rfc_markdown: '# draft', blueprint: { title: 'Draft', summary: '', deliverables: [], touched_areas: [], verification_plan: [], readiness_score: 80, ready_to_launch: true },
+    provider_used: null, offline: false, guide: { question: '', options: [], checklist: [], size: 'medium' },
+    error: 'timeout', retryable: true, responding_model: null, requested_model: 'codex_sub:test@high', recommendation,
+  };
+  const patch = { workflow: { lineup: { roles: { planner: null } }, launch_request_id: 'launch-1' } };
+  const chat = {
+    messages: [{ role: 'user' as const, content: 'Revise' }], requested_l0_model: 'codex_sub:test@high',
+    latest_rfc_draft: '# edited', revision_context: { prior_rfc: '# draft', requested_changes: 'Add tests', failure_context: 'Check failed' },
+    previous_lineup: { roles: { planner: 'codex_sub' }, model_overrides: {}, size: 'medium' as const },
+  };
+  const fetchImpl = healthyFetch()
+    .mockResolvedValueOnce(Response.json({ session }))
+    .mockResolvedValueOnce(Response.json({ session }))
+    .mockResolvedValueOnce(Response.json({ session }))
+    .mockResolvedValueOnce(Response.json(models))
+    .mockResolvedValueOnce(Response.json(turn));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+  await expect(client.getGuidedSession()).resolves.toEqual(session);
+  await expect(client.saveGuidedSession(patch)).resolves.toEqual(session);
+  await expect(client.resetGuidedSession()).resolves.toEqual(session);
+  await expect(client.getL0Models()).resolves.toEqual(models);
+  await expect(client.brainstormChat(chat)).resolves.toEqual(turn);
+  expect(fetchImpl.mock.calls.slice(1)).toEqual([
+    ['/api/guided/session', { method: 'GET' }],
+    ['/api/guided/session', jsonRequest('PUT', { session: patch })],
+    ['/api/guided/session/reset', jsonRequest('POST', {})],
+    ['/api/guided/l0-models', { method: 'GET' }],
+    ['/api/brainstorm/chat', jsonRequest('POST', chat)],
+  ]);
+});
+
+test('M3 keyed launch reuses the request ID and exposes nullable replay daemon PID', async () => {
+  const fetchImpl = healthyFetch()
+    .mockResolvedValueOnce(Response.json({ run_id: 'r1', daemon_pid: 42, status: 'STARTED' }, { status: 201 }))
+    .mockResolvedValueOnce(Response.json({ run_id: 'r1', daemon_pid: null, status: 'RUNNING', reused: true }));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+  const payload = { launch_request_id: 'stable-key', mode: 'overnight' as const, lineup: { roles: { planner: 'codex_sub' }, model_overrides: {} }, preset: 'solo_coder_3tier' };
+  if (false) {
+    // @ts-expect-error A structured lineup cannot be mixed with legacy override fields.
+    client.startGuidedRun({ ...payload, model_overrides: { planner: 'codex_sub:test' } });
+  }
+  await expect(client.startGuidedRun(payload)).resolves.toMatchObject({ run_id: 'r1', daemon_pid: 42 });
+  const replay = await client.startGuidedRun(payload);
+  expect(replay).toEqual({ run_id: 'r1', daemon_pid: null, status: 'RUNNING', reused: true });
+  for (const [, options] of fetchImpl.mock.calls.slice(1)) {
+    expect(JSON.parse(String(options?.body))).toEqual(payload);
+    expect(options?.signal).toBeInstanceOf(AbortSignal);
+  }
+});
+
+test.each(['revert_revision', 'abandon_all', 'undo'] as const)('M3 rollback sends the explicit %s mode', async (mode) => {
+  const body = { ok: true, run_id: 'r', mode, status: 'PAUSED', restored_to: 'abc', base_branch: 'main', base_head: 'abc' };
+  const fetchImpl = healthyFetch().mockResolvedValueOnce(Response.json(body));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+  await expect(client.rollbackRun('r', mode)).resolves.toEqual(body);
+  expect(fetchImpl.mock.calls[1]).toEqual(['/api/runs/r/rollback', jsonRequest('POST', { mode, note: '' })]);
+});
+
+test('M3 run reads expose lineage and preserve launch preflight recovery details', async () => {
+  expectTypeOf<ReturnType<BatonApiClient['listRuns']>>().toEqualTypeOf<Promise<RunListItem[]>>();
+  expectTypeOf<ReturnType<BatonApiClient['getRun']>>().toEqualTypeOf<Promise<LiveRunSnapshot>>();
+  expectTypeOf<ReturnType<BatonApiClient['getLatestRun']>>().toEqualTypeOf<Promise<LiveRunSnapshot>>();
+  const lineage = { parent_run_id: 'parent', base_ref: 'main', start_sha: 'aaa', result_sha: 'bbb', launch_request_id: 'key' };
+  const run = { id: 'r', status: 'SUPERSEDED', mode: 'overnight', created_at: 1, updated_at: 2, finished_at: 2, elapsed_sec: 1, passed_tasks: 0, total_tasks: 1, passed_milestones: 0, total_milestones: 1, ...lineage };
+  const snapshot = { run, milestones: [], tasks: [], events: [], quotas: [] };
+  const fallback = { mode: 'overnight', preset: null, lineup: null, size: 'medium', reason_code: 'no_ready_provider', explanation_key: 'workflow.no_ready_provider', fallback: true, size_changed: null, explanation_codes: ['no_ready_provider'], substitutions: [] };
+  const fetchImpl = healthyFetch().mockResolvedValueOnce(Response.json({ runs: [run] }))
+    .mockResolvedValueOnce(Response.json(snapshot))
+    .mockResolvedValueOnce(Response.json(snapshot))
+    .mockResolvedValueOnce(Response.json({ error: 'Not ready', code: 'LAUNCH_PREFLIGHT', codes: ['no_ready_provider'], fallback }, { status: 409 }));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+  expect((await client.listLineageRuns())[0]).toMatchObject({ ...lineage, status: 'SUPERSEDED' });
+  expect((await client.getLineageRun('r')).run).toMatchObject(lineage);
+  expect((await client.getLatestLineageRun()).run).toMatchObject(lineage);
+  expect(fetchImpl.mock.calls.slice(1, 4).map(([url]) => url)).toEqual(['/api/runs', '/api/runs/r', '/api/runs/latest']);
+  await expect(client.startGuidedRun({ launch_request_id: 'key', mode: 'panel' })).rejects.toMatchObject({
+    code: 'LAUNCH_PREFLIGHT', data: { codes: ['no_ready_provider'], fallback },
+  });
+});
+
+test('M3 lineage operations preserve success variants and structured failures', async () => {
+  const run = 'run /1';
+  const base = { ok: true, run_id: run, action: 'approve', status: 'COMPLETED', backup_tag: 'backup', base_branch: 'main', base_head: 'abc', merged_commit: 'abc', changed_files: ['app.ts'], gates: [] };
+  const gate = { command: 'npm test', passed: false, exit_code: 1, stdout: '', stderr: 'failed', duration_sec: 1 };
+  const revision = { ok: true, run_id: run, action: 'revise', status: 'SUPERSEDED', backup_tag: null, base_branch: 'main', base_head: 'abc', revisions_path: 'revisions.md', revision_run_id: 'child', revision_status: 'PENDING', daemon_pid: 7 };
+  const rollback = { ok: true, run_id: run, mode: 'revert_revision', status: 'PAUSED', restored_to: 'abc', base_branch: 'main', base_head: 'def' };
+  const stopped = { ok: true, run_id: run, status: 'SUPERSEDED', failed_tasks: [{ id: 'T1' }], last_errors: { T1: 'failed' }, current_sha: 'abc', run_summary: 'Stopped' };
+  const fetchImpl = healthyFetch()
+    .mockResolvedValueOnce(Response.json({ ...base, reintegrated: false }))
+    .mockResolvedValueOnce(Response.json({ ...base, reintegrated: true }))
+    .mockResolvedValueOnce(Response.json({ error: 'Conflict', code: 'INTEGRATION_CONFLICT', conflicts: ['app.ts'], base_head: 'def' }, { status: 409 }))
+    .mockResolvedValueOnce(Response.json({ error: 'Gate failed', code: 'GATE_FAILED', gates: [gate] }, { status: 409 }))
+    .mockResolvedValueOnce(Response.json({ error: 'Base moved', code: 'BASE_MOVED', base_head: 'new' }, { status: 409 }))
+    .mockResolvedValueOnce(Response.json(revision))
+    .mockResolvedValueOnce(Response.json(rollback))
+    .mockResolvedValueOnce(Response.json(stopped));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+  expect((await client.approveAndMerge(run)).kind).toBe('merged');
+  expect((await client.approveAndMerge(run)).kind).toBe('reintegrated');
+  expect(await client.approveAndMerge(run)).toMatchObject({ kind: 'conflict', conflicts: ['app.ts'], base_head: 'def', error: { code: 'INTEGRATION_CONFLICT' } });
+  expect(await client.approveAndMerge(run)).toMatchObject({ kind: 'gate_failed', gates: [gate], error: { code: 'GATE_FAILED' } });
+  await expect(client.approveAndMerge(run)).rejects.toMatchObject({ code: 'BASE_MOVED', data: { base_head: 'new' } });
+  await expect(client.requestChanges(run, 'Add tests')).resolves.toEqual(revision);
+  await expect(client.rollbackRun(run, 'revert_revision', 'undo')).resolves.toEqual(rollback);
+  await expect(client.stopAndReplan(run, 12)).resolves.toEqual(stopped);
+  expect(fetchImpl.mock.calls.slice(-3)).toEqual([
+    ['/api/runs/run%20%2F1/request-changes', jsonRequest('POST', { note: 'Add tests' })],
+    ['/api/runs/run%20%2F1/rollback', jsonRequest('POST', { mode: 'revert_revision', note: 'undo' })],
+    ['/api/runs/run%20%2F1/stop-and-replan', jsonRequest('POST', { timeout_sec: 12 })],
   ]);
 });
 

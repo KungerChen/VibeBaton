@@ -1,0 +1,17 @@
+.guided-launch-bar { border-top: 1px solid var(--border, #d9dce5); display: grid; gap: .75rem; margin-top: 1rem; padding-top: 1rem; }
+.guided-launch-bar__recommendation { display: grid; gap: .25rem; font-size: .875rem; }
+.guided-launch-bar__recommendation ul { margin: 0; padding-left: 1.25rem; }
+.guided-launch-bar__drawer { border: 1px solid var(--border, #d9dce5); border-radius: .5rem; padding: .65rem; }
+.guided-launch-bar__drawer summary { cursor: pointer; font-weight: 600; }
+.guided-launch-bar__drawer label { display: grid; gap: .25rem; font-size: .8rem; }
+.guided-launch-bar__drawer select, .guided-launch-bar__drawer input { min-width: 0; max-width: 100%; padding: .35rem; }
+.guided-launch-bar__role { border: 0; display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); margin: .75rem 0; padding: 0; }
+.guided-launch-bar__role legend { font-weight: 600; overflow-wrap: anywhere; }
+.guided-launch-bar__profile { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+.guided-launch-bar__profile input { flex: 1; }
+.guided-launch-bar__profiles { display: grid; gap: .25rem; list-style: none; margin: .5rem 0; padding: 0; }
+.guided-launch-bar__profiles li { align-items: center; display: flex; gap: .5rem; justify-content: space-between; }
+.guided-launch-bar__panel { align-items: center; display: flex; gap: .5rem; }
+.guided-launch-bar__panel-hint { font-size: .8rem; margin: 0; }
+.guided-launch-bar__launch { background: var(--primary, #3158d4); border: 0; border-radius: .5rem; color: var(--primary-foreground, white); font-weight: 600; padding: .7rem 1rem; }
+.guided-launch-bar__launch:disabled { cursor: not-allowed; opacity: .55; }
