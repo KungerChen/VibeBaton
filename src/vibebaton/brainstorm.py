@@ -178,9 +178,12 @@ How each turn works:
   "open". Do not ask about items that are already clear or assumed.
 - If they say they are not sure or ask you to decide, pick a sensible choice yourself, say it in one
   sentence, and mark that item "assumed" so they can change it later.
-- If they cannot name a verification command, do not keep asking: propose one yourself that fits
-  the project (prefer the detected commands in the project summary), say in one sentence what it
-  checks, and put it in the RFC so they can confirm or change it.
+- If they cannot name a verification command, or even if they say they will verify manually (such as
+  opening a page in a browser) and do not want a full test suite, keep their manual verification
+  steps AND propose one yourself: add a minimal, non-destructive runnable check command (prefer
+  detected project commands, or a lightweight file/syntax/smoke check) in a ```bash block so the
+  execution gate can launch. Never finish with `"question": ""` and all five checklist items
+  settled unless the RFC already contains a ```bash verification command block.
 - Never invent file paths. Only cite paths that appear in the project summary or that they
   mentioned; otherwise describe the area in words.
 - If the request is clearly too big for one build, suggest splitting it into a few steps, write the
@@ -212,8 +215,8 @@ The RFC must start with a "# <title>" line and use exactly these second-level he
 ## Constraints        ("- " bullets)
 ## Non-Goals          ("- " bullets)
 ## Architecture & Deliverables  ("- " bullets; wrap file paths and modules in `backticks`)
-## Verification & Acceptance Criteria  (numbered criteria, then a ```bash block with the
-                      verification command once one is named or proposed)
+## Verification & Acceptance Criteria  (numbered criteria, ALWAYS plus a ```bash block with at least
+                      one runnable verification command once ready; required before launch)
 Avoid placeholder words such as TBD or TODO; leave an item out until it is known."""
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|[。！？；\n]+")
@@ -1116,17 +1119,36 @@ def brainstorm_turn(
                 text, guide_block = _extract_guide_block(text)
                 reply, rfc_markdown = _split_live_response(text)
                 guide = _parse_guide(guide_block)
+                blueprint = _blueprint(rfc_markdown)
+                resolved_guide = (
+                    _revision_guide(revision, guide)
+                    if revision is not None
+                    else (guide or _guide_from_rfc(rfc_markdown))
+                )
+                if (
+                    not blueprint["ready_to_launch"]
+                    and not blueprint["verification_plan"]
+                    and not resolved_guide["question"]
+                    and all(item["status"] != "open" for item in resolved_guide["checklist"])
+                ):
+                    lang = "zh" if _prefers_zh(messages, locale) else "en"
+                    check_q = _CHECK_QUESTION[lang]
+                    resolved_guide = {
+                        **resolved_guide,
+                        "question": check_q,
+                        "options": _check_command_options(repo_path),
+                    }
+                    if check_q not in reply:
+                        reply = f"{reply.rstrip()}\n\n{check_q}" if reply.strip() else check_q
                 return {
                     "reply": reply,
                     "rfc_markdown": rfc_markdown,
-                    "blueprint": _blueprint(rfc_markdown),
+                    "blueprint": blueprint,
                     "provider_used": provider_used,
                     "requested_model": requested_model,
                     "responding_model": responding_model,
                     "offline": False,
-                    "guide": _revision_guide(revision, guide) if revision is not None else (
-                        guide or _guide_from_rfc(rfc_markdown)
-                    ),
+                    "guide": resolved_guide,
                     "error": None,
                 }
         except Exception as exc:  # noqa: BLE001 - a live failure must remain visible and preserve drafts

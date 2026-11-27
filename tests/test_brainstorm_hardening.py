@@ -278,6 +278,41 @@ class BrainstormHardeningTests(unittest.TestCase):
         snapshot = ReadinessSnapshot((provider("agy_sub"), provider("codex_sub")))
         self.assertEqual(brainstorm.auto_select_l0_model(snapshot, models=models), "codex_sub:gpt-6.2-astra@xhigh")
 
+    def test_live_turn_asks_for_verification_command_when_checklist_settled_without_command(self) -> None:
+        rfc_without_cmd = (
+            "# Budget Tracker\n\n## Goals\n\nPersonal browser budget tracker.\n\n- Add and remove entries.\n\n"
+            "## Constraints\n\n- Keep dependencies minimal.\n\n"
+            "## Non-Goals\n\n- No cloud sync.\n\n"
+            "## Architecture & Deliverables\n\n- `index.html`\n\n"
+            "## Verification & Acceptance Criteria\n\n1. Open in browser and check manually.\n"
+        )
+        clear_guide = {
+            "question": "",
+            "options": [],
+            "checklist": [
+                {"id": item_id, "status": "clear", "value": "settled"}
+                for item_id in brainstorm.CHECKLIST_IDS
+            ],
+            "size": "small",
+        }
+        for locale, messages in (
+            ("zh", [{"role": "user", "content": "做一个简易记账工具"}]),
+            ("en", [{"role": "user", "content": "Make a simple budget tracker"}]),
+        ):
+            with self.subTest(locale=locale):
+                result = brainstorm_turn(
+                    self.repo,
+                    messages,
+                    locale=locale,
+                    dispatch=lambda _prompt: ("claude_sub", "claude-opus-5-5@medium", live_reply(rfc_without_cmd, clear_guide)),
+                )
+                expected_q = brainstorm._CHECK_QUESTION[locale]
+                self.assertFalse(result["blueprint"]["ready_to_launch"])
+                self.assertEqual(result["guide"]["question"], expected_q)
+                self.assertEqual(result["guide"]["options"], brainstorm._check_command_options(self.repo))
+                self.assertTrue(2 <= len(result["guide"]["options"]) <= 4)
+                self.assertIn(expected_q, result["reply"])
+
 
 if __name__ == "__main__":
     unittest.main()
