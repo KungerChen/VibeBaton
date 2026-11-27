@@ -465,6 +465,23 @@ def check_provider_binary(provider: ProviderConfig) -> dict[str, str | bool]:
     }
 
 
+def dsh_effort_error(provider: ProviderConfig, model: str) -> str | None:
+    """A clear error when a command that loads the shipped DSH patch file asks for an effort that file does
+    not define for the model; None otherwise. Uses only repository data, so it also guards Pro-mode and
+    command-line runs that never saw the model catalog."""
+    from . import model_catalog
+
+    if not any(model_catalog.DSH_PATCH_FILE in token for token in provider.command):
+        return None
+    model_name, _, effort = model.partition("@")
+    known = model_catalog._dsh_patch_efforts()
+    if not effort or model_name not in known or effort in known[model_name]:
+        return None
+    allowed = ", ".join(known[model_name]) or "none"
+    return (f"DSH model '{model_name}' does not support thinking effort '{effort}' "
+            f"(supported: {allowed}; see presets/{model_catalog.DSH_PATCH_FILE}).")
+
+
 async def run_provider_cli(
     provider: ProviderConfig,
     *,
@@ -479,6 +496,10 @@ async def run_provider_cli(
     pricing_settings: PricingSettings | None = None,
 ) -> CLIResult:
     """Execute a local CLI agent asynchronously with stdin prompt passing & stall protection."""
+    effort_error = dsh_effort_error(provider, model)
+    if effort_error:
+        return CLIResult(status="error", exit_code=2, stdout="", stderr=effort_error, duration_sec=0.0, command=[])
+
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     prompt_file.write_text(prompt, encoding="utf-8")

@@ -80,6 +80,8 @@ class TierRecommendation(TypedDict):
     effort: str
     note_en: str
     note_zh: str
+    # Filled by ``get_model_catalog``: the legal effort per provider in the current catalog ("" = none).
+    efforts_by_provider: NotRequired[dict[str, str]]
 
 
 def _model(
@@ -699,6 +701,10 @@ def _read_cli_models(raw: Any) -> CliModels:
     return result
 
 
+# Keys a current sync writes; a cache missing any of them predates that data and is refreshed right away.
+_CACHE_REQUIRED_KEYS = ("cli_models", "cli_declared", "feed_efforts")
+
+
 def _read_catalog_cache(path: Path) -> _CatalogCache:
     empty: _CatalogCache = {"fetched_at": None, "models": [], "retired_ids": [], "cli_models": {}, "last_error": None,
                             "cli_declared": {}, "feed_efforts": {}}
@@ -711,8 +717,9 @@ def _read_catalog_cache(path: Path) -> _CatalogCache:
     fetched_at = payload.get("fetched_at")
     fetched = float(fetched_at) if isinstance(fetched_at, (int, float)) and math.isfinite(fetched_at) else None
     raw_retired = payload.get("retired_ids")
-    if not isinstance(raw_retired, list) or "cli_models" not in payload:
-        # Written by an older sync (unfiltered, or without CLI lists): keep its models readable but re-fetch once.
+    if not isinstance(raw_retired, list) or any(key not in payload for key in _CACHE_REQUIRED_KEYS):
+        # Written by an older sync (unfiltered, without CLI lists, or without effort sources): keep its
+        # models readable but treat it as due, so the next start-up or background sync re-fetches at once.
         fetched = None
     if not isinstance(raw_retired, list):
         raw_retired = []
@@ -917,16 +924,17 @@ def get_model_catalog(
     now = now_fn()
     age_sec = None if fetched_at is None else round(max(0.0, now - fetched_at), 1)
     stale = fetched_at is None or (age_sec is not None and age_sec >= DAILY_SYNC_INTERVAL_SEC)
-    return {
-        "models": resolve_catalog_efforts(
-            _rank_catalog(
-                _apply_cli_models(_merge_catalog(cached["models"], cached["retired_ids"]), cached["cli_models"]),
-            ),
-            cli_models=cached["cli_models"],
-            cli_declared=cached.get("cli_declared", {}),
-            feed_efforts=cached.get("feed_efforts", {}),
+    models = resolve_catalog_efforts(
+        _rank_catalog(
+            _apply_cli_models(_merge_catalog(cached["models"], cached["retired_ids"]), cached["cli_models"]),
         ),
-        "tier_recommendations": TIER_RECOMMENDATIONS,
+        cli_models=cached["cli_models"],
+        cli_declared=cached.get("cli_declared", {}),
+        feed_efforts=cached.get("feed_efforts", {}),
+    )
+    return {
+        "models": models,
+        "tier_recommendations": aligned_tier_recommendations(models),
         "role_tiers": dict(ROLE_TIERS),
         "efforts": list(EFFORT_LEVELS),
         "cache": {
@@ -996,6 +1004,25 @@ def recommend_role_assignment(
                 return _provider_tier_fallback(pid, tier, models)
 
     return _provider_tier_fallback(ready_list[0], tier, models)
+
+
+def aligned_tier_recommendations(models: Sequence[ModelCatalogEntry]) -> dict[RoleTier, list[TierRecommendation]]:
+    """TIER_RECOMMENDATIONS with ``efforts_by_provider``: each listed provider's effort put through
+    ``normalize_spec`` against ``models``, the same value ``recommend_role_assignment`` returns. Providers
+    that do not offer the model in this catalog are left out of the map (the recommendation is skipped
+    for them)."""
+    resolved = ensure_resolved(models)
+    aligned: dict[RoleTier, list[TierRecommendation]] = {}
+    for tier, recs in TIER_RECOMMENDATIONS.items():
+        aligned[tier] = []
+        for rec in recs:
+            by_provider = {
+                provider: normalize_spec(provider, rec["model"], rec["effort"], resolved)["effort"]
+                for provider in rec["providers"]
+                if find_catalog_model(provider, rec["model"], resolved) is not None
+            }
+            aligned[tier].append({**rec, "providers": list(rec["providers"]), "efforts_by_provider": by_provider})
+    return aligned
 
 
 def _legal_pick(provider: str, model: str, effort: str, models: Sequence[ModelCatalogEntry]) -> dict[str, str]:
@@ -1198,6 +1225,18 @@ def legal_default_effort(preferred: str, allowed: Sequence[str]) -> str:
     return ordered[0]
 
 
+def closest_effort(effort: str, allowed: Sequence[str]) -> str | None:
+    """The allowed level nearest to ``effort`` in EFFORT_LEVELS order; on a tie the lower (cheaper) one.
+
+    None when ``effort`` is not a known level or nothing is allowed.
+    """
+    rank = _EFFORT_RANK.get(effort)
+    known = [e for e in allowed if e in _EFFORT_RANK]
+    if rank is None or not known:
+        return None
+    return min(known, key=lambda e: (abs(_EFFORT_RANK[e] - rank), _EFFORT_RANK[e]))
+
+
 def resolve_catalog_efforts(
     models: Sequence[ModelCatalogEntry],
     *,
@@ -1280,9 +1319,10 @@ def normalize_spec(
 ) -> NormalizedSpec:
     """The one check every provider/model/effort choice goes through.
 
-    An effort outside the allowed set becomes the model's legal default on that provider; an empty
-    allowed set drops the effort; a model the catalog does not list for the provider is kept as is and
-    marked ``unverifiable`` (the model is never changed here).
+    An effort outside the allowed set becomes the closest allowed level (minimal < low < medium < high <
+    xhigh < max < ultra; on a tie the lower one, so a correction never costs more); an unknown or missing
+    effort becomes that provider's legal default; an empty allowed set drops the effort; a model the
+    catalog does not list for the provider is kept as is and marked ``unverifiable`` (never swapped).
     """
     def result(new_effort: str, reason: str) -> NormalizedSpec:
         return {"provider": provider, "model": model, "effort": new_effort,
@@ -1296,6 +1336,9 @@ def normalize_spec(
         return result("", "effort_removed" if effort else "ok")
     if effort in allowed:
         return result(effort, "ok")
+    nearest = closest_effort(effort, allowed)
+    if nearest is not None:
+        return result(nearest, "effort_adjusted")
     preferred = entry.get("provider_defaults", {}).get(provider) or entry["default_effort"]
     fixed = legal_default_effort(preferred, allowed)
     return result(fixed, "effort_adjusted" if effort else "effort_defaulted")

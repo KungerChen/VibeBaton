@@ -53,12 +53,29 @@ FEED_EFFORTS = {  # feed reasoning flags
 UNCHECKED_PROVIDERS = frozenset({"host_native"})
 
 
-def fixture_catalog() -> list[model_catalog.ModelCatalogEntry]:
-    merged = model_catalog._apply_cli_models(model_catalog._merge_catalog([]), CLI_MODELS)
+def fixture_catalog(
+    cli_models: model_catalog.CliModels | None = None,
+    cli_declared: dict[str, list[str]] | None = None,
+    feed_efforts: dict[str, list[str]] | None = None,
+) -> list[model_catalog.ModelCatalogEntry]:
+    """The full-data fixture by default; pass empty maps for "no tool/feed data" or a subset for partial data."""
+    cli = CLI_MODELS if cli_models is None else cli_models
+    merged = model_catalog._apply_cli_models(model_catalog._merge_catalog([]), cli)
     return model_catalog.resolve_catalog_efforts(
-        model_catalog._rank_catalog(merged), cli_models=CLI_MODELS, cli_declared=CLI_DECLARED,
-        feed_efforts=FEED_EFFORTS,
+        model_catalog._rank_catalog(merged), cli_models=cli,
+        cli_declared=CLI_DECLARED if cli_declared is None else cli_declared,
+        feed_efforts=FEED_EFFORTS if feed_efforts is None else feed_efforts,
     )
+
+
+def no_data_catalog() -> list[model_catalog.ModelCatalogEntry]:
+    """Nothing read from any tool or the feed: every effort list is the low/medium/high default."""
+    return fixture_catalog(cli_models={}, cli_declared={}, feed_efforts={})
+
+
+def partial_data_catalog() -> list[model_catalog.ModelCatalogEntry]:
+    """Only Codex reported its list; Claude, agy and the feed said nothing."""
+    return fixture_catalog(cli_models={"codex_sub": CLI_MODELS["codex_sub"]}, cli_declared={}, feed_efforts={})
 
 
 def legal(catalog: list, provider: str, model: str, effort: str) -> str | None:
@@ -84,10 +101,26 @@ def specs_in(document: object, path: str = ""):
 
 
 class EffortInvariantTests(unittest.TestCase):
+    """Run against the full-data fixture; the subclasses rerun every check with no data and partial data."""
+
+    def catalog_fixture(self) -> list[model_catalog.ModelCatalogEntry]:
+        return fixture_catalog()
+
     def setUp(self) -> None:
-        self.catalog = fixture_catalog()
+        self.catalog = self.catalog_fixture()
+
+    def test_served_tier_table_is_legal_for_every_provider(self) -> None:
+        # What get_model_catalog serves to the setup step: efforts_by_provider aligned to this catalog.
+        for tier, recs in model_catalog.aligned_tier_recommendations(self.catalog).items():
+            for rec in recs:
+                for provider, effort in rec["efforts_by_provider"].items():
+                    with self.subTest(tier=tier, provider=provider, model=rec["model"]):
+                        self.assertIsNone(legal(self.catalog, provider, rec["model"], effort))
+                        self.assertEqual(model_catalog.normalize_spec(provider, rec["model"], effort, self.catalog)["reason"], "ok")
 
     def test_every_tier_recommendation_is_legal_for_each_listed_provider(self) -> None:
+        if type(self) is not EffortInvariantTests:
+            self.skipTest("the raw table is written against real tool data; the served table is checked above")
         for tier, recs in model_catalog.TIER_RECOMMENDATIONS.items():
             for rec in recs:
                 for provider in rec["providers"]:
@@ -126,6 +159,8 @@ class EffortInvariantTests(unittest.TestCase):
                             self.assertIsNone(legal(self.catalog, provider, model, effort))
 
     def test_shipped_presets_and_example_config_are_legal(self) -> None:
+        if type(self) is not EffortInvariantTests:
+            self.skipTest("presets name tool-reported levels (e.g. Codex max); checked against real tool data")
         sources = {path.name: json.loads(path.read_text(encoding="utf-8")) for path in (ROOT / "presets").glob("*.json")}
         sources["baton.example.toml"] = tomllib.loads((ROOT / "baton.example.toml").read_text(encoding="utf-8"))
         checked = 0
@@ -141,6 +176,90 @@ class EffortInvariantTests(unittest.TestCase):
                     # Claude aliases (opus, sonnet, haiku, fable) map to catalog IDs only for this check.
                     self.assertIsNone(legal(self.catalog, provider, model, effort))
         self.assertGreater(checked, 20)
+
+
+class NoDataEffortInvariantTests(EffortInvariantTests):
+    def catalog_fixture(self) -> list[model_catalog.ModelCatalogEntry]:
+        return no_data_catalog()
+
+
+class PartialDataEffortInvariantTests(EffortInvariantTests):
+    def catalog_fixture(self) -> list[model_catalog.ModelCatalogEntry]:
+        return partial_data_catalog()
+
+
+class ServedCatalogTests(unittest.TestCase):
+    def test_old_cache_without_effort_sources_is_due_and_resyncs(self) -> None:
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        now = 2_000_000_000.0
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "model_catalog_cache.json"
+            # Written by the previous release: fresh timestamp, CLI lists, but no cli_declared / feed_efforts.
+            cache.write_text(json.dumps({"fetched_at": now - 60, "models": [], "retired_ids": [], "cli_models": {},
+                                         "last_error": None}), encoding="utf-8")
+            served = model_catalog.get_model_catalog(cache_path=cache, now_fn=lambda: now)
+            self.assertTrue(served["cache"]["stale"])
+            self.assertIsNone(served["cache"]["fetched_at"])
+
+            calls: list[str] = []
+
+            def fetcher(url: str, timeout: float) -> dict:
+                calls.append(url)
+                return {"gpt-4o": {"litellm_provider": "openai", "mode": "chat"},
+                        "gpt-7.1": {"litellm_provider": "openai", "mode": "chat", "supports_reasoning": True}}
+
+            with patch.dict(os.environ, {"VIBEBATON_DISABLE_MODEL_SYNC": "1"}):
+                skipped = model_catalog.sync_model_catalog(cache_path=cache, fetcher=fetcher, now_fn=lambda: now)
+            self.assertFalse(skipped["fetched"])  # offline switch: no network, no tool commands
+            self.assertEqual(calls, [])
+            with patch.dict(os.environ, {"VIBEBATON_DISABLE_MODEL_SYNC": ""}):
+                synced = model_catalog.sync_model_catalog(
+                    cache_path=cache, fetcher=fetcher, now_fn=lambda: now, cli_probe=lambda: {}, declared_probe=lambda: {},
+                )
+            self.assertTrue(synced["fetched"])  # not 24 hours later: right away
+            by_id = {m["id"]: m for m in synced["catalog"]["models"]}
+            self.assertEqual(by_id["gpt-4o"]["provider_efforts"]["openai_http"], [])
+            self.assertFalse(model_catalog.get_model_catalog(cache_path=cache, now_fn=lambda: now)["cache"]["stale"])
+
+    def test_served_tier_table_has_per_provider_efforts(self) -> None:
+        with __import__("tempfile").TemporaryDirectory() as tmp:
+            served = model_catalog.get_model_catalog(cache_path=Path(tmp) / "none.json")
+        l2 = served["tier_recommendations"]["L2"]
+        sonnet = next(rec for rec in l2 if rec["model"] == "claude-sonnet-5-5")
+        self.assertEqual(sonnet["effort"], "max")  # the raw preference stays for compatibility
+        self.assertEqual(sonnet["efforts_by_provider"], {"claude_sub": "high"})  # no claude --help data yet
+        self.assertEqual(model_catalog.recommend_role_assignment("critical_executor", ["claude_sub"], served["models"]),
+                         {"provider": "claude_sub", "model": "claude-sonnet-5-5", "effort": "high"})
+
+
+class DshRuntimeGuardTests(unittest.IsolatedAsyncioTestCase):
+    """Pro-mode and command-line runs never see the catalog; the DSH patch file still guards them."""
+
+    DSH = ["dsh", "--profile", "headless", "--patch", "{package_root}/presets/dsh-headless-opencode-go.patch.yml", "-"]
+
+    async def test_an_effort_the_patch_file_lacks_fails_clearly_before_dsh_starts(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        from vibebaton.cli_runner import dsh_effort_error, run_provider_cli
+        from vibebaton.config import ProviderConfig
+
+        dsh = ProviderConfig(name="dsh_opencode", command=list(self.DSH))
+        self.assertIsNone(dsh_effort_error(dsh, "deepseek-v4.1-flash@max"))
+        self.assertIsNone(dsh_effort_error(dsh, "deepseek-v4.1-flash"))  # no effort: DSH's own default
+        self.assertIsNone(dsh_effort_error(dsh, "some-other-model@medium"))  # not in the file: not judged
+        self.assertIsNone(dsh_effort_error(ProviderConfig(name="other", command=["x", "-"]), "deepseek-v4.1-flash@medium"))
+        message = dsh_effort_error(dsh, "deepseek-v4.1-flash@medium")
+        self.assertIn("does not support thinking effort 'medium'", message)
+        self.assertIn("low, high, max", message)
+        with tempfile.TemporaryDirectory() as tmp,                 patch("asyncio.create_subprocess_exec", side_effect=AssertionError("must not start")):
+            result = await run_provider_cli(dsh, model="deepseek-v4.1-flash@medium", prompt="hi", workdir=Path(tmp),
+                                            prompt_file=Path(tmp) / "p.md", output_file=Path(tmp) / "o.json")
+        self.assertEqual((result.status, result.exit_code), ("error", 2))
+        self.assertIn("deepseek-v4.1-flash", result.stderr)
 
 
 class EffortSourceTests(unittest.TestCase):
@@ -210,15 +329,24 @@ class NormalizeSpecTests(unittest.TestCase):
     def setUp(self) -> None:
         self.catalog = fixture_catalog()
 
-    def test_rules(self) -> None:
+    def test_rules_closest_legal_level_and_ties_go_lower(self) -> None:
+        # An illegal effort becomes the nearest allowed level in minimal<low<medium<high<xhigh<max<ultra;
+        # on a tie the lower (cheaper) one, so a correction never raises the cost.
         normalize = model_catalog.normalize_spec
         flash = normalize("dsh_opencode", "deepseek-v4.1-flash", "medium", self.catalog)
         self.assertEqual((flash["spec"], flash["changed"], flash["reason"]),
-                         ("dsh_opencode:deepseek-v4.1-flash@max", True, "effort_adjusted"))
-        pro = normalize("dsh_opencode", "deepseek-v4-pro", "low", self.catalog)
-        self.assertEqual(pro["effort"], "high")  # the default high is legal for v4-pro
-        oss = normalize("agy_sub", "gpt-oss-120b", "high", self.catalog)
-        self.assertEqual(oss["effort"], "medium")  # only medium exists; default high -> closest lower
+                         ("dsh_opencode:deepseek-v4.1-flash@low", True, "effort_adjusted"))  # low/high tie -> low
+        self.assertEqual(normalize("agy_sub", "gemini-4-hydrogen", "max", self.catalog)["effort"], "xhigh")
+        self.assertEqual(normalize("dsh_opencode", "deepseek-v4-pro", "low", self.catalog)["effort"], "high")
+        self.assertEqual(normalize("agy_sub", "gpt-oss-120b", "high", self.catalog)["effort"], "medium")
+        self.assertEqual(normalize("codex_sub", "gpt-6-luna", "ultra", self.catalog)["effort"], "max")
+        # Only an unknown or missing level falls back to the provider's legal default.
+        self.assertEqual(normalize("dsh_opencode", "deepseek-v4.1-flash", "turbo", self.catalog)["effort"], "max")
+        self.assertEqual(normalize("dsh_opencode", "deepseek-v4.1-flash", "", self.catalog)["reason"], "effort_defaulted")
+        self.assertEqual(model_catalog.closest_effort("medium", ["low", "high"]), "low")
+        self.assertEqual(model_catalog.closest_effort("xhigh", ["high", "max"]), "high")
+        self.assertEqual(model_catalog.closest_effort("max", ["low", "medium", "high"]), "high")
+        self.assertIsNone(model_catalog.closest_effort("turbo", ["low"]))
         gemini_cli = normalize("gemini_sub", "gemini-2.5-pro", "high", self.catalog)
         self.assertEqual((gemini_cli["spec"], gemini_cli["reason"]), ("gemini_sub:gemini-2.5-pro", "effort_removed"))
         kept = normalize("codex_sub", "gpt-6.2-sol", "max", self.catalog)
@@ -235,7 +363,7 @@ class NormalizeSpecTests(unittest.TestCase):
         from vibebaton.config import _LEGACY_CLAUDE_MODEL_IDS
 
         result = model_catalog.normalize_spec_string("dsh_opencode:deepseek-v4.1-flash@medium", self.catalog)
-        self.assertEqual(result["spec"], "dsh_opencode:deepseek-v4.1-flash@max")
+        self.assertEqual(result["spec"], "dsh_opencode:deepseek-v4.1-flash@low")  # closest, tie -> lower
         same = model_catalog.normalize_spec_string("codex_sub:gpt-6.2-sol@max", self.catalog)
         self.assertEqual(same["spec"], "codex_sub:gpt-6.2-sol@max")
         # The legacy Claude ID migration is separate and unaffected: its targets are catalog models.

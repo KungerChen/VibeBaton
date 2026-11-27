@@ -83,11 +83,12 @@ class SizeTierTests(unittest.TestCase):
         custom["customized"] = True
         result = recommend_workflow("medium", self.snapshot, previous_lineup=custom)
         self.assertEqual(result.reason_code, "custom_lineup_kept")
-        self.assertEqual(result.lineup["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@max")
+        # medium is not offered; low and high are equally near, so the cheaper low wins.
+        self.assertEqual(result.lineup["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@low")
         self.assertIn("effort_adjusted", result.explanation_codes)
         self.assertEqual(result.effort_changes, ({
             "role": "bulk_worker", "before": "dsh_opencode:deepseek-v4.1-flash@medium",
-            "after": "dsh_opencode:deepseek-v4.1-flash@max", "reason": "effort_adjusted",
+            "after": "dsh_opencode:deepseek-v4.1-flash@low", "reason": "effort_adjusted",
         },))
         self.assertEqual(custom["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@medium")  # input untouched
 

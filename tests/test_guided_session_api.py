@@ -528,11 +528,11 @@ class TestGuidedSessionApi(GuidedApiTestCase):
         }}), encoding="utf-8")
         status, body = self._get("/api/lineup-profiles")
         self.assertEqual(status, 200, body)
-        self.assertEqual(body["last_used"]["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@max")
+        self.assertEqual(body["last_used"]["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@low")
         self.assertEqual(body["last_used"]["model_overrides"]["brainstorm_and_final_gate"], "codex_sub:gpt-6.2-astra@high")
         self.assertEqual(body["corrections"], [{
             "where": "last_used", "role": "bulk_worker", "before": "dsh_opencode:deepseek-v4.1-flash@medium",
-            "after": "dsh_opencode:deepseek-v4.1-flash@max", "reason": "effort_adjusted",
+            "after": "dsh_opencode:deepseek-v4.1-flash@low", "reason": "effort_adjusted",
         }])
         self.assertEqual(self._get("/api/lineup-profiles")[1]["corrections"], [])  # saved: shown once
         # A new save cannot reintroduce the impossible effort.
@@ -540,7 +540,7 @@ class TestGuidedSessionApi(GuidedApiTestCase):
             "roles": {"bulk_worker": "dsh_opencode"}, "model_overrides": {"bulk_worker": "dsh_opencode:deepseek-v4.1-flash@medium"},
         })
         self.assertEqual(status, 200, saved)
-        self.assertEqual(saved["last_used"]["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@max")
+        self.assertEqual(saved["last_used"]["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@low")
 
     def test_launch_refuses_an_effort_the_tool_does_not_offer_and_suggests_one(self) -> None:
         lineup = self.lineup()
@@ -552,8 +552,9 @@ class TestGuidedSessionApi(GuidedApiTestCase):
         self.assertEqual(status, 409, body)
         self.assertEqual(body["code"], "LAUNCH_PREFLIGHT")
         self.assertIn("effort_not_allowed", body["codes"])
-        self.assertEqual(body["effort_changes"][0]["after"], "dsh_opencode:deepseek-v4.1-flash@max")
-        self.assertEqual(body["suggested_lineup"]["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@max")
+        # The suggestion follows the same rule: nearest legal level, tie -> lower.
+        self.assertEqual(body["effort_changes"][0]["after"], "dsh_opencode:deepseek-v4.1-flash@low")
+        self.assertEqual(body["suggested_lineup"]["model_overrides"]["bulk_worker"], "dsh_opencode:deepseek-v4.1-flash@low")
         self.assertEqual(self.store.list_runs(limit=5), [])
 
     def test_guided_launch_hands_the_project_size_to_the_planner(self) -> None:

@@ -288,9 +288,9 @@ class SnapshotAndLaunchTests(unittest.TestCase):
         result = recommend_workflow("medium", snapshot)
         self.assertEqual(set(result.lineup["roles"].values()), {"dsh_opencode"})
         # The setup step's tiered pick for the only ready provider; deepseek-v4.1-flash does not
-        # support medium on dsh_opencode, so it falls back to its supported default effort (max).
+        # support medium on dsh_opencode, so it takes the nearest supported level (low/high tie -> low).
         self.assertEqual(result.lineup["model_overrides"]["brainstorm_and_final_gate"],
-                         "dsh_opencode:deepseek-v4.1-flash@max")
+                         "dsh_opencode:deepseek-v4.1-flash@low")
 
     def test_live_scanner_reads_credentials_without_exposing_values(self) -> None:
         cfg = example_config()
