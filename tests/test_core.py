@@ -174,6 +174,54 @@ class TestGitWorktreeAndWhitelist(unittest.TestCase):
             )
             self.assertIn("OK = True", show.stdout)
 
+    def test_ensure_git_ready_unborn_repo_creates_empty_root_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "unborn"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+            (repo / "notes.txt").write_text("keep untracked\n", encoding="utf-8")
+
+            env = {
+                k: v
+                for k, v in os.environ.items()
+                if not k.startswith("GIT_") and k not in ("HOME", "USERPROFILE", "XDG_CONFIG_HOME")
+            }
+            env["HOME"] = tmp
+            env["USERPROFILE"] = tmp
+            old_env = os.environ.copy()
+            os.environ.clear()
+            os.environ.update(env)
+            try:
+                base = ensure_git_ready(repo, "main", "dev")
+            finally:
+                os.environ.clear()
+                os.environ.update(old_env)
+
+            self.assertEqual(base, "main")
+            main_sha = subprocess.run(
+                ["git", "rev-parse", "--verify", "main^{commit}"],
+                cwd=str(repo),
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            dev_sha = subprocess.run(
+                ["git", "rev-parse", "--verify", "dev^{commit}"],
+                cwd=str(repo),
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(main_sha, dev_sha)
+            ls_files = subprocess.run(
+                ["git", "ls-files"],
+                cwd=str(repo),
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(ls_files, "")
+
 
 if __name__ == "__main__":
     unittest.main()

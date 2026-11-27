@@ -81,6 +81,14 @@ def ensure_git_ready(repo: Path, base_branch: str, dev_branch: str) -> str:
     _run_git(repo, ["rev-parse", "--is-inside-work-tree"])
     _run_git(repo, ["config", "core.longpaths", "true"], check=False)
 
+    head_check = _run_git(repo, ["rev-parse", "-q", "--verify", "HEAD"], check=False)
+    if head_check.returncode != 0:
+        for key, value in (("user.name", "VibeBaton"), ("user.email", "vibebaton@localhost")):
+            current_cfg = _run_git(repo, ["config", key], check=False)
+            if current_cfg.returncode != 0 or not current_cfg.stdout.strip():
+                _run_git(repo, ["config", "--local", key, value])
+        _run_git(repo, ["commit", "--allow-empty", "-q", "-m", "chore: initialize repository"])
+
     # Resolve current branch if base_branch doesn't exist yet
     base_check = _run_git(repo, ["rev-parse", "--verify", base_branch], check=False)
     if base_check.returncode != 0:
