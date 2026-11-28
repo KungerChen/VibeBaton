@@ -494,6 +494,8 @@ class OrchestrationEngine:
                     task_id=task_id,
                     milestone_id=milestone_id,
                     message=f"Invoking {role_name} ({active_provider.name}/{active_model})",
+                    # Names this call's prompt and output files under the run directory.
+                    payload={"artifact_key": artifact_key},
                 )
                 transport_model = active_model
                 effort: str | None = None
