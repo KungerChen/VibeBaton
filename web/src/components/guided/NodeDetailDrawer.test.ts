@@ -337,6 +337,23 @@ describe('NodeDetailDrawer', () => {
     expect(highlight?.text).toBe('Plan DAG');
   });
 
+  test('inside the context drawer it is a plain panel: no scrim, no dialog, no Escape handler, facts under the details', async () => {
+    const addEventListener = vi.fn();
+    vi.stubGlobal('document', { addEventListener, removeEventListener: vi.fn() });
+    const { container } = await renderDrawer({ fetcher: vi.fn(async () => detail), inline: true });
+    expect(addEventListener).not.toHaveBeenCalled();
+    expect(container.findByAttr('role', 'dialog')).toBeUndefined();
+    expect(container.findByAttr('aria-modal', 'true')).toBeUndefined();
+    expect(container.findByAttr('class', 'node-detail-drawer__scrim')).toBeUndefined();
+    expect(container.text).toContain(detail.summary);
+    expect(field(container, 'status')).toBe('PASSED');
+    const details = container.findByAttr('class', 'context-drawer__details-body');
+    expect(details?.findByAttr('data-field', 'model')?.text).toBe('Claude Code / sonnet');
+    expect(details?.findByAttr('data-field', 'cost')?.text).toBe('$0.04');
+    expect(details?.findByAttr('data-field', 'changed-files')).toBeDefined();
+    expect(details?.text).not.toContain(detail.summary);
+  });
+
   test('shows a rejected fetch as an alert without any detail fields', async () => {
     const pending = deferred<RunTaskDetail>();
     const fetcher = vi.fn(() => pending.promise);

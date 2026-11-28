@@ -4,7 +4,8 @@ import { BatonApiClient, type RunTaskDetail } from '../../api/client';
 import { formatDurationSec } from '../../engine/liveClock';
 import type { Locale } from '../../i18n/messages';
 import { MESSAGES } from '../../i18n/messages';
-import { formatProviderDisplay } from '../../i18n/presets';
+import { formatProviderModel } from '../../i18n/presets';
+import { DrawerDetails } from './ContextDrawer';
 import { GlossaryTerm, useGlossaryHighlights } from './GlossaryTerm';
 import { localizeGuidedError } from './guidedErrors';
 
@@ -19,6 +20,8 @@ export interface NodeDetailDrawerProps {
   fetcher?: NodeDetailFetcher;
   /** Whether an event of this task carried a cost (see `taskCostReported`); only then is a zero shown as $0.00. */
   costReported?: boolean;
+  /** Inside the context drawer: no scrim, no dialog, no Escape handler; the facts go under technical details. */
+  inline?: boolean;
 }
 
 export interface DetailSummary {
@@ -76,11 +79,10 @@ export function taskCostReported(events: readonly Record<string, unknown>[], tas
 /** Format every value the drawer renders, keeping the raw task payload out of the JSX. */
 export function summarizeDetail(detail: RunTaskDetail, locale: Locale, costReported?: boolean): DetailSummary {
   const copy = MESSAGES[locale].guided.nodeDetail;
-  const provider = detail.provider ? formatProviderDisplay(detail.provider) : '';
   return {
     status: copy.statuses[detail.status] ?? displayToken(detail.status),
     summary: detail.summary,
-    model: [provider, detail.model].filter(Boolean).join(' / ') || '—',
+    model: formatProviderModel(detail.provider, detail.model) || '—',
     elapsed: formatElapsed(detail.elapsed_sec, locale),
     // A zero is only real when an event confirms a reported cost; any amount above zero was reported.
     cost: detail.cost_usd === 0 && costReported !== true
@@ -118,6 +120,7 @@ export function NodeDetailDrawer({
   locale,
   fetcher,
   costReported,
+  inline,
 }: NodeDetailDrawerProps) {
   const copy = MESSAGES[locale].guided.nodeDetail;
   const headingId = useId();
@@ -147,13 +150,13 @@ export function NodeDetailDrawer({
   }, [runId, taskId, locale]);
 
   useEffect(() => {
-    if (!taskId || typeof document === 'undefined') return;
+    if (inline || !taskId || typeof document === 'undefined') return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [taskId, onClose]);
+  }, [inline, taskId, onClose]);
 
   const key = taskId ? taskKey(runId, taskId, locale) : null;
   const current = key !== null && state?.key === key ? state : null;
@@ -165,15 +168,48 @@ export function NodeDetailDrawer({
 
   if (!taskId) return null;
 
-  return (
-    <div className="node-detail-drawer__root">
-      <div className="node-detail-drawer__scrim" onClick={onClose} aria-hidden="true" />
-      <aside
-        className="node-detail-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={headingId}
-      >
+  const facts = detail && summary ? (
+    <>
+      <dl className="node-detail-drawer__facts">
+        <div className="node-detail-drawer__fact">
+          <dt>{copy.model}</dt>
+          <dd data-field="model"><code>{summary.model}</code></dd>
+        </div>
+        <div className="node-detail-drawer__fact">
+          <dt>{copy.elapsed}</dt>
+          <dd data-field="elapsed">{summary.elapsed}</dd>
+        </div>
+        <div className="node-detail-drawer__fact">
+          <dt>{copy.cost}</dt>
+          <dd data-field="cost">{summary.cost}</dd>
+        </div>
+        <div className="node-detail-drawer__fact">
+          <dt>{copy.tests}</dt>
+          <dd data-field="tests" data-test-status={detail.test_status}>{summary.tests}</dd>
+        </div>
+        <div className="node-detail-drawer__fact">
+          <dt>{copy.verdict}</dt>
+          <dd data-field="verdict">{summary.verdict}</dd>
+        </div>
+      </dl>
+
+      <section className="node-detail-drawer__section">
+        <h3>{copy.changedFiles}</h3>
+        {summary.changedFiles.length > 0 ? (
+          <ul className="node-detail-drawer__files" data-field="changed-files">
+            {summary.changedFiles.map((file, index) => (
+              <li key={`${file}-${index}`}><code>{file}</code></li>
+            ))}
+          </ul>
+        ) : (
+          <p className="node-detail-drawer__empty" aria-hidden="true">—</p>
+        )}
+      </section>
+    </>
+  ) : null;
+
+  const content = (
+    <>
         <header className="node-detail-drawer__header">
           <div className="node-detail-drawer__heading">
             <p className="node-detail-drawer__eyebrow">{copy.title}</p>
@@ -212,47 +248,28 @@ export function NodeDetailDrawer({
               </p>
             </section>
 
-            <dl className="node-detail-drawer__facts">
-              <div className="node-detail-drawer__fact">
-                <dt>{copy.model}</dt>
-                <dd data-field="model"><code>{summary.model}</code></dd>
-              </div>
-              <div className="node-detail-drawer__fact">
-                <dt>{copy.elapsed}</dt>
-                <dd data-field="elapsed">{summary.elapsed}</dd>
-              </div>
-              <div className="node-detail-drawer__fact">
-                <dt>{copy.cost}</dt>
-                <dd data-field="cost">{summary.cost}</dd>
-              </div>
-              <div className="node-detail-drawer__fact">
-                <dt>{copy.tests}</dt>
-                <dd data-field="tests" data-test-status={detail.test_status}>{summary.tests}</dd>
-              </div>
-              <div className="node-detail-drawer__fact">
-                <dt>{copy.verdict}</dt>
-                <dd data-field="verdict">{summary.verdict}</dd>
-              </div>
-            </dl>
-
-            <section className="node-detail-drawer__section">
-              <h3>{copy.changedFiles}</h3>
-              {summary.changedFiles.length > 0 ? (
-                <ul className="node-detail-drawer__files" data-field="changed-files">
-                  {summary.changedFiles.map((file, index) => (
-                    <li key={`${file}-${index}`}><code>{file}</code></li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="node-detail-drawer__empty" aria-hidden="true">—</p>
-              )}
-            </section>
+            {inline ? <DrawerDetails panel="task" locale={locale}>{facts}</DrawerDetails> : facts}
           </>
         ) : (
           <div className="node-detail-drawer__loading" role="status" aria-busy="true" aria-label={copy.title}>
             <span className="node-detail-drawer__spinner" aria-hidden="true" />
           </div>
         )}
+    </>
+  );
+
+  if (inline) return <div className="node-detail-drawer node-detail-drawer--inline">{content}</div>;
+
+  return (
+    <div className="node-detail-drawer__root">
+      <div className="node-detail-drawer__scrim" onClick={onClose} aria-hidden="true" />
+      <aside
+        className="node-detail-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+      >
+        {content}
       </aside>
     </div>
   );

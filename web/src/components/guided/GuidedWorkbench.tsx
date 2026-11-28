@@ -3,15 +3,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNodesState } from '@xyflow/react';
 import {
   ApiError, type ApiMode, type BatonApiClient, type FinalizeAction, type GuidedSession, type RecommendedLineup,
-  type StopAndReplanResult, type WorkflowLineup,
+  type RunHandoff, type StopAndReplanResult, type WorkflowLineup,
 } from '../../api/client';
 import { graphToFlow } from '../../engine/flowAdapter';
-import { buildLiveRunGraph, projectLiveRunCanvas } from '../../engine/liveRunGraph';
+import { buildLiveRunGraph, projectLiveRunCanvas, type LiveRunGraphView } from '../../engine/liveRunGraph';
+import { handoffForEdge, relayEdges } from '../../engine/relayHandoffs';
 import { MESSAGES, type Locale } from '../../i18n/messages';
 import type { LiveRunSnapshot } from '../../types/graph';
 import { cn } from '../../lib/utils';
 import { CanvasWorkspace } from '../CanvasWorkspace';
 import type { BatonFlowNode } from '../nodes/BatonNode';
+import { ContextDrawer, DrawerPanel, RelayNodePanel, RunOverviewPanel, type DrawerOwner } from './ContextDrawer';
 import { clearBrainstorm, GuidedBrainstormStep, type GuidedBrainstormApi, type LaunchPayload } from './GuidedBrainstormStep';
 import { GuidedDecisionDrawer } from './GuidedDecisionDrawer';
 import { optionsFromEvent, type GuidedDecisionOption } from './GuidedDecisionModal';
@@ -19,6 +21,7 @@ import { GuidedFailedBanner } from './GuidedFailedBanner';
 import { GuidedSetupStep, workspaceReadiness, type SetupReadinessReport } from './GuidedSetupStep';
 import { GuidedSignOffPanel, loadSignOffLineage, type SignOffDeliverable, type SignOffSummary } from './GuidedSignOffPanel';
 import { isStaleRunError, localizeGuidedError } from './guidedErrors';
+import { HandoffCard } from './HandoffCard';
 import { NodeDetailDrawer, taskCostReported } from './NodeDetailDrawer';
 import { ReadinessCapsule, readinessReasonTexts } from './ReadinessCapsule';
 import { useGuidedSession } from './useGuidedSession';
@@ -278,43 +281,80 @@ function failureDetail(snapshot: LiveRunSnapshot | null): string | null {
 
 const noop = () => {};
 
-function GuidedLiveCanvas({
-  snapshot,
+/** What the Build relay graph has selected; it lives in the workbench only, never in the Pro view. */
+export type RelaySelection = { kind: 'node' | 'edge'; id: string };
+
+/** The drawer's one owner: a pending decision, then the selected object, then the run overview. */
+export function drawerOwner(decisionPending: boolean, selection: RelaySelection | null): DrawerOwner {
+  if (decisionPending) return 'decision';
+  if (!selection) return 'overview';
+  if (selection.kind === 'edge') return 'handoff';
+  return taskIdFromNodeId(selection.id) ? 'task' : 'node';
+}
+
+/** Changes only when the steps or lines of the relay graph change, never with their status. */
+export function relayStructureKey(view: LiveRunGraphView): string {
+  return [...view.graph.nodes.map((node) => node.id), ...view.graph.edges.map((edge) => edge.id)].join('|');
+}
+
+/** The read-only live relay graph of Build: clicking only selects; nothing here edits the graph. */
+export function GuidedLiveCanvas({
+  view,
+  handoffs,
+  selection,
   locale,
-  onTaskClick,
+  onSelect,
 }: {
-  snapshot: LiveRunSnapshot;
+  view: LiveRunGraphView;
+  /** The server's handoff list; null until it has been read. */
+  handoffs: readonly RunHandoff[] | null;
+  selection: RelaySelection | null;
   locale: Locale;
-  onTaskClick(taskId: string): void;
+  onSelect(selection: RelaySelection | null): void;
 }) {
-  const view = useMemo(() => {
-    const { graph, nodeStates, activeEdgeIds, traversedEdgeIds } = buildLiveRunGraph(snapshot, locale);
-    const projected = projectLiveRunCanvas(graph);
-    return { ...graphToFlow(projected.graph, nodeStates), activeEdgeIds, traversedEdgeIds };
-  }, [snapshot, locale]);
-  const [nodes, setNodes, onNodesChange] = useNodesState<BatonFlowNode>(view.nodes);
+  const flow = useMemo(() => {
+    const { nodes, edges } = graphToFlow(projectLiveRunCanvas(view.graph).graph, view.nodeStates);
+    return { nodes, ...relayEdges(edges, handoffs, view.activeEdgeIds, view.traversedEdgeIds) };
+  }, [view, handoffs]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<BatonFlowNode>(flow.nodes);
 
   useEffect(() => {
-    setNodes(view.nodes);
-  }, [setNodes, view.nodes]);
+    setNodes(flow.nodes);
+  }, [setNodes, flow.nodes]);
 
-  const handleNodeClick = useCallback((nodeId: string) => {
-    const taskId = taskIdFromNodeId(nodeId);
-    if (taskId) onTaskClick(taskId);
-  }, [onTaskClick]);
+  const shownNodes = useMemo(() => nodes.map((node) => selection?.kind === 'node' && node.id === selection.id
+    ? { ...node, className: 'guided-relay__node--selected' } : node), [nodes, selection]);
+  const shownEdges = useMemo(() => flow.edges.map((edge) => selection?.kind === 'edge' && edge.id === selection.id
+    ? { ...edge, className: cn(edge.className, 'guided-relay__edge--selected') } : edge), [flow.edges, selection]);
+  const copy = MESSAGES[locale].guided.relay;
 
   return (
-    <CanvasWorkspace
-      nodes={nodes}
-      edges={view.edges}
-      onNodesChange={onNodesChange}
-      onEdgesChange={noop}
-      onConnect={noop}
-      onSelectionChange={noop}
-      activeEdgeIds={view.activeEdgeIds}
-      traversedEdgeIds={view.traversedEdgeIds}
-      onNodeClick={handleNodeClick}
-    />
+    <>
+      <CanvasWorkspace
+        // The graph grows when the plan arrives; a new set of steps is fitted into view again.
+        key={relayStructureKey(view)}
+        nodes={shownNodes}
+        edges={shownEdges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={noop}
+        onConnect={noop}
+        onSelectionChange={noop}
+        activeEdgeIds={flow.activeEdgeIds}
+        traversedEdgeIds={flow.traversedEdgeIds}
+        readOnly
+        onNodeClick={(id) => onSelect({ kind: 'node', id })}
+        onEdgeClick={(id) => onSelect({ kind: 'edge', id })}
+        onPaneClick={() => onSelect(null)}
+      />
+      <div className="guided-relay__legend" role="note" aria-label={copy.legendAria}>
+        <span className="guided-relay__legend-item">
+          <span className="guided-relay__swatch" aria-hidden="true" />{copy.legendRecorded}
+        </span>
+        <span className="guided-relay__legend-item">
+          <span className="guided-relay__swatch guided-relay__swatch--planned" aria-hidden="true" />{copy.legendPlanned}
+        </span>
+      </div>
+    </>
   );
 }
 
@@ -341,7 +381,11 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
   const [step, setStep] = useState<GuidedStep>('setup');
   const [lineup, setLineup] = useState<RecommendedLineup | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
-  const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<RelaySelection | null>(null);
+  const detailTaskId = selection?.kind === 'node' ? taskIdFromNodeId(selection.id) : null;
+  const [handoffs, setHandoffs] = useState<{ runId: string; list: RunHandoff[] } | null>(null);
+  const [handoffsFailed, setHandoffsFailed] = useState(false);
+  const [handoffsAttempt, setHandoffsAttempt] = useState(0);
   const [resolvedDecisionKey, setResolvedDecisionKey] = useState<string | null>(null);
   const [lastSignOff, setLastSignOff] = useState<{ runId: string; action: FinalizeAction } | null>(null);
   const [resumeBusy, setResumeBusy] = useState(false);
@@ -420,7 +464,9 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
       onFollowRun(pending.runId);
     } else if ((session.active_stage === 'build' || session.active_stage === 'signoff') && session.active_run_id) {
       setRunId(session.active_run_id);
-      if (session.open_drawer?.run_id === session.active_run_id) setDetailTaskId(session.open_drawer.task_id);
+      if (session.open_drawer?.run_id === session.active_run_id) {
+        setSelection({ kind: 'node', id: `${LIVE_TASK_NODE_PREFIX}${session.open_drawer.task_id}` });
+      }
       onFollowRun(session.active_run_id);
     } else {
       setStep(session.active_stage === 'blueprint' && restoredLineup ? 'brainstorm' : 'setup');
@@ -454,6 +500,39 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
   }, [setupOpen]);
   const decision = waitingDecision(snapshot);
   const decisionOpen = Boolean(runId && decision && decision.key !== resolvedDecisionKey && !stale && !stopBusy && !stopPending);
+  const relayView = useMemo(() => shownStep === 'live' && snapshot ? buildLiveRunGraph(snapshot, locale) : null,
+    [shownStep, snapshot, locale]);
+  const selectedEdge = selection?.kind === 'edge' ? relayView?.graph.edges.find((edge) => edge.id === selection.id) : undefined;
+  const selectedNode = selection?.kind === 'node' ? relayView?.graph.nodes.find((node) => node.id === selection.id) : undefined;
+  const relaySelection = selectedEdge || selectedNode ? selection : null;
+  const owner = drawerOwner(decisionOpen, relaySelection);
+  const nodeLabel = (id: string) => relayView?.graph.nodes.find((node) => node.id === id)?.label ?? id;
+  const handoffList = handoffs?.runId === runId ? handoffs.list : null;
+  const hasSnapshot = Boolean(snapshot);
+  const lastEventId = snapshot?.events[snapshot.events.length - 1]?.id;
+  const runStatus = snapshot?.run?.status;
+
+  // Read the handoffs again whenever the run, its latest event or its status changes; late answers are dropped.
+  useEffect(() => {
+    if (shownStep !== 'live' || !runId || !hasSnapshot || typeof client.getRunHandoffs !== 'function') return;
+    let active = true;
+    client.getRunHandoffs(runId).then((response) => {
+      if (!active) return;
+      setHandoffs({ runId, list: response.handoffs });
+      setHandoffsFailed(false);
+    }, () => { if (active) setHandoffsFailed(true); });
+    return () => { active = false; };
+  }, [client, runId, shownStep, hasSnapshot, lastEventId, runStatus, handoffsAttempt]);
+
+  /** Selection only changes the drawer; the session remembers a selected task, as it always has. */
+  function selectRelay(next: RelaySelection | null) {
+    setSelection(next);
+    const taskId = next?.kind === 'node' ? taskIdFromNodeId(next.id) : null;
+    const saved = session?.open_drawer ?? null;
+    if (!runId || session?.active_run_id !== runId) return;
+    if (taskId ? saved?.run_id === runId && saved.task_id === taskId : !saved) return;
+    saveSession({ open_drawer: taskId ? { run_id: runId, task_id: taskId } : null });
+  }
   const replanContext = replanContextFromSession(session);
   const manualRevision = replanContext && asRecord(session?.brainstorm.guided_revision)?.run_id === replanContext.run_id;
   const replanText = replanContext ? formatReplanContext(replanContext) : '';
@@ -541,7 +620,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
             stopInFlight.current = false;
             return;
           }
-          setDetailTaskId(null);
+          setSelection(null);
           setRunId(null);
           setStep('brainstorm');
           setSettling(null);
@@ -647,7 +726,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
       }
       setRunId(null);
       setLineup(null);
-      setDetailTaskId(null);
+      setSelection(null);
       setResolvedDecisionKey(null);
       setLastSignOff(null);
       setStaleRunId(null);
@@ -675,7 +754,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
       }
       setStaleRunId(null);
       setResolvedDecisionKey(null);
-      setDetailTaskId(null);
+      setSelection(null);
       setRunId(currentId);
       if (session && latestSession.active_run_id !== currentId) saveSession({ active_run_id: currentId,
         active_stage: stepFromRun(current.run?.status) === 'signoff' ? 'signoff' : 'build',
@@ -887,32 +966,71 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
               </div>
             ) : null}
             <p className="guided-workbench__hint">{snapshot ? copy.workbench.nodeHint : copy.workbench.waitingForRun}</p>
-            {snapshot && (
-              <div className={cn('guided-workbench__live-main', decisionOpen && 'guided-workbench__live-main--decision')}>
+            {snapshot && relayView && (
+              <div className="guided-workbench__live-main">
                 <div className="guided-workbench__canvas">
-                  <GuidedLiveCanvas snapshot={snapshot} locale={locale} onTaskClick={(taskId) => {
-                    setDetailTaskId(taskId);
-                    if (session?.active_run_id === runId) saveSession({ open_drawer: { run_id: runId, task_id: taskId } });
-                  }} />
+                  <GuidedLiveCanvas view={relayView} handoffs={handoffList} selection={relaySelection} locale={locale}
+                    onSelect={selectRelay} />
                 </div>
-                {runId && decision && decisionOpen && (
-                  <GuidedDecisionDrawer
-                    key={decision.key}
-                    open
-                    runId={runId}
-                    taskId={decision.taskId}
-                    question={decision.question}
-                    options={decision.options}
-                    locale={locale}
-                    resolver={({ runId: id, taskId, choice, note }) => client.resolveRunTask(id, { taskId, choice, note })}
-                    onStale={() => setStaleRunId(runId)}
-                    onResolved={() => {
-                      setResolvedDecisionKey(decision.key);
-                      if (session?.active_run_id === runId) saveSession({ open_human_gate: null });
-                      onFollowRun(runId);
-                    }}
-                  />
-                )}
+                <ContextDrawer locale={locale} owner={owner}>
+                  {handoffsFailed ? (
+                    <p className="context-drawer__notice" role="status">
+                      <span>{copy.relay.handoffsFailed}</span>
+                      <button type="button" className="context-drawer__button"
+                        onClick={() => setHandoffsAttempt((attempt) => attempt + 1)}>{copy.relay.retry}</button>
+                    </p>
+                  ) : null}
+                  <DrawerPanel panel="decision" owner={owner}>
+                    {runId && decision && decisionOpen && (
+                      <GuidedDecisionDrawer
+                        key={decision.key}
+                        open
+                        runId={runId}
+                        taskId={decision.taskId}
+                        question={decision.question}
+                        options={decision.options}
+                        locale={locale}
+                        title={copy.relay.decisionTitle(decision.taskId)}
+                        submitLabel={copy.relay.replyToTask(decision.taskId)}
+                        resolver={({ runId: id, taskId, choice, note }) => client.resolveRunTask(id, { taskId, choice, note })}
+                        onStale={() => setStaleRunId(runId)}
+                        onResolved={() => {
+                          setResolvedDecisionKey(decision.key);
+                          if (session?.active_run_id === runId) saveSession({ open_human_gate: null });
+                          onFollowRun(runId);
+                        }}
+                      />
+                    )}
+                  </DrawerPanel>
+                  <DrawerPanel panel="task" owner={owner}>
+                    <NodeDetailDrawer
+                      inline
+                      runId={runId}
+                      taskId={detailTaskId}
+                      locale={locale}
+                      costReported={detailTaskId ? taskCostReported(snapshot.events, detailTaskId) : undefined}
+                      fetcher={(id, taskId) => client.getRunTaskDetail(id, taskId, locale)}
+                      onClose={() => selectRelay(null)}
+                    />
+                  </DrawerPanel>
+                  {owner === 'node' && selectedNode ? (
+                    <DrawerPanel panel="node" owner={owner}>
+                      <RelayNodePanel node={selectedNode} state={relayView.nodeStates[selectedNode.id] ?? 'idle'} locale={locale} />
+                    </DrawerPanel>
+                  ) : null}
+                  {owner === 'handoff' && selectedEdge ? (
+                    <DrawerPanel panel="handoff" owner={owner}>
+                      <HandoffCard key={selectedEdge.id} runId={runId} handoff={handoffForEdge(selectedEdge, handoffList)}
+                        fromLabel={nodeLabel(selectedEdge.source)} toLabel={nodeLabel(selectedEdge.target)} locale={locale}
+                        loadArtifact={(key) => client.getRunArtifact(runId, key)} />
+                    </DrawerPanel>
+                  ) : null}
+                  {owner === 'overview' ? (
+                    <DrawerPanel panel="overview" owner={owner}>
+                      <RunOverviewPanel snapshot={snapshot} view={relayView} locale={locale} />
+                    </DrawerPanel>
+                  ) : null}
+                </ContextDrawer>
               </div>
             )}
           </div>
@@ -972,20 +1090,6 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
           </div>
         )}
       </section>
-
-      {runId && (
-        <NodeDetailDrawer
-          runId={runId}
-          taskId={detailTaskId}
-          locale={locale}
-          costReported={snapshot && detailTaskId ? taskCostReported(snapshot.events, detailTaskId) : undefined}
-          fetcher={(id, taskId) => client.getRunTaskDetail(id, taskId, locale)}
-          onClose={() => {
-            setDetailTaskId(null);
-            if (session?.active_run_id === runId) saveSession({ open_drawer: null });
-          }}
-        />
-      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, assert, describe, expect, test, vi } from 'vitest';
 import { ApiError } from '../../api/client';
 import { I18nProvider } from '../../i18n';
+import { MESSAGES } from '../../i18n/messages';
 import { Textarea } from '../ui/input';
 import { GuidedDecisionDrawer, type GuidedDecisionDrawerProps } from './GuidedDecisionDrawer';
 import { useGuidedDecisionContent } from './GuidedDecisionModal';
@@ -48,6 +49,20 @@ describe('GuidedDecisionDrawer', () => {
     expect(html).not.toContain('aria-modal');
     expect(html).not.toContain('scrim');
     expect(renderToStaticMarkup(createElement(GuidedDecisionDrawer, { ...props, open: false }))).toBe('');
+  });
+
+  test.each([
+    ['en', 'Task T3 needs a decision from you', 'Reply to task T3'],
+    ['zh', '任务 T3 需要你做一个决定', '回复任务 T3'],
+  ] as const)('in the context drawer the heading and the submit button name the task (%s)', (locale, heading, button) => {
+    const relay = MESSAGES[locale].guided.relay;
+    expect([relay.decisionTitle('T3'), relay.replyToTask('T3')]).toEqual([heading, button]);
+    const html = renderToStaticMarkup(createElement(I18nProvider, { children: createElement(GuidedDecisionDrawer, {
+      ...props, locale, taskId: 'T3', title: relay.decisionTitle('T3'), submitLabel: relay.replyToTask('T3'),
+    }) }));
+    expect(html).toContain(`>${heading}</h2>`);
+    expect(html).toMatch(new RegExp(`<button[^>]*type="submit"[^>]*>${button}</button>`));
+    expect(html).not.toContain(MESSAGES[locale].guided.decision.submit);
   });
 
   test('the shared form submits once, trims the note, and reports stale runs', async () => {

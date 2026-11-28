@@ -4,12 +4,15 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, assert, describe, expect, test, vi } from 'vitest';
 import {
   ApiError, type ApiMode, type BatonApiClient, type CliDriver, type GuidedSession, type GuidedSessionPatch,
-  type RecommendedLineup, type StopAndReplanResult, type WorkflowLineup, type WorkspaceInfo,
+  type RecommendedLineup, type RunHandoff, type RunHandoffsResponse, type StopAndReplanResult, type WorkflowLineup,
+  type WorkspaceInfo,
 } from '../../api/client';
 import { MESSAGES } from '../../i18n/messages';
 import type { LiveRunSnapshot } from '../../types/graph';
 import workbenchSource from './GuidedWorkbench.tsx?raw';
+import { ContextDrawer, RelayNodePanel, RunOverviewPanel } from './ContextDrawer';
 import { GuidedDecisionDrawer } from './GuidedDecisionDrawer';
+import { HandoffCard } from './HandoffCard';
 import { GuidedFailedBanner } from './GuidedFailedBanner';
 import { GuidedBrainstormStep, type GuidedBrainstormApi } from './GuidedBrainstormStep';
 import { GuidedSetupStep, type SetupReadinessInput, type SetupReadinessReport } from './GuidedSetupStep';
@@ -27,6 +30,7 @@ import {
   taskIdFromNodeId,
   useGuidedWorkbenchView,
   waitingDecision,
+  type RelaySelection,
 } from './GuidedWorkbench';
 
 function snapshot(run: Record<string, unknown> | null, extra: Partial<LiveRunSnapshot> = {}): LiveRunSnapshot {
@@ -296,7 +300,7 @@ describe('GuidedWorkbench live interactions', () => {
     expect(follow).toHaveBeenCalledWith('r1');
     expect(find((node) => node.type === GuidedDecisionDrawer).props.open).toBe(true);
     const canvas = find((node) => typeof node.type === 'function' && node.type.name === 'GuidedLiveCanvas');
-    await act(async () => { (canvas.props.onTaskClick as (id: string) => void)('T1'); vi.advanceTimersByTime(400); });
+    await act(async () => { (canvas.props.onSelect as (selection: RelaySelection) => void)({ kind: 'node', id: 'live-task-T1' }); vi.advanceTimersByTime(400); });
     expect(find((node) => node.type === NodeDetailDrawer).props.taskId).toBe('T1');
     expect(find((node) => node.type === GuidedDecisionDrawer)).toBeTruthy();
     expect(stored.open_drawer).toEqual({ run_id: 'r1', task_id: 'T1' });
@@ -680,7 +684,7 @@ describe('GuidedWorkbench live interactions', () => {
     const rerender = await mount();
     expect(find((node) => node.type === NodeDetailDrawer).props.costReported).toBe(true);
     const canvas = find((node) => typeof node.type === 'function' && node.type.name === 'GuidedLiveCanvas');
-    await act(async () => { (canvas.props.onTaskClick as (id: string) => void)('T2'); });
+    await act(async () => { (canvas.props.onSelect as (selection: RelaySelection) => void)({ kind: 'node', id: 'live-task-T2' }); });
     expect(find((node) => node.type === NodeDetailDrawer).props.costReported).toBe(false);
 
     const billing = { total_prompt_tokens: 0, total_completion_tokens: 0, total_cached_tokens: 0, total_tokens: 0,
@@ -716,5 +720,114 @@ describe('GuidedWorkbench live interactions', () => {
     expect(inBar.some((node) => node.type === 'button' && node.props.children === MESSAGES.en.guided.m3.session.reset)).toBe(true);
     expect(capsule().props.workspacePath).toBe('/repo');
     expect(elements(view).some((node) => node.props.className === 'guided-workbench__team-bar')).toBe(false);
+  });
+
+  function relaySnapshot(extra: Partial<LiveRunSnapshot> = {}, run: Record<string, unknown> = { id: 'r1', status: 'RUNNING' }) {
+    return snapshot(run, {
+      milestones: [{ id: 'M1', title: 'Core', status: 'RUNNING' }],
+      tasks: [{ id: 'T1', milestone_id: 'M1', title: 'Write', status: 'PASSED' },
+        { id: 'T2', milestone_id: 'M1', title: 'Check', status: 'RUNNING' }],
+      events: [{ id: 5, kind: 'task_passed', task_id: 'T1' }],
+      ...extra,
+    });
+  }
+  function relayHandoff(id: string, recorded: boolean): RunHandoff {
+    return { id, from: { kind: 'planner', id: null }, to: { kind: 'task', id: 'T1' }, recorded, event_ids: [], at: null,
+      invocations: [], changed_files: null, receipts: [], review: null, takeover: { status: null, holder: null }, blocked_reason: null };
+  }
+  const drawer = () => find((node) => node.type === ContextDrawer);
+  const relay = () => find((node) => typeof node.type === 'function' && node.type.name === 'GuidedLiveCanvas');
+  async function select(selection: RelaySelection | null) {
+    await act(async () => { (relay().props.onSelect as (value: RelaySelection | null) => void)(selection); });
+  }
+
+  test('selecting a node or an edge only changes the drawer and never leaves the live view', async () => {
+    setup(relaySnapshot());
+    const handoffs = [relayHandoff('planner>task:T1', true), relayHandoff('task:T1>milestone:M1', false)];
+    api.getRunHandoffs = vi.fn(async () => ({ run_id: 'r1', handoffs }));
+    await mount();
+    expect(drawer().props.owner).toBe('overview');
+    expect(find((node) => node.type === RunOverviewPanel)).toBeTruthy();
+    expect(relay().props.handoffs).toEqual(handoffs);
+    const graph = relay().props.view;
+    const followed = follow.mock.calls.length;
+    const saved = vi.mocked(api.saveGuidedSession).mock.calls.length;
+
+    await select({ kind: 'node', id: 'live-ms-M1' });
+    expect(drawer().props.owner).toBe('node');
+    expect(find((node) => node.type === RelayNodePanel).props.node).toMatchObject({ id: 'live-ms-M1' });
+    await select({ kind: 'edge', id: 'live-edge-live-planner-to-live-task-T1' });
+    expect(drawer().props.owner).toBe('handoff');
+    expect(find((node) => node.type === HandoffCard).props).toMatchObject({
+      handoff: handoffs[0], fromLabel: '01_PLAN · Tactical Plan', toLabel: 'T1 · Write',
+    });
+    await select({ kind: 'edge', id: 'live-edge-live-task-T2-to-live-ms-M1' });
+    expect(find((node) => node.type === HandoffCard).props.handoff).toBeNull();
+    await select({ kind: 'node', id: 'live-task-T1' });
+    expect(drawer().props.owner).toBe('task');
+    expect(find((node) => node.type === NodeDetailDrawer).props.taskId).toBe('T1');
+    await select(null);
+    expect(drawer().props.owner).toBe('overview');
+    expect(find((node) => node.type === NodeDetailDrawer).props.taskId).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(400); });
+
+    expect(relay().props.view).toBe(graph);
+    expect(body().props['data-step']).toBe('live');
+    expect(follow).toHaveBeenCalledTimes(followed);
+    const patches = vi.mocked(api.saveGuidedSession).mock.calls.slice(saved).map(([patch]) => patch);
+    expect(patches.length).toBeGreaterThan(0);
+    expect(patches.every((patch) => Object.keys(patch).join() === 'open_drawer')).toBe(true);
+    expect(stored.open_drawer).toBeNull();
+  });
+
+  test('a pending decision owns the drawer and names its task; once answered the selection is back', async () => {
+    setup(relaySnapshot({ tasks: [{ id: 'T1', milestone_id: 'M1', title: 'Write', status: 'WAITING_HUMAN' }] },
+      { id: 'r1', status: 'WAITING_HUMAN', human_prompt: 'Keep it?' }));
+    await mount();
+    expect(drawer().props.owner).toBe('decision');
+    await select({ kind: 'edge', id: 'live-edge-live-planner-to-live-task-T1' });
+    expect(drawer().props.owner).toBe('decision');
+    const gate = find((node) => node.type === GuidedDecisionDrawer);
+    expect(gate.props).toMatchObject({ open: true, taskId: 'T1',
+      title: 'Task T1 needs a decision from you', submitLabel: 'Reply to task T1' });
+    expect(elements(view).some((node) => node.type === HandoffCard)).toBe(false);
+    await act(async () => { (gate.props.onResolved as () => void)(); });
+    expect(drawer().props.owner).toBe('handoff');
+    expect(elements(view).some((node) => node.type === GuidedDecisionDrawer)).toBe(false);
+  });
+
+  test('handoffs are read again when the run moves on, and a failed read keeps the last records with a retry', async () => {
+    setup(relaySnapshot());
+    const first = [relayHandoff('planner>task:T1', true)];
+    const read = vi.fn<(runId: string) => Promise<RunHandoffsResponse>>().mockResolvedValueOnce({ run_id: 'r1', handoffs: first });
+    api.getRunHandoffs = read;
+    const rerender = await mount();
+    expect(read).toHaveBeenCalledOnce();
+    expect(read).toHaveBeenCalledWith('r1');
+    current = { ...current };
+    await rerender();
+    expect(read).toHaveBeenCalledOnce();
+
+    read.mockRejectedValueOnce(new Error('offline'));
+    current = relaySnapshot({ events: [{ id: 6, kind: 'task_started', task_id: 'T2' }] });
+    await rerender();
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(relay().props.handoffs).toEqual(first);
+    const retryButton = () => elements(view).find((node) => node.type === 'button' && node.props.children === MESSAGES.en.guided.relay.retry);
+    expect(find((node) => node.props.children === MESSAGES.en.guided.relay.handoffsFailed)).toBeTruthy();
+    const late = deferred<RunHandoffsResponse>();
+    read.mockReturnValueOnce(late.promise);
+    await act(async () => { (retryButton()!.props.onClick as () => void)(); });
+    expect(read).toHaveBeenCalledTimes(3);
+
+    const second = [relayHandoff('planner>task:T1', true), relayHandoff('task:T1>milestone:M1', true)];
+    read.mockResolvedValueOnce({ run_id: 'r1', handoffs: second });
+    current = relaySnapshot({ events: [{ id: 6, kind: 'task_started', task_id: 'T2' }] }, { id: 'r1', status: 'PAUSED' });
+    await rerender();
+    expect(read).toHaveBeenCalledTimes(4);
+    expect(relay().props.handoffs).toEqual(second);
+    expect(retryButton()).toBeUndefined();
+    await act(async () => { late.resolve({ run_id: 'r1', handoffs: [] }); });
+    expect(relay().props.handoffs).toEqual(second);
   });
 });

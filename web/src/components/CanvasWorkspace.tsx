@@ -8,6 +8,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   type Edge,
+  type EdgeMouseHandler,
   type NodeMouseHandler,
   type OnConnect,
   type OnEdgesChange,
@@ -65,8 +66,21 @@ export type CanvasWorkspaceProps = {
   traversedEdgeIds: ReadonlySet<string>;
   /** Called with the clicked node's id (live task nodes are `live-task-<taskId>`). */
   onNodeClick?: (nodeId: string) => void;
+  /** Called with the clicked edge's id. */
+  onEdgeClick?: (edgeId: string) => void;
+  /** Called when empty canvas space is clicked. */
+  onPaneClick?: () => void;
+  /** No dragging, connecting, selecting or deleting; panning, zooming and clicks still work. */
+  readOnly?: boolean;
   children?: ReactNode;
 };
+
+/** Editing props for React Flow; without `readOnly` they are exactly what the editable canvas always used. */
+export function canvasEditingProps(readOnly = false) {
+  return readOnly
+    ? { nodesDraggable: false, nodesConnectable: false, elementsSelectable: false, deleteKeyCode: null }
+    : { deleteKeyCode: ['Backspace', 'Delete'] };
+}
 
 export function useReadinessTime(providerHealth: ProviderHealthMap) {
   const [readinessTime, setReadinessTime] = useState(Date.now);
@@ -105,6 +119,9 @@ export function CanvasWorkspace({
   activeEdgeIds,
   traversedEdgeIds,
   onNodeClick,
+  onEdgeClick,
+  onPaneClick,
+  readOnly,
   children,
 }: CanvasWorkspaceProps) {
   const { theme } = useTheme();
@@ -168,6 +185,10 @@ export function CanvasWorkspace({
     onNodeClick?.(node.id);
   }, [onNodeClick]);
 
+  const handleEdgeClick = useCallback<EdgeMouseHandler>((_event, edge) => {
+    onEdgeClick?.(edge.id);
+  }, [onEdgeClick]);
+
   return (
     <ReactFlowProvider>
       <div className="canvas-workspace" data-tour-id="canvas-workspace">
@@ -180,15 +201,17 @@ export function CanvasWorkspace({
           minZoom={0.2}
           fitView
           fitViewOptions={{ padding: 0.22, minZoom: 0.2 }}
-          deleteKeyCode={['Backspace', 'Delete']}
+          {...canvasEditingProps(readOnly)}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={handleConnect}
           onSelectionChange={handleSelectionChange}
           onNodeClick={onNodeClick ? handleNodeClick : undefined}
+          onEdgeClick={onEdgeClick ? handleEdgeClick : undefined}
+          onPaneClick={onPaneClick}
         >
           <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="var(--canvas-dot)" />
-          <Controls />
+          <Controls showInteractive={!readOnly} />
           <MiniMap<BatonFlowNode>
             nodeColor={(node) => TIER_COLORS[tierForNodeType(node.data.nodeType, node.data.role)]}
             nodeBorderRadius={8}

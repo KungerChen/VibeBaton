@@ -155,6 +155,11 @@ export function formatProviderDisplay(provider: string): string {
   return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
 }
 
+/** A tool and its model as the Guided drawers show them, for example "Claude Code / sonnet"; empty when neither is known. */
+export function formatProviderModel(provider: string | null | undefined, model: string | null | undefined): string {
+  return [provider ? formatProviderDisplay(provider) : '', model].filter(Boolean).join(' / ');
+}
+
 const PROVIDER_ID_IN_TEXT = new RegExp(
   `(?<![\\w./\\\\-])(?:${Object.keys(PROVIDER_DISPLAY_NAMES).join('|')})(?![\\w-])`, 'g',
 );

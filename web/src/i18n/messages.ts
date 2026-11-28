@@ -1253,6 +1253,67 @@ export interface Messages {
       submitting: string;
       noteLabel: string;
     };
+    /** Build: the read-only relay graph, the context drawer and the handoff card. */
+    relay: {
+      legendAria: string;
+      legendRecorded: string;
+      legendPlanned: string;
+      drawerAria: string;
+      details: string;
+      unknown: string;
+      notRecorded: string;
+      handoffsFailed: string;
+      retry: string;
+      decisionTitle(taskId: string): string;
+      replyToTask(taskId: string): string;
+      overview: {
+        title: string;
+        hint: string;
+        statuses: Record<string, string>;
+        statusOther(status: string): string;
+        tasksDone(done: number, total: number): string;
+        holder(names: string): string;
+        noHolder: string;
+        runId: string;
+        runStatus: string;
+      };
+      node: {
+        states: Record<ExecutionState, string>;
+        kinds: Record<string, string>;
+        status: string;
+        role: string;
+      };
+      handoff: {
+        eyebrow: string;
+        recorded(time: string): string;
+        unknownStatus: string;
+        recordedSummary(from: string, to: string): string;
+        unknownSummary: string;
+        deliverables: string;
+        sides: { from: string; to: string };
+        callStatus: string;
+        viewPrompt: string;
+        viewOutput: string;
+        loading: string;
+        truncated: string;
+        changedFiles: string;
+        noChangedFiles: string;
+        gates: string;
+        noReceipts: string;
+        exitCode(code: number): string;
+        receiptPassed: string;
+        receiptFailed: string;
+        scopes: Record<'task' | 'milestone' | 'merge' | 'final', string>;
+        outputTail: string;
+        review: string;
+        reviewer: string;
+        takeover: string;
+        takeoverStatus: string;
+        takeoverHolder: string;
+        blocked: string;
+        noBlocked: string;
+      };
+    };
     signOff: {
       title: string;
       testsPassed: string;
@@ -1928,7 +1989,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       workbench: {
         stepsAria: 'Guided steps',
         waitingForRun: 'Starting the build. The task map appears as soon as the plan is ready…',
-        nodeHint: 'Click any task on the map to see what happened in plain words.',
+        nodeHint: 'Click any step on the map, or the line between two steps, to read what happened there in plain words. The map only shows the run; nothing here changes it.',
         pausedBanner: 'The run is paused. You can resume where it stopped or start a new blueprint.',
         resumeRun: 'Resume Run',
         newBlueprint: 'Start New Blueprint',
@@ -2112,6 +2173,88 @@ export const MESSAGES: Record<Locale, Messages> = {
         submit: 'Submit Decision',
         submitting: 'Submitting…',
         noteLabel: 'Note for the team (optional)',
+      },
+      relay: {
+        legendAria: 'What the lines mean',
+        legendRecorded: 'Solid: an event records this handoff',
+        legendPlanned: 'Dashed: drawn from the plan only, no event records a handoff',
+        drawerAria: 'Details for what you selected',
+        details: 'Technical details',
+        unknown: 'Unknown',
+        notRecorded: 'Not recorded',
+        handoffsFailed: 'Could not load the handoff records. Lines without a loaded record stay dashed.',
+        retry: 'Try again',
+        decisionTitle: (taskId) => `Task ${taskId} needs a decision from you`,
+        replyToTask: (taskId) => `Reply to task ${taskId}`,
+        overview: {
+          title: 'Run overview',
+          hint: 'Click any step on the map, or the line between two steps, to see what happened there.',
+          statuses: {
+            PLANNING: 'The team is planning the work.',
+            RUNNING: 'The team is working on the tasks.',
+            WAITING_HUMAN: 'The team is waiting for your decision.',
+            PAUSED: 'The run is paused.',
+            FAILED: 'The run stopped because something failed.',
+            READY_FOR_FINAL_GATE: 'The work is done and waits for your sign-off.',
+            COMPLETED: 'The run is finished.',
+            SUPERSEDED: 'A newer run replaced this one.',
+          },
+          statusOther: (status) => `The run reports the status ${status}.`,
+          tasksDone: (done, total) => `${done} of ${total} tasks done`,
+          holder: (names) => `Working now: ${names}`,
+          noHolder: 'No step is working right now.',
+          runId: 'Run ID',
+          runStatus: 'Status code',
+        },
+        node: {
+          states: {
+            idle: 'Not started yet',
+            active: 'Working now',
+            passed: 'Done',
+            retrying: 'Retrying or paused',
+            escalated: 'Handed up for a stronger review',
+            failed: 'Failed',
+          },
+          kinds: {
+            planner_node: 'This step turns the blueprint into tasks.',
+            reviewer_node: 'This step reviews the finished tasks of one milestone before the work moves on.',
+            human_gate_node: 'This is the last check before the result lands on your main branch.',
+            worker_node: 'This expert gives an opinion before the plan is made.',
+            merge_node: 'This step combines the expert opinions into one input for the plan.',
+          },
+          status: 'Status',
+          role: 'Role',
+        },
+        handoff: {
+          eyebrow: 'Handoff',
+          recorded: (time) => `Recorded by an event at ${time}`,
+          unknownStatus: 'Unknown: no event records this handoff',
+          recordedSummary: (from, to) => `${from} handed the work on to ${to}.`,
+          unknownSummary: 'This line follows the plan only. Each item below shows what was recorded, or says Unknown.',
+          deliverables: 'Deliverables',
+          sides: { from: 'Handing over', to: 'Taking over' },
+          callStatus: 'Result',
+          viewPrompt: 'View prompt',
+          viewOutput: 'View output',
+          loading: 'Loading...',
+          truncated: 'Only the first part is shown.',
+          changedFiles: 'Changed files',
+          noChangedFiles: 'No changed files',
+          gates: 'Gate checks',
+          noReceipts: 'No gate receipts',
+          exitCode: (code) => `exit code ${code}`,
+          receiptPassed: 'Passed',
+          receiptFailed: 'Failed',
+          scopes: { task: 'Task check', milestone: 'Milestone gate', merge: 'Merge gate', final: 'Final approval' },
+          outputTail: 'End of the output',
+          review: 'Review verdict',
+          reviewer: 'Reviewer',
+          takeover: 'Takeover',
+          takeoverStatus: 'Status',
+          takeoverHolder: 'Holder',
+          blocked: 'Blocking reason',
+          noBlocked: 'None recorded',
+        },
       },
       signOff: {
         title: 'Final Sign-Off',
@@ -2786,7 +2929,7 @@ export const MESSAGES: Record<Locale, Messages> = {
       workbench: {
         stepsAria: '引导步骤',
         waitingForRun: '正在启动施工，计划就绪后这里会显示任务地图……',
-        nodeHint: '点击地图上的任意任务，用通俗的话查看发生了什么。',
+        nodeHint: '点地图上的任意一步，或两步之间的连线，用通俗的话查看那里发生了什么。地图只用来查看，在这里不会改动它。',
         pausedBanner: '运行已暂停，你可以从暂停处继续运行，或重新制定一份蓝图。',
         resumeRun: '继续运行',
         newBlueprint: '重新制定蓝图',
@@ -2970,6 +3113,88 @@ export const MESSAGES: Record<Locale, Messages> = {
         submit: '提交决定',
         submitting: '正在提交……',
         noteLabel: '给团队的备注（可选）',
+      },
+      relay: {
+        legendAria: '连线的含义',
+        legendRecorded: '实线：有事件记录这次交接',
+        legendPlanned: '虚线：只按计划画出，没有事件记录交接',
+        drawerAria: '所选对象的说明',
+        details: '技术细节',
+        unknown: '未知',
+        notRecorded: '未记录',
+        handoffsFailed: '没能读取交接记录。没有读到记录的连线仍画成虚线。',
+        retry: '重试',
+        decisionTitle: (taskId) => `任务 ${taskId} 需要你做一个决定`,
+        replyToTask: (taskId) => `回复任务 ${taskId}`,
+        overview: {
+          title: '运行总览',
+          hint: '点地图上的任意一步，或两步之间的连线，查看那里发生了什么。',
+          statuses: {
+            PLANNING: '团队正在规划工作。',
+            RUNNING: '团队正在完成各项任务。',
+            WAITING_HUMAN: '团队在等你做决定。',
+            PAUSED: '运行已暂停。',
+            FAILED: '运行因为出错而停下了。',
+            READY_FOR_FINAL_GATE: '工作已完成，等你验收。',
+            COMPLETED: '运行已结束。',
+            SUPERSEDED: '这次运行已被更新的运行取代。',
+          },
+          statusOther: (status) => `运行报告的状态是 ${status}。`,
+          tasksDone: (done, total) => `已完成 ${done} / ${total} 个任务`,
+          holder: (names) => `正在进行：${names}`,
+          noHolder: '现在没有正在进行的环节。',
+          runId: '运行 ID',
+          runStatus: '状态代码',
+        },
+        node: {
+          states: {
+            idle: '还没开始',
+            active: '正在进行',
+            passed: '已完成',
+            retrying: '正在重试或已暂停',
+            escalated: '已交给更强的评审',
+            failed: '失败',
+          },
+          kinds: {
+            planner_node: '这一步把蓝图拆成任务。',
+            reviewer_node: '这一步在工作继续之前，评审一个里程碑里做完的任务。',
+            human_gate_node: '这是结果合入主分支前的最后一道检查。',
+            worker_node: '这位专家在制定计划前给出意见。',
+            merge_node: '这一步把各位专家的意见合成计划的一份输入。',
+          },
+          status: '状态',
+          role: '角色',
+        },
+        handoff: {
+          eyebrow: '交接',
+          recorded: (time) => `有事件记录，记录时间 ${time}`,
+          unknownStatus: '未知：没有事件记录这次交接',
+          recordedSummary: (from, to) => `${from} 把工作交给了 ${to}。`,
+          unknownSummary: '这条线只是按计划画出的。下面每一项列出记录到的内容，没有记录的写“未知”。',
+          deliverables: '交付物',
+          sides: { from: '交出方', to: '接手方' },
+          callStatus: '结果',
+          viewPrompt: '查看提示词',
+          viewOutput: '查看输出',
+          loading: '正在读取……',
+          truncated: '只显示前一部分。',
+          changedFiles: '改动文件',
+          noChangedFiles: '没有改动文件',
+          gates: '门禁',
+          noReceipts: '没有门禁回执',
+          exitCode: (code) => `退出码 ${code}`,
+          receiptPassed: '通过',
+          receiptFailed: '失败',
+          scopes: { task: '任务检查', milestone: '里程碑门禁', merge: '合并门禁', final: '终审' },
+          outputTail: '输出末尾',
+          review: '评审结论',
+          reviewer: '评审方',
+          takeover: '接管状态',
+          takeoverStatus: '状态',
+          takeoverHolder: '持有者',
+          blocked: '阻塞原因',
+          noBlocked: '没有记录',
+        },
       },
       signOff: {
         title: '最终验收',

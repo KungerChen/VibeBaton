@@ -37,6 +37,8 @@ export interface GuidedDecisionModalProps {
   resolver?: GuidedDecisionResolver;
   /** A stale run must no longer offer a decision. */
   onStale?(): void;
+  /** Submit button text naming the target, for example "Reply to task T3". */
+  submitLabel?: string;
 }
 
 const DEFAULT_OPTIONS: readonly GuidedDecisionOption[] = [
@@ -167,6 +169,7 @@ export function useGuidedDecisionContent({
   locale,
   resolver = defaultResolver,
   onStale,
+  submitLabel,
 }: GuidedDecisionModalProps) {
   const copy = MESSAGES[locale].guided.decision;
   const questionId = useId();
@@ -272,7 +275,7 @@ export function useGuidedDecisionContent({
           {error ? <p className="guided-decision__error" role="alert">{error}</p> : null}
           <div className="guided-decision__actions">
             <Button type="submit" variant="default" disabled={!canSubmit || submitting}>
-              {submitting ? copy.submitting : copy.submit}
+              {submitting ? copy.submitting : submitLabel ?? copy.submit}
             </Button>
           </div>
         </form>

@@ -29,6 +29,17 @@
   overscroll-behavior: contain;
 }
 
+/* Inside the context drawer: the drawer is the panel, so no width, shadow or own scrolling. */
+.node-detail-drawer--inline {
+  width: auto;
+  height: auto;
+  padding: 0;
+  overflow: visible;
+  border-left: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .node-detail-drawer__header {
   display: flex;
   align-items: flex-start;
