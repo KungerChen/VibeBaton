@@ -1,9 +1,8 @@
-import { Check, ChevronRight } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { createContext, useContext, useEffect, useEffectEvent, useId, useRef, useState } from 'react';
 import { computeLiveSeconds, formatDurationSec, isRunStatusActive } from '../../engine/liveClock';
 import { useI18n } from '../../i18n';
 import { formatLiveEventMessage, translateEventKind, translateTier } from '../../i18n/liveEvents';
-import type { Locale } from '../../i18n/messages';
 import { formatProviderDisplay, translateRole } from '../../i18n/presets';
 import { performRunAction, type RunAction } from '../../state/runStore';
 import type { LiveRunSnapshot, RunListItem } from '../../types/graph';
@@ -11,8 +10,7 @@ import type { RightInspectorProps } from '../types';
 import { Badge, type BadgeProps } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input, Label, Select } from '../ui/input';
-import { MarkdownView } from '../ui/MarkdownView';
-import { Modal } from '../ui/Modal';
+import { BattleReportModal, useBattleReport } from './BattleReportModal';
 import { formatReportedUsd, formatTokenCount, usageCoverage } from './billingFormat';
 import { PricingModal } from './PricingModal';
 
@@ -55,7 +53,7 @@ function formatDisplayTarget(target: string): string {
   return formatProviderDisplay(clean);
 }
 
-function parseAllowedFiles(value: unknown): string[] {
+export function parseAllowedFiles(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is string => typeof item === 'string' && item.trim() !== '');
   }
@@ -146,14 +144,10 @@ export function LiveRunPanel({
   const { locale, messages } = useI18n();
   const panelId = useId();
   const [pricingOpen, setPricingOpen] = useState(false);
-  const [report, setReport] = useState<{ runId: string; lang: Locale; markdown: string } | null>(null);
-  const [reportRawMode, setReportRawMode] = useState(false);
-  const [reportCopied, setReportCopied] = useState(false);
-  const [loadingReport, setLoadingReport] = useState(false);
+  const battleReport = useBattleReport(client, locale, onToast, visible);
   const [note, setNote] = useState<{ runId: string; text: string } | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const eventLog = useRef<HTMLDivElement>(null);
-  const reportCopyTimer = useRef<number | undefined>(undefined);
   const lastReportTokenRef = useRef(0);
 
   const snapshot = liveSnapshot ?? emptySnapshot;
@@ -194,24 +188,6 @@ export function LiveRunPanel({
     if (visible && eventLog.current) eventLog.current.scrollTop = eventLog.current.scrollHeight;
   }, [visible, snapshot.events]);
 
-  useEffect(() => {
-    if (!visible || !report || report.lang === locale) return;
-    let active = true;
-    const targetRunId = report.runId;
-    setLoadingReport(true);
-    void client.getRunReport(targetRunId, locale).then(
-      (markdown) => {
-        if (active) setReport({ runId: targetRunId, lang: locale, markdown });
-      },
-      (error) => {
-        if (active) onToast(error instanceof Error ? error.message : String(error), 'err');
-      },
-    ).finally(() => {
-      if (active) setLoadingReport(false);
-    });
-    return () => { active = false; };
-  }, [client, locale, onToast, report, visible]);
-
   async function refreshActiveRun() {
     await onRefreshLiveRun?.();
   }
@@ -222,17 +198,8 @@ export function LiveRunPanel({
   const onOpenCaseExport = openCaseExport ?? workspaceControls?.onOpenCaseExport;
 
   async function showReport() {
-    if (!runId || loadingReport) return;
-    setLoadingReport(true);
-    try {
-      const markdown = await client.getRunReport(runId, locale);
-      setReportRawMode(false);
-      setReport({ runId, lang: locale, markdown });
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : String(error), 'err');
-    } finally {
-      setLoadingReport(false);
-    }
+    if (!runId) return;
+    await battleReport.show(runId);
   }
 
   const openReportEvent = useEffectEvent(() => {
@@ -245,29 +212,6 @@ export function LiveRunPanel({
       openReportEvent();
     }
   }, [openBattleReportToken]);
-
-  useEffect(() => () => {
-    if (reportCopyTimer.current !== undefined && typeof window !== 'undefined') {
-      window.clearTimeout(reportCopyTimer.current);
-    }
-  }, []);
-
-  async function copyReportMarkdown() {
-    if (!report) return;
-    try {
-      await navigator.clipboard?.writeText(report.markdown);
-      setReportCopied(true);
-      if (reportCopyTimer.current !== undefined && typeof window !== 'undefined') {
-        window.clearTimeout(reportCopyTimer.current);
-      }
-      if (typeof window !== 'undefined') {
-        reportCopyTimer.current = window.setTimeout(() => setReportCopied(false), 2000);
-      }
-      onToast(messages.toasts.reportCopied, 'ok');
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : String(error), 'err');
-    }
-  }
 
   async function changeRun(action: RunAction) {
     if (!runId || !isRunSynced) return;
@@ -340,7 +284,7 @@ export function LiveRunPanel({
           </Button>
         )}
         {runId && (
-          <Button variant="outline" size="sm" onClick={() => void showReport()} disabled={loadingReport || !isRunSynced}>
+          <Button variant="outline" size="sm" onClick={() => void showReport()} disabled={battleReport.loading || !isRunSynced}>
             {messages.inspector.battleReport}
           </Button>
         )}
@@ -717,45 +661,8 @@ export function LiveRunPanel({
         </div>
       </div>
 
-      {visible && report && (
-        <Modal open wide title={messages.inspector.modalReportTitle} onClose={() => setReport(null)}>
-          <div className="right-inspector__report-toolbar">
-            <code className="text-xs font-mono text-muted-foreground">{report.runId}</code>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant={!reportRawMode ? 'default' : 'outline'}
-                size="sm"
-                aria-pressed={!reportRawMode}
-                onClick={() => setReportRawMode(false)}
-              >
-                {messages.inspector.reportRendered}
-              </Button>
-              <Button
-                variant={reportRawMode ? 'default' : 'outline'}
-                size="sm"
-                aria-pressed={reportRawMode}
-                onClick={() => setReportRawMode(true)}
-              >
-                {messages.inspector.reportRaw}
-              </Button>
-              <Button variant="secondary" size="sm" aria-live="polite" onClick={() => void copyReportMarkdown()}>
-                {reportCopied ? (
-                  <>
-                    <Check size={14} aria-hidden="true" />
-                    <span>{messages.inspector.copiedInline}</span>
-                  </>
-                ) : messages.inspector.reportCopy}
-              </Button>
-            </div>
-          </div>
-          {reportRawMode ? (
-            <pre className="right-inspector__report right-inspector__mono">{report.markdown}</pre>
-          ) : (
-            <div className="right-inspector__report-body">
-              <MarkdownView markdown={report.markdown} />
-            </div>
-          )}
-        </Modal>
+      {visible && battleReport.report && (
+        <BattleReportModal report={battleReport.report} locale={locale} onClose={battleReport.close} onToast={onToast} />
       )}
       <PricingModal open={visible && pricingOpen} client={client} onClose={() => setPricingOpen(false)} />
     </section>

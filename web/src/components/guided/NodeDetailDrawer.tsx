@@ -2,9 +2,11 @@ import './NodeDetailDrawer.css';
 import { useEffect, useEffectEvent, useId, useState } from 'react';
 import { BatonApiClient, type RunTaskDetail } from '../../api/client';
 import { formatDurationSec } from '../../engine/liveClock';
+import { formatLiveEventMessage, translateEventKind } from '../../i18n/liveEvents';
 import type { Locale } from '../../i18n/messages';
 import { MESSAGES } from '../../i18n/messages';
 import { formatProviderModel } from '../../i18n/presets';
+import { parseAllowedFiles } from '../inspector/LiveRunPanel';
 import { DrawerDetails } from './ContextDrawer';
 import { GlossaryTerm, useGlossaryHighlights } from './GlossaryTerm';
 import { localizeGuidedError } from './guidedErrors';
@@ -22,6 +24,58 @@ export interface NodeDetailDrawerProps {
   costReported?: boolean;
   /** Inside the context drawer: no scrim, no dialog, no Escape handler; the facts go under technical details. */
   inline?: boolean;
+  /** Inline only: what the run snapshot recorded for this task, shown with the technical details. */
+  audit?: { task: Record<string, unknown> | null; events: readonly Record<string, unknown>[] };
+}
+
+function count(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/** The task's counters, latest error, allowed files and events, as the Pro task accordion lists them. */
+function TaskAudit({ audit, locale }: { audit: NonNullable<NodeDetailDrawerProps['audit']>; locale: Locale }) {
+  const copy = MESSAGES[locale].inspector;
+  const { task, events } = audit;
+  const lastError = typeof task?.last_error === 'string' ? task.last_error : '';
+  const files = parseAllowedFiles(task?.allowed_files);
+  return (
+    <section className="node-detail-drawer__section" data-field="audit">
+      {task ? (
+        <p data-field="counters">
+          {copy.taskDetailCounters(count(task.self_heal_count), count(task.review_reject_count), count(task.escalated))}
+        </p>
+      ) : null}
+      {lastError ? (
+        <>
+          <h3>{copy.taskDetailLastError}</h3>
+          <pre className="node-detail-drawer__error-text" data-field="last-error">{lastError}</pre>
+        </>
+      ) : null}
+      {files.length ? (
+        <>
+          <h3>{copy.taskDetailFiles}</h3>
+          <ul className="node-detail-drawer__files" data-field="allowed-files">
+            {files.map((file) => <li key={file}><code>{file}</code></li>)}
+          </ul>
+        </>
+      ) : null}
+      <h3>{copy.taskDetailEvents}</h3>
+      {events.length ? (
+        <ul className="node-detail-drawer__events" data-field="task-events">
+          {events.map((event, index) => {
+            const kind = typeof event.kind === 'string' ? event.kind : 'event';
+            const message = typeof event.message === 'string' ? event.message : '';
+            return (
+              <li key={typeof event.id === 'number' ? event.id : `event-${index}`}>
+                <strong>{translateEventKind(kind, locale)}</strong>
+                {` · ${formatLiveEventMessage(kind, message, locale, event.payload ?? event.payload_json).summary}`}
+              </li>
+            );
+          })}
+        </ul>
+      ) : <p className="node-detail-drawer__empty">{copy.taskDetailNoEvents}</p>}
+    </section>
+  );
 }
 
 export interface DetailSummary {
@@ -121,6 +175,7 @@ export function NodeDetailDrawer({
   fetcher,
   costReported,
   inline,
+  audit,
 }: NodeDetailDrawerProps) {
   const copy = MESSAGES[locale].guided.nodeDetail;
   const headingId = useId();
@@ -248,7 +303,12 @@ export function NodeDetailDrawer({
               </p>
             </section>
 
-            {inline ? <DrawerDetails panel="task" locale={locale}>{facts}</DrawerDetails> : facts}
+            {inline ? (
+              <DrawerDetails panel="task" locale={locale}>
+                {facts}
+                {audit ? <TaskAudit audit={audit} locale={locale} /> : null}
+              </DrawerDetails>
+            ) : facts}
           </>
         ) : (
           <div className="node-detail-drawer__loading" role="status" aria-busy="true" aria-label={copy.title}>

@@ -6,8 +6,8 @@ import { buildLiveRunGraph } from '../../engine/liveRunGraph';
 import { MESSAGES } from '../../i18n/messages';
 import type { LiveRunSnapshot } from '../../types/graph';
 import {
-  DrawerDetails, DrawerPanel, drawerDetailsKey, readDrawerDetails, RelayNodePanel, RunOverviewPanel, writeDrawerDetails,
-  type DrawerOwner,
+  DrawerDetails, DrawerPanel, drawerDetailsKey, readDrawerDetails, RelayNodePanel, RunDecisionPanel, RunOverviewPanel,
+  shortRunId, ShortRunId, writeDrawerDetails, type DrawerOwner,
 } from './ContextDrawer';
 import { drawerOwner } from './GuidedWorkbench';
 
@@ -178,5 +178,93 @@ describe('node and overview panels', () => {
     expect(zh).toContain(MESSAGES.zh.guided.relay.overview.statuses.PAUSED);
     expect(zh).toContain(MESSAGES.zh.guided.relay.overview.tasksDone(1, 1));
     expect(zh).toContain(MESSAGES.zh.guided.relay.overview.noHolder);
+  });
+});
+
+describe('run controls and run decisions name their run', () => {
+  const RUN = 'run-20261127-ff00aa';
+  const copy = MESSAGES.en.guided.relay;
+  const base: LiveRunSnapshot = { run: { id: RUN, status: 'RUNNING' }, milestones: [], tasks: [], events: [], quotas: [] };
+
+  async function probe<P>(component: (props: P) => ReactNode, props: P) {
+    let view: ReactNode;
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('window', { HTMLIFrameElement: class HTMLIFrameElement {}, localStorage: memoryStorage() });
+    const container = { nodeType: 1, tagName: 'DIV', ownerDocument: null, addEventListener() {} };
+    root = createRoot(container as unknown as HTMLElement);
+    function Probe() { view = component(props); return null; }
+    await act(async () => { root!.render(createElement(Probe)); });
+    return {
+      buttons: () => elements(view).filter((node) => node.type === 'button'),
+      button: (text: string) => elements(view).find((node) => node.type === 'button' && node.props.children === text),
+      field: () => elements(view).find((node) => node.type === 'textarea'),
+    };
+  }
+
+  test('the short ID is the last six characters of the run ID', () => {
+    expect(shortRunId(RUN)).toBe('ff00aa');
+    expect(shortRunId('r1')).toBe('r1');
+    const html = renderToStaticMarkup(createElement(ShortRunId, { runId: RUN }));
+    expect(html).toBe(`<code class="run-short-id" title="${RUN}">ff00aa</code>`);
+  });
+
+  test.each([
+    ['RUNNING', 'pause', copy.overview.pauseRun('ff00aa')],
+    ['PAUSED', 'resume', copy.overview.resumeRun('ff00aa')],
+  ] as const)('a %s run offers %s, names the run and sends the run it names', async (status, action, label) => {
+    const changeRun = vi.fn();
+    const shown = { ...base, run: { id: RUN, status } };
+    const panel = await probe(RunOverviewPanel, { snapshot: shown, view: buildLiveRunGraph(shown, 'en'), locale: 'en',
+      controls: { busy: false, synced: true, changeRun } });
+    const control = panel.button(label);
+    assert(control, `Expected ${label}`);
+    expect(control.props.disabled).toBe(false);
+    (control.props.onClick as () => void)();
+    expect(changeRun).toHaveBeenCalledWith(RUN, action);
+    expect(label).toContain(shortRunId(RUN));
+    act(() => root!.unmount());
+
+    for (const controls of [{ busy: true, synced: true }, { busy: false, synced: false }]) {
+      const blocked = await probe(RunOverviewPanel, { snapshot: shown, view: buildLiveRunGraph(shown, 'en'), locale: 'en',
+        controls: { ...controls, changeRun } });
+      expect(blocked.button(label)?.props.disabled).toBe(true);
+      act(() => root!.unmount());
+    }
+  });
+
+  test('other statuses and an overview without controls offer neither pause nor resume', async () => {
+    for (const status of ['WAITING_HUMAN', 'FAILED', 'COMPLETED']) {
+      const shown = { ...base, run: { id: RUN, status } };
+      const html = renderToStaticMarkup(createElement(RunOverviewPanel, { snapshot: shown, view: buildLiveRunGraph(shown, 'en'),
+        locale: 'en', controls: { busy: false, synced: true, changeRun: vi.fn() } }));
+      expect(html, status).not.toContain(copy.overview.pauseRun('ff00aa'));
+      expect(html, status).not.toContain(copy.overview.resumeRun('ff00aa'));
+    }
+    const bare = renderToStaticMarkup(createElement(RunOverviewPanel, { snapshot: base, view: buildLiveRunGraph(base, 'en'), locale: 'en' }));
+    expect(bare).not.toContain(copy.overview.pauseRun('ff00aa'));
+  });
+
+  test('approve and reject send the run named on them with the note; the note clears only after a success', async () => {
+    const onDecide = vi.fn<(runId: string, action: 'approve' | 'reject', note: string) => Promise<boolean>>()
+      .mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const panel = await probe(RunDecisionPanel, { runId: RUN, question: 'Change the plan?', milestoneId: null, locale: 'en',
+      busy: false, onDecide });
+    const field = () => { const node = panel.field(); assert(node); return node; };
+    await act(async () => { (field().props.onChange as (event: unknown) => void)({ currentTarget: { value: 'Keep tests' } }); });
+    const reject = panel.button(copy.rejectRun('ff00aa'));
+    assert(reject);
+    await act(async () => { await (reject.props.onClick as () => Promise<void>)(); });
+    expect(onDecide).toHaveBeenLastCalledWith(RUN, 'reject', 'Keep tests');
+    expect(field().props.value).toBe('Keep tests');
+    const approve = panel.button(copy.approveRun('ff00aa'));
+    assert(approve);
+    await act(async () => { await (approve.props.onClick as () => Promise<void>)(); });
+    expect(onDecide).toHaveBeenLastCalledWith(RUN, 'approve', 'Keep tests');
+    expect(field().props.value).toBe('');
+    act(() => root!.unmount());
+
+    const busy = await probe(RunDecisionPanel, { runId: RUN, question: '', milestoneId: 'M1', locale: 'en', busy: true, onDecide });
+    expect(busy.buttons().length).toBe(2);
+    expect(busy.buttons().every((node) => node.props.disabled === true)).toBe(true);
   });
 });

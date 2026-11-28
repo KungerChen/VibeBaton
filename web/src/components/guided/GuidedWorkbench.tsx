@@ -2,18 +2,23 @@ import './GuidedWorkbench.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNodesState } from '@xyflow/react';
 import {
-  ApiError, type ApiMode, type BatonApiClient, type FinalizeAction, type GuidedSession, type RecommendedLineup,
-  type RunHandoff, type StopAndReplanResult, type WorkflowLineup,
+  ApiError, type ApiMode, type BatonApiClient, type FinalizeAction, type GateReceipt, type GuidedSession,
+  type RecommendedLineup, type RunHandoff, type StopAndReplanResult, type WorkflowLineup,
 } from '../../api/client';
 import { graphToFlow } from '../../engine/flowAdapter';
 import { buildLiveRunGraph, projectLiveRunCanvas, type LiveRunGraphView } from '../../engine/liveRunGraph';
 import { handoffForEdge, relayEdges } from '../../engine/relayHandoffs';
 import { MESSAGES, type Locale } from '../../i18n/messages';
-import type { LiveRunSnapshot } from '../../types/graph';
+import type { RunAction, RunSyncStatus } from '../../state/runStore';
+import type { LiveRunSnapshot, RunListItem } from '../../types/graph';
 import { cn } from '../../lib/utils';
 import { CanvasWorkspace } from '../CanvasWorkspace';
 import type { BatonFlowNode } from '../nodes/BatonNode';
-import { ContextDrawer, DrawerPanel, RelayNodePanel, RunOverviewPanel, type DrawerOwner } from './ContextDrawer';
+import { BottomDock } from './BottomDock';
+import {
+  ContextDrawer, DrawerPanel, RelayNodePanel, RunDecisionPanel, RunHistorySelect, RunOverviewPanel, shortRunId, ShortRunId,
+  type DrawerOwner,
+} from './ContextDrawer';
 import { clearBrainstorm, GuidedBrainstormStep, type GuidedBrainstormApi, type LaunchPayload } from './GuidedBrainstormStep';
 import { GuidedDecisionDrawer } from './GuidedDecisionDrawer';
 import { optionsFromEvent, type GuidedDecisionOption } from './GuidedDecisionModal';
@@ -79,6 +84,21 @@ export interface WaitingDecision {
   options: GuidedDecisionOption[];
 }
 
+/** The latest `waiting_human` attention event after the last human decision. */
+function latestWaitingEvent(snapshot: LiveRunSnapshot): Record<string, unknown> | undefined {
+  let lastDecisionIdx = -1;
+  for (let i = snapshot.events.length - 1; i >= 0; i -= 1) {
+    if (snapshot.events[i]?.kind === 'human_decision') {
+      lastDecisionIdx = i;
+      break;
+    }
+  }
+  return snapshot.events
+    .slice(lastDecisionIdx + 1)
+    .reverse()
+    .find((row) => row.kind === 'human_attention_required' && eventPayload(row)?.category === 'waiting_human');
+}
+
 /**
  * The open human decision of a WAITING_HUMAN run: the latest `waiting_human` attention event,
  * falling back to any task the backend marked WAITING_HUMAN. The resolve endpoint needs a task id,
@@ -87,17 +107,7 @@ export interface WaitingDecision {
 export function waitingDecision(snapshot: LiveRunSnapshot | null): WaitingDecision | null {
   const run = snapshot?.run;
   if (!snapshot || !run || run.status !== 'WAITING_HUMAN') return null;
-  let lastDecisionIdx = -1;
-  for (let i = snapshot.events.length - 1; i >= 0; i -= 1) {
-    if (snapshot.events[i]?.kind === 'human_decision') {
-      lastDecisionIdx = i;
-      break;
-    }
-  }
-  const event = snapshot.events
-    .slice(lastDecisionIdx + 1)
-    .reverse()
-    .find((row) => row.kind === 'human_attention_required' && eventPayload(row)?.category === 'waiting_human');
+  const event = latestWaitingEvent(snapshot);
   const waitingTask = snapshot.tasks.find((task) => task.status === 'WAITING_HUMAN');
   const taskId = typeof waitingTask?.id === 'string' && waitingTask.id
     ? waitingTask.id
@@ -110,6 +120,30 @@ export function waitingDecision(snapshot: LiveRunSnapshot | null): WaitingDecisi
     taskId,
     question: prompt || message,
     options: optionsFromEvent(event),
+  };
+}
+
+export interface RunLevelDecision {
+  key: string;
+  question: string;
+  /** The milestone whose review asks, when the attention event names one. */
+  milestoneId: string | null;
+}
+
+/**
+ * A WAITING_HUMAN run whose decision names no task, for example a milestone review asking to change the plan.
+ * It is answered for the whole run (approve lets it continue, reject pauses it).
+ */
+export function runLevelDecision(snapshot: LiveRunSnapshot | null): RunLevelDecision | null {
+  const run = snapshot?.run;
+  if (!snapshot || !run || run.status !== 'WAITING_HUMAN' || waitingDecision(snapshot)) return null;
+  const event = latestWaitingEvent(snapshot);
+  const prompt = typeof run.human_prompt === 'string' ? run.human_prompt.trim() : '';
+  const message = typeof event?.message === 'string' ? event.message.trim() : '';
+  return {
+    key: `${String(run.id)}|run|${String(event?.id ?? run.updated_at ?? '')}`,
+    question: prompt || message,
+    milestoneId: typeof event?.milestone_id === 'string' && event.milestone_id ? event.milestone_id : null,
   };
 }
 
@@ -372,18 +406,35 @@ export interface GuidedWorkbenchProps {
   onResetSession?: () => void;
   /** Opens the place where the project budget is changed (linked from the launch confirmation). */
   onOpenBudget?: () => void;
+  /** From the run store; each control below shows only when its value or callback is given. */
+  recentRuns?: readonly RunListItem[];
+  syncStatus?: RunSyncStatus;
+  reconnecting?: boolean;
+  /** The ticking clock of an active run (seconds, server time). */
+  liveNowSec?: number;
+  controlsBusy?: boolean;
+  /** Opens another run from the run history without following it and without touching the session. */
+  onSelectRun?: (runId: string) => void;
+  /** Pause, resume, approve or reject the named run; resolves true once the server took it. */
+  onChangeRun?: (runId: string, action: RunAction, note?: string) => Promise<boolean>;
+  onToast?: (message: string, kind?: 'ok' | 'err') => void;
 }
 
 /** Guided Mode shell: Workspace → Blueprint → Build (live canvas) → Sign-Off. */
 export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, onFollowRun, onResetSession,
-  onOpenBudget }: GuidedWorkbenchProps) {
+  onOpenBudget, recentRuns, syncStatus, reconnecting, liveNowSec, controlsBusy, onSelectRun, onChangeRun,
+  onToast }: GuidedWorkbenchProps) {
   const copy = MESSAGES[locale].guided;
   const [step, setStep] = useState<GuidedStep>('setup');
   const [lineup, setLineup] = useState<RecommendedLineup | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
+  // An older run opened from the run history; the current run stays the session's `active_run_id` (runId).
+  const [viewedRunId, setViewedRunId] = useState<string | null>(null);
+  const viewingOther = viewedRunId !== null;
+  const shownRunId = viewedRunId ?? runId;
   const [selection, setSelection] = useState<RelaySelection | null>(null);
   const detailTaskId = selection?.kind === 'node' ? taskIdFromNodeId(selection.id) : null;
-  const [handoffs, setHandoffs] = useState<{ runId: string; list: RunHandoff[] } | null>(null);
+  const [handoffs, setHandoffs] = useState<{ runId: string; list: RunHandoff[]; receipts: GateReceipt[] } | null>(null);
   const [handoffsFailed, setHandoffsFailed] = useState(false);
   const [handoffsAttempt, setHandoffsAttempt] = useState(0);
   const [resolvedDecisionKey, setResolvedDecisionKey] = useState<string | null>(null);
@@ -422,12 +473,16 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
   const setupPanel = useRef<HTMLDivElement>(null);
   const reportSetup = useCallback((report: SetupReadinessReport) => setSetupReport(report), []);
 
-  const snapshot = runId && runIdOf(liveSnapshot) === runId ? liveSnapshot : null;
-  const stale = Boolean(runId && (staleRunId === runId || (snapshot?.run?.status === 'SUPERSEDED' && !stopBusy && !stopPending)));
+  // Only the shown run's own snapshot is shown; another run's snapshot never stands in for it.
+  const snapshot = shownRunId && runIdOf(liveSnapshot) === shownRunId ? liveSnapshot : null;
+  const stale = Boolean(!viewingOther && runId
+    && (staleRunId === runId || (snapshot?.run?.status === 'SUPERSEDED' && !stopBusy && !stopPending)));
   // Once a run exists its status decides between Build and Sign-Off (a revision re-enters Build).
-  const shownStep: GuidedStep = runId ? (stopBusy || stopPending || stale ? 'live'
-    : snapshot?.run?.status === 'PAUSED' && session?.active_stage === 'signoff' ? 'signoff'
-      : stepFromRun(snapshot?.run?.status) ?? 'live') : step;
+  const shownStep: GuidedStep = viewingOther
+    ? stepFromRun(snapshot?.run?.status ?? recentRuns?.find((item) => item.id === viewedRunId)?.status) ?? 'live'
+    : runId ? (stopBusy || stopPending || stale ? 'live'
+      : snapshot?.run?.status === 'PAUSED' && session?.active_stage === 'signoff' ? 'signoff'
+        : stepFromRun(snapshot?.run?.status) ?? 'live') : step;
   // Readiness is shown on the capsule and only ever blocks launching; it never changes the stage.
   const team = session && Object.keys(session.workflow.lineup.roles).length ? session.workflow.lineup.roles : lineup?.roles ?? null;
   const readiness = setupReport ? workspaceReadiness(setupReport.input, team) : null;
@@ -498,38 +553,68 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
   useEffect(() => {
     if (setupOpen) setupPanel.current?.scrollIntoView?.({ block: 'start' });
   }, [setupOpen]);
+  // Decisions come only from the shown run's own snapshot; another run's decision never appears here.
   const decision = waitingDecision(snapshot);
-  const decisionOpen = Boolean(runId && decision && decision.key !== resolvedDecisionKey && !stale && !stopBusy && !stopPending);
+  const decisionOpen = Boolean(shownRunId && decision && decision.key !== resolvedDecisionKey && !stale && !stopBusy && !stopPending);
+  const runDecision = runLevelDecision(snapshot);
+  const runDecisionOpen = Boolean(shownRunId && onChangeRun && runDecision && runDecision.key !== resolvedDecisionKey
+    && !stale && !stopBusy && !stopPending);
   const relayView = useMemo(() => shownStep === 'live' && snapshot ? buildLiveRunGraph(snapshot, locale) : null,
     [shownStep, snapshot, locale]);
   const selectedEdge = selection?.kind === 'edge' ? relayView?.graph.edges.find((edge) => edge.id === selection.id) : undefined;
   const selectedNode = selection?.kind === 'node' ? relayView?.graph.nodes.find((node) => node.id === selection.id) : undefined;
   const relaySelection = selectedEdge || selectedNode ? selection : null;
-  const owner = drawerOwner(decisionOpen, relaySelection);
+  const owner = drawerOwner(decisionOpen || runDecisionOpen, relaySelection);
   const nodeLabel = (id: string) => relayView?.graph.nodes.find((node) => node.id === id)?.label ?? id;
-  const handoffList = handoffs?.runId === runId ? handoffs.list : null;
+  const handoffList = handoffs?.runId === shownRunId ? handoffs.list : null;
+  const receipts = handoffs?.runId === shownRunId ? handoffs.receipts : null;
   const hasSnapshot = Boolean(snapshot);
   const lastEventId = snapshot?.events[snapshot.events.length - 1]?.id;
   const runStatus = snapshot?.run?.status;
+  const runSynced = (syncStatus ?? 'synced') === 'synced';
 
-  // Read the handoffs again whenever the run, its latest event or its status changes; late answers are dropped.
+  // Read the handoffs (and with them the run's gate receipts for the dock) again whenever the run, its latest
+  // event or its status changes; late answers are dropped.
   useEffect(() => {
-    if (shownStep !== 'live' || !runId || !hasSnapshot || typeof client.getRunHandoffs !== 'function') return;
+    if ((shownStep !== 'live' && shownStep !== 'signoff') || !shownRunId || !hasSnapshot
+      || typeof client.getRunHandoffs !== 'function') return;
     let active = true;
-    client.getRunHandoffs(runId).then((response) => {
+    client.getRunHandoffs(shownRunId).then((response) => {
       if (!active) return;
-      setHandoffs({ runId, list: response.handoffs });
+      // An older server lists no receipts; that is shown as none, never as passed.
+      setHandoffs({ runId: shownRunId, list: response.handoffs, receipts: response.receipts ?? [] });
       setHandoffsFailed(false);
     }, () => { if (active) setHandoffsFailed(true); });
     return () => { active = false; };
-  }, [client, runId, shownStep, hasSnapshot, lastEventId, runStatus, handoffsAttempt]);
+  }, [client, shownRunId, shownStep, hasSnapshot, lastEventId, runStatus, handoffsAttempt]);
+
+  /** Opens another run from the run history: shown here only, the session and the current run stay as they are. */
+  function viewRun(id: string) {
+    if (!id || id === shownRunId) return;
+    if (id === runId) { backToCurrent(); return; }
+    setViewedRunId(id);
+    setSelection(null);
+    onSelectRun?.(id);
+  }
+
+  function backToCurrent() {
+    setViewedRunId(null);
+    setSelection(null);
+    if (runId) onFollowRun(runId);
+  }
+
+  /** After an answer or a sign-off, read the shown run again: the current run is followed, an older one is not. */
+  function refreshShownRun() {
+    if (viewedRunId) onSelectRun?.(viewedRunId);
+    else if (runId) onFollowRun(runId);
+  }
 
   /** Selection only changes the drawer; the session remembers a selected task, as it always has. */
   function selectRelay(next: RelaySelection | null) {
     setSelection(next);
     const taskId = next?.kind === 'node' ? taskIdFromNodeId(next.id) : null;
     const saved = session?.open_drawer ?? null;
-    if (!runId || session?.active_run_id !== runId) return;
+    if (viewingOther || !runId || session?.active_run_id !== runId) return;
     if (taskId ? saved?.run_id === runId && saved.task_id === taskId : !saved) return;
     saveSession({ open_drawer: taskId ? { run_id: runId, task_id: taskId } : null });
   }
@@ -570,20 +655,22 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
     },
   }), [client, replanContext, copy.m3.brainstorm.stale]);
 
+  // Viewing an older run never writes the session: these two effects only follow the current run.
   useEffect(() => {
-    if (!session || !runId || session.active_run_id !== runId || !snapshot || stopBusy || stopPending || stale) return;
+    if (viewingOther || !session || !runId || session.active_run_id !== runId || !snapshot || stopBusy || stopPending
+      || stale) return;
     const desired = decisionOpen && decision ? { run_id: runId, task_id: decision.taskId } : null;
     if (session.open_human_gate?.run_id !== desired?.run_id || session.open_human_gate?.task_id !== desired?.task_id) {
       saveSession({ open_human_gate: desired });
     }
-  }, [session, runId, snapshot, stopBusy, stopPending, stale, decisionOpen, decision?.taskId, saveSession]);
+  }, [viewingOther, session, runId, snapshot, stopBusy, stopPending, stale, decisionOpen, decision?.taskId, saveSession]);
 
   useEffect(() => {
-    if (runId && snapshot && session?.active_run_id === runId && session.active_stage === 'build'
+    if (!viewingOther && runId && snapshot && session?.active_run_id === runId && session.active_stage === 'build'
       && stepFromRun(snapshot.run?.status) === 'signoff' && !stopBusy && !stopPending && !stale) {
       saveSession({ active_stage: 'signoff' });
     }
-  }, [runId, snapshot, session, stopBusy, stopPending, stale, saveSession]);
+  }, [viewingOther, runId, snapshot, session, stopBusy, stopPending, stale, saveSession]);
 
   // The POST's success context is retained while the authoritative run read catches up.
   useEffect(() => {
@@ -725,6 +812,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
         try { clearBrainstorm(window.localStorage, workspacePath); } catch { /* Storage may be unavailable. */ }
       }
       setRunId(null);
+      setViewedRunId(null);
       setLineup(null);
       setSelection(null);
       setResolvedDecisionKey(null);
@@ -791,6 +879,20 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
 
       <section className="guided-workbench__body" data-step={shownStep}>
         {setupMounted ? <div className="guided-workbench__notice guided-workbench__session-bar">
+          {viewedRunId ? (
+            <div className="guided-workbench__viewing" data-viewing-run={viewedRunId}>
+              <span>{copy.relay.viewingRun}</span> <ShortRunId runId={viewedRunId} />
+              <button type="button" className="guided-workbench__button" onClick={backToCurrent}>
+                {runId ? copy.relay.backToCurrent : copy.relay.backToBlueprint}
+              </button>
+            </div>
+          ) : null}
+          {/* In Build the run history sits in the run overview; the other stages have no drawer, so it sits here. */}
+          {recentRuns && recentRuns.length > 0 && onSelectRun && !(shownStep === 'live' && snapshot) ? (
+            <div className="guided-workbench__history">
+              <RunHistorySelect runs={recentRuns} value={shownRunId ?? ''} locale={locale} onSelect={viewRun} />
+            </div>
+          ) : null}
           <ReadinessCapsule locale={locale} readiness={readiness} failed={checkFailed} checking={setupReport?.checking ?? true}
             workspacePath={setupReport?.input.workspace?.path ?? workspacePath} expanded={setupShown}
             onToggle={() => setSetupOpen((open) => !open)}
@@ -805,6 +907,14 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
             onClick={() => setConfirmReset(true)}>{copy.m3.session.reset}</button>) : null}
           {resetError ? <p className="guided-workbench__error" role="alert">{resetError}</p> : null}
         </div> : null}
+        {viewedRunId && !snapshot ? (syncStatus === 'error' ? (
+          <div className="guided-workbench__notice" role="alert">
+            <span className="guided-workbench__error">{copy.relay.loadRunFailed(shortRunId(viewedRunId))}</span>
+            <button type="button" className="guided-workbench__button" onClick={() => onSelectRun?.(viewedRunId)}>
+              {copy.relay.retry}
+            </button>
+          </div>
+        ) : <p className="guided-workbench__notice" role="status">{copy.relay.loadingRun(shortRunId(viewedRunId))}</p>) : null}
         {session && guidedSession.error ? <div className="guided-workbench__notice" role="alert">
           <span className="guided-workbench__error">{localizeGuidedError(guidedSession.error, locale)}</span>{' '}
           <button type="button" className="guided-workbench__button" onClick={() => void flushSession().catch(() => {})}>
@@ -848,6 +958,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
                 setWorkspaceGeneration((generation) => generation + 1);
                 setLineup(null);
                 setRunId(null);
+                setViewedRunId(null);
                 setStep('setup');
               }}
               initialRoles={lineup?.roles ?? null}
@@ -904,8 +1015,9 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
           </div>
         )}
 
-        {shownStep === 'live' && runId && (
+        {shownStep === 'live' && shownRunId && (
           <div className="guided-workbench__live">
+            {/* The banners below belong to the current run; an older run only offers the way back above. */}
             {stale ? (
               <div className="guided-workbench__notice" role="status">
                 <span>{locale === 'zh' ? '此运行已被替代或已过期，只能查看。' : 'This run has been superseded or is stale and is read-only.'}</span>
@@ -914,14 +1026,14 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
                 </button>
               </div>
             ) : null}
-            {snapshot?.run?.status === 'FAILED' && !stale && (!stopPending || stopBusy) ? (
+            {!viewingOther && snapshot?.run?.status === 'FAILED' && !stale && (!stopPending || stopBusy) ? (
               <GuidedFailedBanner detail={failureDetail(snapshot)} busy={stopBusy}
                 onStopAndReplan={session ? () => setConfirmingStop(true) : undefined} />
             ) : null}
-            {stopBusy && (snapshot?.run?.status !== 'FAILED' || stopPending) ? (
+            {!viewingOther && stopBusy && (snapshot?.run?.status !== 'FAILED' || stopPending) ? (
               <p className="guided-workbench__notice" role="status">{copy.m3.failed.stopping}</p>
             ) : null}
-            {stopPending && !stopBusy && !stale ? (
+            {!viewingOther && stopPending && !stopBusy && !stale ? (
               <div className="guided-workbench__notice" role="status">
                 <span>{locale === 'zh' ? '停止请求已提交，需确认运行完成停止后才能重新规划。' : 'The stop was requested. Confirm it has settled before replanning.'}</span>
                 <button type="button" className="guided-workbench__button" onClick={() => void stopAndReplan()}>
@@ -929,7 +1041,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
                 </button>
               </div>
             ) : null}
-            {confirmingStop && !stale && !stopBusy ? (
+            {!viewingOther && confirmingStop && !stale && !stopBusy ? (
               <div className="guided-workbench__notice" role="group" aria-label={copy.m3.failed.replan}>
                 <span>{locale === 'zh' ? '确认停止此运行并返回蓝图？' : 'Stop this run and return to the blueprint?'}</span>
                 <button type="button" className="guided-workbench__button guided-workbench__button--primary" onClick={() => void stopAndReplan()}>
@@ -940,8 +1052,8 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
                 </button>
               </div>
             ) : null}
-            {stopError ? <p className="guided-workbench__error" role="alert">{stopError}</p> : null}
-            {pausedBannerText && !stale && !stopBusy && !stopPending ? (
+            {!viewingOther && stopError ? <p className="guided-workbench__error" role="alert">{stopError}</p> : null}
+            {!viewingOther && pausedBannerText && !stale && !stopBusy && !stopPending ? (
               <div className="guided-workbench__paused" role="status">
                 <span>{pausedBannerText}</span>
                 <div className="guided-workbench__paused-actions">
@@ -965,7 +1077,9 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
                 {resumeError ? <p className="guided-workbench__error" role="alert">{resumeError}</p> : null}
               </div>
             ) : null}
-            <p className="guided-workbench__hint">{snapshot ? copy.workbench.nodeHint : copy.workbench.waitingForRun}</p>
+            {snapshot || !viewingOther ? (
+              <p className="guided-workbench__hint">{snapshot ? copy.workbench.nodeHint : copy.workbench.waitingForRun}</p>
+            ) : null}
             {snapshot && relayView && (
               <div className="guided-workbench__live-main">
                 <div className="guided-workbench__canvas">
@@ -981,36 +1095,58 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
                     </p>
                   ) : null}
                   <DrawerPanel panel="decision" owner={owner}>
-                    {runId && decision && decisionOpen && (
+                    {/* Every decision goes to the shown run, the same ID its heading names. */}
+                    {decision && decisionOpen && (
                       <GuidedDecisionDrawer
                         key={decision.key}
                         open
-                        runId={runId}
+                        runId={shownRunId}
                         taskId={decision.taskId}
                         question={decision.question}
                         options={decision.options}
                         locale={locale}
                         title={copy.relay.decisionTitle(decision.taskId)}
+                        subtitle={<>{copy.relay.inRun} <ShortRunId runId={shownRunId} /></>}
                         submitLabel={copy.relay.replyToTask(decision.taskId)}
                         resolver={({ runId: id, taskId, choice, note }) => client.resolveRunTask(id, { taskId, choice, note })}
-                        onStale={() => setStaleRunId(runId)}
+                        onStale={viewingOther ? undefined : () => setStaleRunId(shownRunId)}
                         onResolved={() => {
                           setResolvedDecisionKey(decision.key);
-                          if (session?.active_run_id === runId) saveSession({ open_human_gate: null });
-                          onFollowRun(runId);
+                          if (!viewingOther && session?.active_run_id === shownRunId) saveSession({ open_human_gate: null });
+                          refreshShownRun();
                         }}
                       />
                     )}
+                    {runDecision && runDecisionOpen && onChangeRun ? (
+                      <RunDecisionPanel
+                        key={runDecision.key}
+                        runId={shownRunId}
+                        question={runDecision.question}
+                        milestoneId={runDecision.milestoneId}
+                        locale={locale}
+                        busy={Boolean(controlsBusy)}
+                        disabled={!runSynced}
+                        onDecide={async (id, action, note) => {
+                          const answered = await onChangeRun(id, action, note);
+                          if (answered) setResolvedDecisionKey(runDecision.key);
+                          return answered;
+                        }}
+                      />
+                    ) : null}
                   </DrawerPanel>
                   <DrawerPanel panel="task" owner={owner}>
                     <NodeDetailDrawer
                       inline
-                      runId={runId}
+                      runId={shownRunId}
                       taskId={detailTaskId}
                       locale={locale}
                       costReported={detailTaskId ? taskCostReported(snapshot.events, detailTaskId) : undefined}
                       fetcher={(id, taskId) => client.getRunTaskDetail(id, taskId, locale)}
                       onClose={() => selectRelay(null)}
+                      audit={detailTaskId ? {
+                        task: snapshot.tasks.find((task) => task.id === detailTaskId) ?? null,
+                        events: snapshot.events.filter((event) => event.task_id === detailTaskId),
+                      } : undefined}
                     />
                   </DrawerPanel>
                   {owner === 'node' && selectedNode ? (
@@ -1020,14 +1156,32 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
                   ) : null}
                   {owner === 'handoff' && selectedEdge ? (
                     <DrawerPanel panel="handoff" owner={owner}>
-                      <HandoffCard key={selectedEdge.id} runId={runId} handoff={handoffForEdge(selectedEdge, handoffList)}
+                      <HandoffCard key={selectedEdge.id} runId={shownRunId} handoff={handoffForEdge(selectedEdge, handoffList)}
                         fromLabel={nodeLabel(selectedEdge.source)} toLabel={nodeLabel(selectedEdge.target)} locale={locale}
-                        loadArtifact={(key) => client.getRunArtifact(runId, key)} />
+                        loadArtifact={(key) => client.getRunArtifact(shownRunId, key)} />
                     </DrawerPanel>
                   ) : null}
                   {owner === 'overview' ? (
                     <DrawerPanel panel="overview" owner={owner}>
-                      <RunOverviewPanel snapshot={snapshot} view={relayView} locale={locale} />
+                      <RunOverviewPanel
+                        snapshot={snapshot}
+                        view={relayView}
+                        locale={locale}
+                        liveNowSec={liveNowSec}
+                        controls={onChangeRun ? {
+                          busy: Boolean(controlsBusy),
+                          synced: runSynced,
+                          changeRun: (id, action) => void onChangeRun(id, action),
+                        } : undefined}
+                        // The existing stop and replan flow, only where it already allows stopping the current run.
+                        onStop={!viewingOther && session && !stale && !stopBusy && !stopPending
+                          && (snapshot.run?.status === 'FAILED' || snapshot.run?.status === 'PAUSED')
+                          ? () => { setResumeError(null); setConfirmingStop(true); } : undefined}
+                        client={client}
+                        onToast={onToast}
+                        history={recentRuns && onSelectRun ? { runs: recentRuns, onSelect: viewRun } : undefined}
+                        onSelectTask={(taskId) => selectRelay({ kind: 'node', id: `${LIVE_TASK_NODE_PREFIX}${taskId}` })}
+                      />
                     </DrawerPanel>
                   ) : null}
                 </ContextDrawer>
@@ -1036,59 +1190,77 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
           </div>
         )}
 
-        {shownStep === 'signoff' && runId && snapshot && (
-          <div className="guided-workbench__panel">
-            <GuidedSignOffPanel
-              runId={runId}
-              runStatus={typeof snapshot.run?.status === 'string' ? snapshot.run.status : undefined}
-              summary={{
-                ...signOffSummaryFromSnapshot(snapshot),
-                totalCostUsd: snapshot.telemetry?.billing?.total_cost_usd ?? null,
-                usage: snapshot.telemetry?.billing ?? null,
-                workspacePath,
-                deliverables: signOffDeliverablesFromSnapshot(snapshot),
-              }}
-              locale={locale}
-              priorRfc={session?.brainstorm.latest_rfc_draft}
-              lineageLoader={lineageLoader}
-              rollbacker={(id, mode) => client.rollbackRun(id, mode)}
-              onBusyChange={setChildBusy}
-              onRequestRevision={async ({ runId: id, prior_rfc, requested_changes }) => {
-                if (id !== runId) throw new Error(copy.m3.errors.RUN_STALE);
-                const result = await stopAndReplan({ prior_rfc, requested_changes });
-                if (!result) throw new Error(copy.m3.errors.RUN_STALE);
-                return result;
-              }}
-              finalizer={async (id, payload) => {
-                try { return await client.finalizeRun(id, payload); }
-                catch (failure) { if (isStaleRunError(failure)) setStaleRunId(id); throw failure; }
-              }}
-              reportFetcher={typeof client.getRunReport === 'function' ? (id, lang) => client.getRunReport(id, lang) : undefined}
-              onOpenPath={typeof client.openWorkspacePath === 'function' ? (opts) => client.openWorkspacePath(opts) : undefined}
-              onFinalized={(result) => {
-                setLastSignOff({ runId, action: result.action });
-                onFollowRun(runId);
-              }}
-            />
-            {snapshot.run?.status === 'PAUSED' && !stale && !stopBusy && !stopPending ? (
-              <div className="guided-workbench__paused" role="status">
-                <span>{pausedBannerText}</span>
-                <div className="guided-workbench__paused-actions">
-                  <button type="button" className="guided-workbench__button guided-workbench__button--primary"
-                    disabled={resumeBusy || childBusy} onClick={() => void resumeRun()}>{copy.workbench.resumeRun}</button>
-                  <button type="button" className="guided-workbench__button" disabled={resumeBusy || childBusy}
-                    onClick={() => setConfirmingStop(true)}>{copy.m3.failed.replan}</button>
+        {shownStep === 'signoff' && shownRunId && snapshot && (
+          <div className="guided-workbench__stage">
+            <div className="guided-workbench__panel">
+              <GuidedSignOffPanel
+                runId={shownRunId}
+                runStatus={typeof snapshot.run?.status === 'string' ? snapshot.run.status : undefined}
+                summary={{
+                  ...signOffSummaryFromSnapshot(snapshot),
+                  totalCostUsd: snapshot.telemetry?.billing?.total_cost_usd ?? null,
+                  usage: snapshot.telemetry?.billing ?? null,
+                  workspacePath,
+                  deliverables: signOffDeliverablesFromSnapshot(snapshot),
+                }}
+                locale={locale}
+                priorRfc={session?.brainstorm.latest_rfc_draft}
+                lineageLoader={lineageLoader}
+                rollbacker={(id, mode) => client.rollbackRun(id, mode)}
+                onBusyChange={setChildBusy}
+                onRequestRevision={async ({ runId: id, prior_rfc, requested_changes }) => {
+                  // Only the current run can be revised; an older run shown here gets no new abilities.
+                  if (id !== runId) throw new Error(copy.m3.errors.RUN_STALE);
+                  const result = await stopAndReplan({ prior_rfc, requested_changes });
+                  if (!result) throw new Error(copy.m3.errors.RUN_STALE);
+                  return result;
+                }}
+                finalizer={async (id, payload) => {
+                  try { return await client.finalizeRun(id, payload); }
+                  catch (failure) { if (isStaleRunError(failure)) setStaleRunId(id); throw failure; }
+                }}
+                reportFetcher={typeof client.getRunReport === 'function' ? (id, lang) => client.getRunReport(id, lang) : undefined}
+                onOpenPath={typeof client.openWorkspacePath === 'function' ? (opts) => client.openWorkspacePath(opts) : undefined}
+                onFinalized={(result) => {
+                  setLastSignOff({ runId: shownRunId, action: result.action });
+                  refreshShownRun();
+                }}
+              />
+              {!viewingOther && snapshot.run?.status === 'PAUSED' && !stale && !stopBusy && !stopPending ? (
+                <div className="guided-workbench__paused" role="status">
+                  <span>{pausedBannerText}</span>
+                  <div className="guided-workbench__paused-actions">
+                    <button type="button" className="guided-workbench__button guided-workbench__button--primary"
+                      disabled={resumeBusy || childBusy} onClick={() => void resumeRun()}>{copy.workbench.resumeRun}</button>
+                    <button type="button" className="guided-workbench__button" disabled={resumeBusy || childBusy}
+                      onClick={() => setConfirmingStop(true)}>{copy.m3.failed.replan}</button>
+                  </div>
+                  {confirmingStop ? <div role="group" aria-label={copy.m3.failed.replan}>
+                    <span>{locale === 'zh' ? '确认停止此运行并返回蓝图？' : 'Stop this run and return to the blueprint?'}</span>{' '}
+                    <button type="button" className="guided-workbench__button" onClick={() => void stopAndReplan()}>{copy.m3.failed.replan}</button>{' '}
+                    <button type="button" className="guided-workbench__button" onClick={() => setConfirmingStop(false)}>{copy.m3.lineup.cancel}</button>
+                  </div> : null}
+                  {resumeError ? <p className="guided-workbench__error" role="alert">{resumeError}</p> : null}
                 </div>
-                {confirmingStop ? <div role="group" aria-label={copy.m3.failed.replan}>
-                  <span>{locale === 'zh' ? '确认停止此运行并返回蓝图？' : 'Stop this run and return to the blueprint?'}</span>{' '}
-                  <button type="button" className="guided-workbench__button" onClick={() => void stopAndReplan()}>{copy.m3.failed.replan}</button>{' '}
-                  <button type="button" className="guided-workbench__button" onClick={() => setConfirmingStop(false)}>{copy.m3.lineup.cancel}</button>
-                </div> : null}
-                {resumeError ? <p className="guided-workbench__error" role="alert">{resumeError}</p> : null}
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
         )}
+
+        {/* The dock belongs to Build and Sign-Off only, under the stage. */}
+        {(shownStep === 'live' || shownStep === 'signoff') && shownRunId && snapshot ? (
+          <BottomDock
+            key={shownRunId}
+            runId={shownRunId}
+            snapshot={snapshot}
+            receipts={receipts}
+            receiptsFailed={handoffsFailed && receipts === null}
+            locale={locale}
+            syncStatus={syncStatus}
+            reconnecting={reconnecting}
+            loadArtifact={(key) => client.getRunArtifact(shownRunId, key)}
+          />
+        ) : null}
       </section>
     </div>
   );

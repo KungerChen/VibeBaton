@@ -237,6 +237,33 @@
   font-size: 0.78rem;
 }
 
+.node-detail-drawer__section p {
+  margin: 0;
+}
+
+.node-detail-drawer__error-text {
+  max-height: 7rem;
+  margin: 0;
+  padding: 0.5rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.node-detail-drawer__events {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+}
+
 .node-detail-drawer__loading {
   display: flex;
   align-items: center;

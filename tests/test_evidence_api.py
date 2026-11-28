@@ -1,6 +1,7 @@
 """HTTP contract of the three read-only evidence views of a run.
 
-    GET /api/runs/<id>/handoffs              -> 200 {run_id, handoffs: [Handoff]}; 404 unknown run
+    GET /api/runs/<id>/handoffs              -> 200 {run_id, handoffs: [Handoff], receipts: [GateReceipt]};
+                                                404 unknown run
     GET /api/runs/<id>/artifacts/<key>       -> 200 {run_id, artifact_key, prompt, output}
                                                 (each {text, truncated, bytes} or null); 404 unknown run, or a
                                                 key no `role_invoked` event of this run recorded
@@ -71,6 +72,9 @@ class EvidenceApiTests(GuidedApiTestCase):
         self.assertEqual(handoffs["task:T1>milestone:M1"]["changed_files"], ["greeting.txt"])
         self.assertEqual(handoffs["planner>task:T1"]["invocations"][0]["artifact_key"], "T1_exec_1")
         self.assertEqual(handoffs["milestone:M1>final_gate"]["receipts"][0]["command"], CHECK)
+        # The run's receipts are also listed once, for a view that shows all of them.
+        self.assertEqual([(r["scope"], r["target_id"], r["command"], r["exit_code"]) for r in body["receipts"]],
+                         [("milestone", "M1", CHECK, 0)])
 
     def test_artifact_returns_the_prompt_and_output_of_a_recorded_key_only(self) -> None:
         run_id = self.launch()
@@ -113,6 +117,7 @@ class EvidenceApiTests(GuidedApiTestCase):
         status, body = self._get(f"/api/runs/{run_id}/handoffs")
         self.assertEqual(status, 200, body)
         self.assertTrue(all(handoff["receipts"] == [] for handoff in body["handoffs"]))
+        self.assertEqual(body["receipts"], [])
         self.assertEqual(body["handoffs"][0]["invocations"][0]["artifact_key"], None)
 
     def test_unknown_runs_are_404(self) -> None:

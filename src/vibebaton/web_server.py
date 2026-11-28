@@ -2183,10 +2183,10 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
         if store.get_run(run_id) is None:
             self._send_run_not_found(run_id)
             return
-        handoffs = evidence.derive_handoffs(
-            store.get_events(run_id, limit=-1), store.get_milestones(run_id), store.get_tasks(run_id),
-        )
-        self._send_json(200, {"run_id": run_id, "handoffs": handoffs})
+        events = store.get_events(run_id, limit=-1)
+        handoffs = evidence.derive_handoffs(events, store.get_milestones(run_id), store.get_tasks(run_id))
+        # Every receipt of the run once, oldest first; a handoff repeats the ones that belong to it.
+        self._send_json(200, {"run_id": run_id, "handoffs": handoffs, "receipts": evidence.gate_receipts(events)})
 
     def _get_run_artifact(self, run_id: str, artifact_key: str) -> None:
         store = self.server.store

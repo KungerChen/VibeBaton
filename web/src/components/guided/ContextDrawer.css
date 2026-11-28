@@ -135,6 +135,163 @@
   overflow-wrap: anywhere;
 }
 
+.run-short-id {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.92em;
+}
+
+.context-drawer__status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.context-drawer__badge {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.context-drawer__attention {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-drawer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.context-drawer__button--primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 600;
+}
+
+.context-drawer__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.context-drawer__field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.context-drawer__select,
+.run-decision__note {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.context-drawer__select {
+  font-family: var(--font-mono, monospace);
+}
+
+.context-drawer__section {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.context-drawer__section h3 {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.context-drawer__section p {
+  margin: 0;
+}
+
+.context-drawer__rows {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.context-drawer__row,
+.context-drawer__task {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.context-drawer__task {
+  cursor: pointer;
+}
+
+.context-drawer__task:hover {
+  border-color: var(--primary);
+}
+
+.context-drawer__row-main {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.context-drawer__row-value {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+}
+
+.context-drawer__live {
+  color: var(--emerald);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.run-decision {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.run-decision__question {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--muted);
+  white-space: pre-wrap;
+}
+
 /* The shared decision form and task details sit inside the drawer without their own panel chrome. */
 .context-drawer .guided-decision-drawer {
   padding: 0;

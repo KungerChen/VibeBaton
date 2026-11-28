@@ -933,6 +933,14 @@ function AppContent() {
               void runStore.followRun(followRunId);
             }}
             onResetSession={dismissCurrentAttention}
+            recentRuns={recentRuns}
+            syncStatus={runSyncStatus}
+            reconnecting={liveReconnecting}
+            liveNowSec={liveNowSec}
+            controlsBusy={controlsBusy}
+            onSelectRun={(id) => void runStore.selectRun(id)}
+            onChangeRun={runStore.changeRun}
+            onToast={push}
             onOpenBudget={() => {
               // The project budget is changed in the Pro sidebar's budget profile; the first-run guide must not cover it.
               onStudioModeChange('pro');

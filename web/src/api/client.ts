@@ -603,6 +603,8 @@ export interface RunHandoff {
 export interface RunHandoffsResponse {
   run_id: string;
   handoffs: RunHandoff[];
+  /** Every gate receipt of the run, oldest first; absent from older servers. */
+  receipts?: GateReceipt[];
 }
 
 export interface ArtifactText {

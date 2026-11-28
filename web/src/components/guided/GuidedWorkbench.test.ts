@@ -9,8 +9,12 @@ import {
 } from '../../api/client';
 import { MESSAGES } from '../../i18n/messages';
 import type { LiveRunSnapshot } from '../../types/graph';
+import type { RunListItem } from '../../types/graph';
 import workbenchSource from './GuidedWorkbench.tsx?raw';
-import { ContextDrawer, RelayNodePanel, RunOverviewPanel } from './ContextDrawer';
+import { BottomDock } from './BottomDock';
+import {
+  ContextDrawer, RelayNodePanel, RunDecisionPanel, RunHistorySelect, RunOverviewPanel, shortRunId, ShortRunId,
+} from './ContextDrawer';
 import { GuidedDecisionDrawer } from './GuidedDecisionDrawer';
 import { HandoffCard } from './HandoffCard';
 import { GuidedFailedBanner } from './GuidedFailedBanner';
@@ -25,11 +29,13 @@ import {
   GuidedWorkbench,
   nextStep,
   replanContextFromSession,
+  runLevelDecision,
   signOffSummaryFromSnapshot,
   stepFromRun,
   taskIdFromNodeId,
   useGuidedWorkbenchView,
   waitingDecision,
+  type GuidedWorkbenchProps,
   type RelaySelection,
 } from './GuidedWorkbench';
 
@@ -124,6 +130,29 @@ describe('waitingDecision', () => {
     ));
     expect(decision?.taskId).toBe('M1-T2');
     expect(decision?.question).toBe('New milestone issue');
+  });
+});
+
+describe('runLevelDecision', () => {
+  const milestoneAsk = {
+    id: 9, kind: 'human_attention_required', milestone_id: 'M2', message: 'The plan needs a change',
+    payload_json: JSON.stringify({ category: 'waiting_human' }),
+  };
+
+  test('a waiting run whose decision names no task is a decision of the whole run', () => {
+    const decision = runLevelDecision(snapshot(
+      { id: 'r1', status: 'WAITING_HUMAN', human_prompt: 'Change the plan?' }, { events: [milestoneAsk] },
+    ));
+    expect(decision).toEqual({ key: 'r1|run|9', question: 'Change the plan?', milestoneId: 'M2' });
+    expect(runLevelDecision(snapshot({ id: 'r1', status: 'WAITING_HUMAN', updated_at: 4 })))
+      .toEqual({ key: 'r1|run|4', question: '', milestoneId: null });
+  });
+
+  test('is null when the run is not waiting or the decision belongs to a task', () => {
+    expect(runLevelDecision(null)).toBeNull();
+    expect(runLevelDecision(snapshot({ id: 'r1', status: 'RUNNING' }, { events: [milestoneAsk] }))).toBeNull();
+    expect(runLevelDecision(snapshot({ id: 'r1', status: 'WAITING_HUMAN' },
+      { events: [milestoneAsk], tasks: [{ id: 'T1', status: 'WAITING_HUMAN' }] }))).toBeNull();
   });
 });
 
@@ -240,6 +269,8 @@ describe('GuidedWorkbench live interactions', () => {
   let follow: ReturnType<typeof vi.fn>;
   let resetSpy: ReturnType<typeof vi.fn>;
   let mode: ApiMode | null | undefined;
+  /** Run store props for the tests that use them; empty for the others. */
+  let extra: Partial<GuidedWorkbenchProps>;
 
   function find(predicate: (node: ReactElement<Record<string, unknown>>) => boolean) {
     const node = elements(view).find(predicate);
@@ -255,6 +286,7 @@ describe('GuidedWorkbench live interactions', () => {
     function Probe() {
       view = useGuidedWorkbenchView({
         locale: 'en', client: api, apiMode: mode, liveSnapshot: current, onFollowRun: follow, onResetSession: resetSpy,
+        ...extra,
       });
       return null;
     }
@@ -267,6 +299,7 @@ describe('GuidedWorkbench live interactions', () => {
     stored = buildSession();
     current = run;
     mode = undefined;
+    extra = {};
     follow = vi.fn();
     resetSpy = vi.fn();
     api = {
@@ -829,5 +862,254 @@ describe('GuidedWorkbench live interactions', () => {
     expect(retryButton()).toBeUndefined();
     await act(async () => { late.resolve({ run_id: 'r1', handoffs: [] }); });
     expect(relay().props.handoffs).toEqual(second);
+  });
+
+  const relayCopy = MESSAGES.en.guided.relay;
+  const OLD = 'run-old-abc123';
+  const recentRuns: RunListItem[] = [
+    { id: 'r1', status: 'RUNNING', mode: 'overnight', created_at: 2, updated_at: 2, finished_at: null, elapsed_sec: 5,
+      passed_tasks: 1, total_tasks: 2, passed_milestones: 0, total_milestones: 1 },
+    { id: OLD, status: 'COMPLETED', mode: 'overnight', created_at: 1, updated_at: 1, finished_at: 1, elapsed_sec: 9,
+      passed_tasks: 1, total_tasks: 1, passed_milestones: 1, total_milestones: 1 },
+  ];
+  const has = (predicate: (node: ReactElement<Record<string, unknown>>) => boolean) => elements(view).some(predicate);
+  const overview = () => find((node) => node.type === RunOverviewPanel);
+  async function viewOld() {
+    const history = overview().props.history as { onSelect(runId: string): void };
+    await act(async () => { history.onSelect(OLD); });
+  }
+  function useStore(more: Partial<GuidedWorkbenchProps> = {}) {
+    const store = { onSelectRun: vi.fn(), onChangeRun: vi.fn(async () => true) };
+    extra = { recentRuns, syncStatus: 'synced', controlsBusy: false, ...store, ...more };
+    return store;
+  }
+
+  test('outside Build the run history sits in the top row: a run can be opened from Sign-Off and from Blueprint', async () => {
+    const topHistory = () => elements(view).find((node) => node.type === RunHistorySelect);
+    // Build: the run overview holds the history, so the top row does not repeat it.
+    setup(relaySnapshot());
+    const building = useStore();
+    await mount();
+    expect(overview().props.history).toBeTruthy();
+    expect(topHistory()).toBeUndefined();
+    expect(building.onSelectRun).not.toHaveBeenCalled();
+    act(() => root!.unmount());
+    root = undefined;
+
+    // Sign-Off has no drawer: the parent run stays reachable from the top row.
+    setup(snapshot({ id: 'r1', status: 'READY_FOR_FINAL_GATE' }));
+    stored.active_stage = 'signoff';
+    const signing = useStore();
+    await mount();
+    expect(body().props['data-step']).toBe('signoff');
+    expect(topHistory()!.props).toMatchObject({ runs: recentRuns, value: 'r1' });
+    const saved = vi.mocked(api.saveGuidedSession).mock.calls.length;
+    await act(async () => { (topHistory()!.props.onSelect as (id: string) => void)(OLD); });
+    expect(signing.onSelectRun).toHaveBeenCalledWith(OLD);
+    expect(find((node) => node.props['data-viewing-run'] === OLD)).toBeTruthy();
+    expect(vi.mocked(api.saveGuidedSession).mock.calls.length).toBe(saved);
+    act(() => root!.unmount());
+    root = undefined;
+
+    // Blueprint with no run: an older run opens, and the way back leads to the blueprint.
+    atStage('blueprint');
+    const drafting = useStore();
+    await mount();
+    expect(body().props['data-step']).toBe('brainstorm');
+    expect(topHistory()!.props.value).toBe('');
+    await act(async () => { (topHistory()!.props.onSelect as (id: string) => void)(OLD); });
+    expect(drafting.onSelectRun).toHaveBeenCalledWith(OLD);
+    expect(body().props['data-step']).toBe('signoff');
+    const back = find((node) => node.type === 'button' && node.props.children === relayCopy.backToBlueprint);
+    await act(async () => { (back.props.onClick as () => void)(); });
+    expect(body().props['data-step']).toBe('brainstorm');
+    expect(has((node) => node.props['data-viewing-run'] === OLD)).toBe(false);
+  });
+
+  test('the dock is absent in Blueprint and present in Build and Sign-Off, with every receipt of the run', async () => {
+    atStage('blueprint');
+    await mount();
+    expect(body().props['data-step']).toBe('brainstorm');
+    expect(has((node) => node.type === BottomDock)).toBe(false);
+    act(() => root!.unmount());
+    root = undefined;
+
+    setup(relaySnapshot());
+    const receipt = { event_id: 7, scope: 'task' as const, target_id: 'T1', command: 'npm test', exit_code: 1, passed: false,
+      duration_sec: 1, output_tail: 'failed', created_at: 7 };
+    api.getRunHandoffs = vi.fn(async () => ({ run_id: 'r1', handoffs: [], receipts: [receipt] }));
+    await mount();
+    expect(body().props['data-step']).toBe('live');
+    expect(find((node) => node.type === BottomDock).props).toMatchObject({ runId: 'r1', receipts: [receipt] });
+    act(() => root!.unmount());
+    root = undefined;
+
+    setup(snapshot({ id: 'r1', status: 'READY_FOR_FINAL_GATE' }));
+    stored.active_stage = 'signoff';
+    // An older server lists no receipts at all: the dock shows none rather than waiting for them.
+    api.getRunHandoffs = vi.fn(async () => ({ run_id: 'r1', handoffs: [] }));
+    await mount();
+    expect(body().props['data-step']).toBe('signoff');
+    expect(find((node) => node.type === GuidedSignOffPanel)).toBeTruthy();
+    expect(find((node) => node.type === BottomDock).props).toMatchObject({ runId: 'r1', receipts: [] });
+  });
+
+  test('viewing an older run shows its short ID and the way back, writes nothing and is not moved by another run', async () => {
+    setup(relaySnapshot());
+    const store = useStore();
+    const rerender = await mount();
+    await act(async () => { vi.advanceTimersByTime(400); });
+    const saves = vi.mocked(api.saveGuidedSession).mock.calls.length;
+    const followed = follow.mock.calls.length;
+    expect(has((node) => node.props['data-viewing-run'] !== undefined)).toBe(false);
+
+    await viewOld();
+    expect(store.onSelectRun).toHaveBeenCalledWith(OLD);
+    const indicator = find((node) => node.props['data-viewing-run'] === OLD);
+    expect(elements(indicator.props.children as ReactNode).find((node) => node.type === ShortRunId)?.props.runId).toBe(OLD);
+    expect(shortRunId(OLD)).toBe('abc123');
+    // The store still holds the current run: none of it is shown as the older run.
+    expect(find((node) => node.props.children === relayCopy.loadingRun('abc123'))).toBeTruthy();
+    expect(has((node) => node.type === RunOverviewPanel || node.type === BottomDock)).toBe(false);
+
+    current = snapshot({ id: OLD, status: 'COMPLETED' });
+    await rerender();
+    expect(body().props['data-step']).toBe('signoff');
+    expect(find((node) => node.type === GuidedSignOffPanel).props.runId).toBe(OLD);
+    expect(find((node) => node.type === BottomDock).props.runId).toBe(OLD);
+    const rail = find((node) => node.type === 'ol');
+    expect(elements(rail.props.children as ReactNode).filter((node) => node.type === 'li')
+      .map((step) => step.props['aria-current'])).toEqual([undefined, undefined, 'step']);
+
+    // Another run with a pending decision sends a snapshot: nothing of it appears here.
+    current = relaySnapshot({ tasks: [{ id: 'T9', milestone_id: 'M1', title: 'Other', status: 'WAITING_HUMAN' }] },
+      { id: 'r1', status: 'WAITING_HUMAN', human_prompt: 'Other run asks' });
+    await rerender();
+    expect(has((node) => node.type === GuidedDecisionDrawer || node.type === RunDecisionPanel
+      || node.type === GuidedSignOffPanel || node.type === RunOverviewPanel)).toBe(false);
+    expect(find((node) => node.props['data-viewing-run'] === OLD)).toBeTruthy();
+    expect(find((node) => node.props.children === relayCopy.loadingRun('abc123'))).toBeTruthy();
+
+    // A failed read offers a retry of the same run.
+    extra = { ...extra, syncStatus: 'error' };
+    await rerender();
+    const retry = find((node) => node.type === 'button' && node.props.children === relayCopy.retry);
+    await act(async () => { (retry.props.onClick as () => void)(); });
+    expect(store.onSelectRun).toHaveBeenLastCalledWith(OLD);
+
+    await act(async () => { vi.advanceTimersByTime(400); });
+    expect(api.saveGuidedSession).toHaveBeenCalledTimes(saves);
+    expect(stored).toMatchObject({ active_run_id: 'r1', active_stage: 'build', open_drawer: null, open_human_gate: null });
+    expect(follow).toHaveBeenCalledTimes(followed);
+
+    extra = { ...extra, syncStatus: 'synced' };
+    const back = find((node) => node.type === 'button' && node.props.children === relayCopy.backToCurrent);
+    await act(async () => { (back.props.onClick as () => void)(); });
+    expect(follow).toHaveBeenLastCalledWith('r1');
+    expect(has((node) => node.props['data-viewing-run'] !== undefined)).toBe(false);
+    expect(body().props['data-step']).toBe('live');
+    expect(find((node) => node.type === GuidedDecisionDrawer).props).toMatchObject({ runId: 'r1', taskId: 'T9' });
+  });
+
+  test('a task decision on a viewed run reaches that run and task, also after another run sent a snapshot', async () => {
+    setup(relaySnapshot());
+    const store = useStore();
+    const rerender = await mount();
+    await viewOld();
+    const older = relaySnapshot({ tasks: [{ id: 'T4', milestone_id: 'M1', title: 'Old task', status: 'WAITING_HUMAN' }] },
+      { id: OLD, status: 'WAITING_HUMAN', human_prompt: 'Keep it?' });
+    current = older;
+    await rerender();
+    expect(drawer().props.owner).toBe('decision');
+    expect(has((node) => node.type === GuidedFailedBanner)).toBe(false);
+
+    current = relaySnapshot({ tasks: [{ id: 'T9', milestone_id: 'M1', title: 'Other', status: 'WAITING_HUMAN' }] },
+      { id: 'r1', status: 'WAITING_HUMAN' });
+    await rerender();
+    expect(has((node) => node.type === GuidedDecisionDrawer)).toBe(false);
+    current = older;
+    await rerender();
+
+    const gate = find((node) => node.type === GuidedDecisionDrawer);
+    expect(gate.props).toMatchObject({ runId: OLD, taskId: 'T4', submitLabel: 'Reply to task T4' });
+    const named = elements(gate.props.subtitle as ReactNode).find((node) => node.type === ShortRunId);
+    expect(named?.props.runId).toBe(gate.props.runId);
+    const resolve = gate.props.resolver as (payload: { runId: string; taskId: string; choice: 'approve'; note: string }) => Promise<unknown>;
+    await act(async () => { await resolve({ runId: gate.props.runId as string, taskId: 'T4', choice: 'approve', note: 'ok' }); });
+    expect(api.resolveRunTask).toHaveBeenCalledWith(OLD, { taskId: 'T4', choice: 'approve', note: 'ok' });
+    const followed = follow.mock.calls.length;
+    await act(async () => { (gate.props.onResolved as () => void)(); vi.advanceTimersByTime(400); });
+    // The viewed run is read again; the current run is not followed and the session is untouched.
+    expect(store.onSelectRun).toHaveBeenLastCalledWith(OLD);
+    expect(follow).toHaveBeenCalledTimes(followed);
+    expect(stored.open_human_gate).toBeNull();
+  });
+
+  test('a run-level decision names the viewed run on both buttons and sends that run with the note', async () => {
+    setup(relaySnapshot());
+    const store = useStore();
+    const rerender = await mount();
+    await viewOld();
+    current = relaySnapshot({ events: [{ id: 8, kind: 'human_attention_required', milestone_id: 'M1', message: 'Plan needs a change',
+      payload_json: JSON.stringify({ category: 'waiting_human' }) }] }, { id: OLD, status: 'WAITING_HUMAN', human_prompt: 'Change the plan?' });
+    await rerender();
+    expect(drawer().props.owner).toBe('decision');
+    const panel = find((node) => node.type === RunDecisionPanel);
+    expect(panel.props).toMatchObject({ runId: OLD, question: 'Change the plan?', milestoneId: 'M1' });
+    const html = renderToStaticMarkup(createElement(RunDecisionPanel, panel.props as unknown as Parameters<typeof RunDecisionPanel>[0]));
+    expect(html).toContain(relayCopy.approveRun(shortRunId(panel.props.runId as string)));
+    expect(html).toContain(relayCopy.rejectRun('abc123'));
+    expect(html).toContain(relayCopy.runDecisionMilestone('M1'));
+
+    current = relaySnapshot({}, { id: 'r1', status: 'WAITING_HUMAN' });
+    await rerender();
+    expect(has((node) => node.type === RunDecisionPanel)).toBe(false);
+    current = relaySnapshot({ events: [{ id: 8, kind: 'human_attention_required', milestone_id: 'M1',
+      payload_json: JSON.stringify({ category: 'waiting_human' }) }] }, { id: OLD, status: 'WAITING_HUMAN', human_prompt: 'Change the plan?' });
+    await rerender();
+    const decide = find((node) => node.type === RunDecisionPanel).props.onDecide as
+      (runId: string, action: 'approve' | 'reject', note: string) => Promise<boolean>;
+    await act(async () => { await decide(OLD, 'reject', 'Too risky'); });
+    expect(store.onChangeRun).toHaveBeenCalledWith(OLD, 'reject', 'Too risky');
+    expect(drawer().props.owner).toBe('overview');
+  });
+
+  test('run controls in the overview name the shown run; stop goes through the existing confirmation', async () => {
+    setup(relaySnapshot());
+    const store = useStore({ controlsBusy: true });
+    const rerender = await mount();
+    const controls = overview().props.controls as { busy: boolean; synced: boolean; changeRun(runId: string, action: 'pause'): void };
+    expect(controls).toMatchObject({ busy: true, synced: true });
+    controls.changeRun('r1', 'pause');
+    expect(store.onChangeRun).toHaveBeenCalledWith('r1', 'pause');
+    expect(overview().props.onStop).toBeUndefined();
+
+    current = relaySnapshot({}, { id: 'r1', status: 'FAILED' });
+    await rerender();
+    const stop = overview().props.onStop as () => void;
+    expect(stop).toEqual(expect.any(Function));
+    await act(async () => { stop(); });
+    expect(find((node) => node.props.role === 'group' && node.props['aria-label'] === MESSAGES.en.guided.m3.failed.replan)).toBeTruthy();
+
+    // Without the store props the overview has no run controls at all.
+    extra = {};
+    await rerender();
+    expect(overview().props.controls).toBeUndefined();
+    expect(overview().props.history).toBeUndefined();
+  });
+
+  test('an older run that failed offers no stop and none of the current run\'s banners', async () => {
+    setup(relaySnapshot());
+    useStore();
+    const rerender = await mount();
+    await viewOld();
+    current = relaySnapshot({}, { id: OLD, status: 'FAILED', summary: 'Old failure' });
+    await rerender();
+    expect(overview().props.onStop).toBeUndefined();
+    expect(has((node) => node.type === GuidedFailedBanner)).toBe(false);
+    current = relaySnapshot({}, { id: OLD, status: 'PAUSED' });
+    await rerender();
+    expect(has((node) => node.props.className === 'guided-workbench__paused')).toBe(false);
+    expect(overview().props.snapshot).toBe(current);
   });
 });

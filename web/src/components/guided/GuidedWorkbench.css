@@ -126,6 +126,39 @@
   height: 100%;
 }
 
+/*
+ * Build and Sign-Off stack the top row, any notices, the stage and the bottom dock in one column. The stage
+ * takes the height that is left (at least 22rem) and the dock keeps its own height, so the graph, the drawer
+ * and the collapsed dock fit on one screen; the body scrolls only when the wizard opens above the stage.
+ */
+.guided-workbench__body[data-step='live'],
+.guided-workbench__body[data-step='signoff'] {
+  display: flex;
+  flex-direction: column;
+}
+
+.guided-workbench__body[data-step='live'] > .guided-workbench__live,
+.guided-workbench__stage {
+  flex: 1 1 0;
+  min-height: 22rem;
+  height: auto;
+}
+
+/* Sign-Off scrolls inside its stage, so the dock under it stays in view. */
+.guided-workbench__stage {
+  overflow-y: auto;
+}
+
+.guided-workbench__viewing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-inline-end: auto;
+  color: var(--text-strong);
+  font-size: 0.8rem;
+}
+
 .guided-workbench__hint {
   margin: 0;
   padding: 0.6rem 1rem;
@@ -190,6 +223,12 @@
   min-height: 0;
 }
 
+/* Steps outside the visible part of the graph are reached by panning; the graph itself never scrolls
+   (a scrolled graph would put clicks in the wrong place). */
+.guided-workbench__canvas .react-flow {
+  overflow: clip;
+}
+
 /* Build: the relay graph with the context drawer fixed on its right. */
 .guided-workbench__live-main {
   display: grid;
@@ -249,6 +288,11 @@
     grid-template-rows: minmax(22rem, 1fr) auto;
     min-height: auto;
   }
+
+  /* The drawer sits under the graph here, so Build grows with it and the body scrolls; the dock follows. */
+  .guided-workbench__body[data-step='live'] > .guided-workbench__live {
+    flex: none;
+  }
 }
 
 .guided-workbench__notice {
@@ -304,4 +348,19 @@
   .guided-workbench__step-hint {
     display: none;
   }
+}
+
+.guided-workbench__history {
+  width: min(24rem, 100%);
+  font-size: 0.8rem;
+}
+
+.guided-workbench__history .context-drawer__field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.guided-workbench__history .context-drawer__label {
+  flex: none;
 }

@@ -1266,6 +1266,19 @@ export interface Messages {
       retry: string;
       decisionTitle(taskId: string): string;
       replyToTask(taskId: string): string;
+      /** Names the run a task decision belongs to, next to its short ID. */
+      inRun: string;
+      viewingRun: string;
+      backToCurrent: string;
+      backToBlueprint: string;
+      loadingRun(shortId: string): string;
+      loadRunFailed(shortId: string): string;
+      /** A decision of the whole run, for example a milestone review asking to change the plan. */
+      runDecisionTitle(shortId: string): string;
+      runDecisionMilestone(milestoneId: string): string;
+      runDecisionHint: string;
+      approveRun(shortId: string): string;
+      rejectRun(shortId: string): string;
       overview: {
         title: string;
         hint: string;
@@ -1276,6 +1289,9 @@ export interface Messages {
         noHolder: string;
         runId: string;
         runStatus: string;
+        pauseRun(shortId: string): string;
+        resumeRun(shortId: string): string;
+        stopRun(shortId: string): string;
       };
       node: {
         states: Record<ExecutionState, string>;
@@ -1313,6 +1329,22 @@ export interface Messages {
         blocked: string;
         noBlocked: string;
       };
+    };
+    /** Build and Sign-Off: the bottom dock with the latest event, the timeline, model calls and gate receipts. */
+    dock: {
+      aria: string;
+      expand: string;
+      collapse: string;
+      noEvents: string;
+      tabsAria: string;
+      tabs: Record<'timeline' | 'terminal' | 'gates', string>;
+      timelineLimit(limit: number): string;
+      terminalNote(limit: number): string;
+      noCalls: string;
+      output: string;
+      prompt: string;
+      gatesNote: string;
+      gatesFailed: string;
     };
     signOff: {
       title: string;
@@ -2186,6 +2218,17 @@ export const MESSAGES: Record<Locale, Messages> = {
         retry: 'Try again',
         decisionTitle: (taskId) => `Task ${taskId} needs a decision from you`,
         replyToTask: (taskId) => `Reply to task ${taskId}`,
+        inRun: 'Run',
+        viewingRun: 'Viewing run',
+        backToCurrent: 'Back to the current run',
+        backToBlueprint: 'Back to the blueprint',
+        loadingRun: (shortId) => `Loading run ${shortId}...`,
+        loadRunFailed: (shortId) => `Could not load run ${shortId}.`,
+        runDecisionTitle: (shortId) => `Run ${shortId} needs a decision from you`,
+        runDecisionMilestone: (milestoneId) => `The review of milestone ${milestoneId} asks for your call.`,
+        runDecisionHint: 'Approve to let the run go on, or reject to pause it. A note for the team is optional.',
+        approveRun: (shortId) => `Approve and let run ${shortId} continue`,
+        rejectRun: (shortId) => `Reject and pause run ${shortId}`,
         overview: {
           title: 'Run overview',
           hint: 'Click any step on the map, or the line between two steps, to see what happened there.',
@@ -2205,6 +2248,9 @@ export const MESSAGES: Record<Locale, Messages> = {
           noHolder: 'No step is working right now.',
           runId: 'Run ID',
           runStatus: 'Status code',
+          pauseRun: (shortId) => `Pause run ${shortId}`,
+          resumeRun: (shortId) => `Resume run ${shortId}`,
+          stopRun: (shortId) => `Stop run ${shortId} and return to the blueprint`,
         },
         node: {
           states: {
@@ -2255,6 +2301,21 @@ export const MESSAGES: Record<Locale, Messages> = {
           blocked: 'Blocking reason',
           noBlocked: 'None recorded',
         },
+      },
+      dock: {
+        aria: 'Run activity',
+        expand: 'Expand',
+        collapse: 'Collapse',
+        noEvents: 'No events yet',
+        tabsAria: 'Run activity views',
+        tabs: { timeline: 'Timeline', terminal: 'Terminal', gates: 'Gates' },
+        timelineLimit: (limit) => `Shows the latest ${limit} events only`,
+        terminalNote: (limit) => `The prompt and output saved for each model call, not a live stream. Only calls among the latest ${limit} events are listed.`,
+        noCalls: 'No model calls among these events',
+        output: 'Output',
+        prompt: 'Prompt',
+        gatesNote: 'Every gate receipt recorded for this run',
+        gatesFailed: 'Could not load the gate receipts.',
       },
       signOff: {
         title: 'Final Sign-Off',
@@ -3126,6 +3187,17 @@ export const MESSAGES: Record<Locale, Messages> = {
         retry: '重试',
         decisionTitle: (taskId) => `任务 ${taskId} 需要你做一个决定`,
         replyToTask: (taskId) => `回复任务 ${taskId}`,
+        inRun: '运行',
+        viewingRun: '正在查看运行',
+        backToCurrent: '回到当前运行',
+        backToBlueprint: '回到蓝图',
+        loadingRun: (shortId) => `正在读取运行 ${shortId}……`,
+        loadRunFailed: (shortId) => `没能读取运行 ${shortId}。`,
+        runDecisionTitle: (shortId) => `运行 ${shortId} 需要你做一个决定`,
+        runDecisionMilestone: (milestoneId) => `里程碑 ${milestoneId} 的评审需要你拍板。`,
+        runDecisionHint: '批准后运行继续；驳回会暂停运行。可以给团队留一句备注。',
+        approveRun: (shortId) => `批准，让运行 ${shortId} 继续`,
+        rejectRun: (shortId) => `驳回并暂停运行 ${shortId}`,
         overview: {
           title: '运行总览',
           hint: '点地图上的任意一步，或两步之间的连线，查看那里发生了什么。',
@@ -3145,6 +3217,9 @@ export const MESSAGES: Record<Locale, Messages> = {
           noHolder: '现在没有正在进行的环节。',
           runId: '运行 ID',
           runStatus: '状态代码',
+          pauseRun: (shortId) => `暂停运行 ${shortId}`,
+          resumeRun: (shortId) => `继续运行 ${shortId}`,
+          stopRun: (shortId) => `停止运行 ${shortId} 并回到蓝图`,
         },
         node: {
           states: {
@@ -3195,6 +3270,21 @@ export const MESSAGES: Record<Locale, Messages> = {
           blocked: '阻塞原因',
           noBlocked: '没有记录',
         },
+      },
+      dock: {
+        aria: '运行动态',
+        expand: '展开',
+        collapse: '收起',
+        noEvents: '还没有事件',
+        tabsAria: '运行动态视图',
+        tabs: { timeline: '时间线', terminal: '终端', gates: '门禁' },
+        timelineLimit: (limit) => `只显示最近 ${limit} 条事件`,
+        terminalNote: (limit) => `这里是每次模型调用落盘的提示词和输出，不是实时滚动的输出；只覆盖最近 ${limit} 条事件里的调用`,
+        noCalls: '这些事件里没有模型调用',
+        output: '输出',
+        prompt: '提示词',
+        gatesNote: '该运行记录的全部门禁回执',
+        gatesFailed: '没能读取门禁回执。',
       },
       signOff: {
         title: '最终验收',
