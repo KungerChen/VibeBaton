@@ -1,6 +1,27 @@
 import { describe, expect, test } from 'vitest';
-import type { Locale } from '../../i18n/messages';
-import { formatTokenCount, formatUsd } from './billingFormat';
+import { MESSAGES, type Locale } from '../../i18n/messages';
+import { formatReportedUsd, formatTokenCount, formatUsd, usageCoverage } from './billingFormat';
+
+describe('cost that may not have been reported', () => {
+  test('a missing cost reads "Not reported", while a reported zero stays a real amount', () => {
+    expect(MESSAGES.en.inspector.billingNotReported).toBe('Not reported');
+    expect(MESSAGES.zh.inspector.billingNotReported).toBe('未上报');
+    expect(formatReportedUsd(null, 'en')).toBe('Not reported');
+    expect(formatReportedUsd(undefined, 'zh')).toBe('未上报');
+    expect(formatReportedUsd(Number.NaN, 'en')).toBe('Not reported');
+    expect(formatReportedUsd(0, 'en')).toBe('$0.0000');
+    expect(formatReportedUsd(0.0125, 'zh')).toBe('$0.0125');
+  });
+
+  test('a total states how many calls reported usage', () => {
+    expect(usageCoverage({ reported_calls: 9, total_calls: 12 }, 'en')).toBe('9 of 12 calls reported usage');
+    expect(usageCoverage({ reported_calls: 9, total_calls: 12 }, 'zh')).toBe('12 次调用中 9 次上报了用量');
+    expect(usageCoverage({ reported_calls: 0, total_calls: 3 }, 'en')).toBe('0 of 3 calls reported usage');
+    expect(usageCoverage({ reported_calls: 0, total_calls: 0 }, 'en')).toBeNull();
+    expect(usageCoverage({}, 'en')).toBeNull();
+    expect(usageCoverage(null, 'en')).toBeNull();
+  });
+});
 
 describe('formatUsd', () => {
   test.each<[number | null | undefined, Locale, string]>([

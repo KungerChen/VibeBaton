@@ -220,12 +220,16 @@ const GUIDED_M3_EN = {
     approve: 'Approve & Merge',
     merging: 'Merging…',
     merged: 'Changes merged.',
-    reintegrated: 'Changes integrated with the updated base and checks passed.',
-    gateFailed: 'A check failed after integration. The base was not updated.',
+    reintegrated: 'Changes were integrated with the updated base and merged.',
+    gateFailed: 'Not merged. The base branch was not updated.',
     conflict: 'Changes conflict with the current base.',
     changedFiles: 'Changed files',
-    gates: 'Checks',
-    noGates: 'No additional checks were configured.',
+    verification: 'Verification result',
+    verificationPassed: 'Passed',
+    verificationFailed: 'Failed',
+    noGates: 'No gate records',
+    verificationNotReturned: 'Not returned',
+    verificationNotReturnedHint: 'The response did not include check results.',
   },
   revision: {
     title: 'Request changes',
@@ -299,6 +303,24 @@ const GUIDED_M3_EN = {
     SESSION_IO_ERROR: 'The session could not be read or saved.',
     BRAINSTORM_SESSION_CHANGED: 'The session changed during this turn. Reload it before retrying.',
     unknown: 'The operation failed. Review the details and try again.',
+  },
+  readiness: {
+    ready: 'Ready',
+    partial: 'Partly ready',
+    blocked: 'Blocked',
+    checking: 'Checking...',
+    checkingHint: 'Checking your project folder and coding tools...',
+    refresh: 'Check again',
+    panelTitle: 'Workspace & Tools',
+    hide: 'Hide',
+    done: 'Done',
+    noGit: 'Version history is off for this folder',
+    noCommits: 'This project has no first save point yet',
+    noTeam: 'No coding tool is ready',
+    toolsUnavailable: 'Not ready: {tools}',
+    checkFailed: 'The folder and tools could not be checked',
+    launchBlocked: 'The build cannot start yet: {reason}',
+    openSetup: 'Open Workspace & Tools',
   },
 };
 
@@ -519,12 +541,16 @@ const GUIDED_M3_ZH: GuidedM3Messages = {
     approve: '验收并合并',
     merging: '正在合并……',
     merged: '改动已合并。',
-    reintegrated: '改动已与更新后的基准整合，检查已通过。',
-    gateFailed: '整合后的检查失败，基准分支未更新。',
+    reintegrated: '改动已与更新后的基准整合，并已合并。',
+    gateFailed: '没有合并，基准分支没有更新。',
     conflict: '改动与当前基准存在冲突。',
     changedFiles: '改动文件',
-    gates: '检查',
-    noGates: '未配置额外检查。',
+    verification: '验证结果',
+    verificationPassed: '通过',
+    verificationFailed: '失败',
+    noGates: '无门禁记录',
+    verificationNotReturned: '未返回',
+    verificationNotReturnedHint: '响应里没有检查结果。',
   },
   revision: {
     title: '提出修改',
@@ -599,6 +625,24 @@ const GUIDED_M3_ZH: GuidedM3Messages = {
     BRAINSTORM_SESSION_CHANGED: '本轮进行期间会话发生变化，请重新加载后再试。',
     unknown: '操作失败，请查看详情后重试。',
   },
+  readiness: {
+    ready: '已就绪',
+    partial: '部分可用',
+    blocked: '有阻塞',
+    checking: '正在检查……',
+    checkingHint: '正在检查项目文件夹和编程工具……',
+    refresh: '重新检查',
+    panelTitle: '工作区与工具',
+    hide: '收起',
+    done: '完成',
+    noGit: '这个文件夹还没开启版本记录',
+    noCommits: '项目还没有第一个保存点',
+    noTeam: '还没有就绪的编程工具',
+    toolsUnavailable: '未就绪：{tools}',
+    checkFailed: '无法检查文件夹和工具',
+    launchBlocked: '暂时不能开始施工：{reason}',
+    openSetup: '打开工作区与工具',
+  },
 };
 
 type CredentialKey = 'GEMINI_API_KEY' | 'DEEPSEEK_API_KEY' | 'OPENAI_API_KEY' | 'OPENCODE_API_KEY' | 'ANTHROPIC_API_KEY';
@@ -631,7 +675,9 @@ export interface Messages {
     soundOff: string;
     modeLive: string;
     modeReplay: string;
-    studioModeAria: string;
+    /** The quiet top-bar entry from the workbench (Guided mode) into Pro mode, and the way back. */
+    toProMode: string;
+    toGuidedMode: string;
   };
   tabs: {
     ariaLabel: string;
@@ -828,6 +874,9 @@ export interface Messages {
     billingTokens(prompt: string, completion: string, cached: string): string;
     billingPerModel(prompt: string, completion: string): string;
     billingExactBadge: string;
+    /** Shown instead of an amount when no call reported a cost, in every cost display. */
+    billingNotReported: string;
+    billingCoverage(reported: number, total: number): string;
     totalElapsed(elapsed: string): string;
     estimatedTag: string;
     callCount(count: number): string;
@@ -1045,7 +1094,6 @@ export interface Messages {
   };
   guided: {
     m3: GuidedM3Messages;
-    mode: { guided: string; pro: string };
     steps: readonly { title: string; hint: string }[];
     workbench: {
       stepsAria: string;
@@ -1054,7 +1102,6 @@ export interface Messages {
       pausedBanner: string;
       resumeRun: string;
       newBlueprint: string;
-      changeTeam: string;
       currentTeamPrefix: string;
     };
     setup: {
@@ -1225,7 +1272,6 @@ export interface Messages {
       kpiTests: string;
       kpiFiles: string;
       kpiCost: string;
-      kpiCostUnavailable: string;
       workspaceLocation: string;
       openFolder: string;
       openFile: string;
@@ -1282,7 +1328,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       soundOff: 'Off',
       modeLive: 'Live',
       modeReplay: 'Replay',
-      studioModeAria: 'Studio mode',
+      toProMode: 'Switch to Pro mode',
+      toGuidedMode: 'Back to Guided mode',
     },
     tabs: {
       ariaLabel: 'Workspace views',
@@ -1533,6 +1580,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       billingTokens: (prompt, completion, cached) => `Prompt ${prompt} · Completion ${completion} · Cached ${cached}`,
       billingPerModel: (prompt, completion) => `Prompt ${prompt} · Completion ${completion}`,
       billingExactBadge: 'Exact billing',
+      billingNotReported: 'Not reported',
+      billingCoverage: (reported, total) => `${reported} of ${total} calls reported usage`,
       totalElapsed: (elapsed) => `Total: ${elapsed}`,
       estimatedTag: 'est.',
       callCount: (count) => `${count} calls`,
@@ -1876,7 +1925,6 @@ export const MESSAGES: Record<Locale, Messages> = {
     },
     guided: {
       m3: GUIDED_M3_EN,
-      mode: { guided: 'Guided', pro: 'Pro' },
       workbench: {
         stepsAria: 'Guided steps',
         waitingForRun: 'Starting the build. The task map appears as soon as the plan is ready…',
@@ -1884,11 +1932,9 @@ export const MESSAGES: Record<Locale, Messages> = {
         pausedBanner: 'The run is paused. You can resume where it stopped or start a new blueprint.',
         resumeRun: 'Resume Run',
         newBlueprint: 'Start New Blueprint',
-        changeTeam: 'Workspace & Tools',
         currentTeamPrefix: 'Current team:',
       },
       steps: [
-        { title: 'Workspace', hint: 'Choose your project folder and confirm the AI coding tools on this computer.' },
         { title: 'Blueprint', hint: 'Describe what you want to build and shape the plan with your AI architecture partner.' },
         { title: 'Build', hint: 'Watch the AI team plan, write, test, and review each task.' },
         { title: 'Sign-Off', hint: 'Review the result and decide whether it lands on your main branch.' },
@@ -2069,8 +2115,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       },
       signOff: {
         title: 'Final Sign-Off',
-        testsPassed: 'All verification checks passed',
-        testsSummary: (passed, total) => `${passed}/${total} verification checks passed`,
+        testsPassed: 'All tasks completed',
+        testsSummary: (passed, total) => `${passed}/${total} tasks completed`,
         changedFiles: 'Changed files',
         battleReport: 'Open Battle Report',
         approve: 'Approve & Merge',
@@ -2083,10 +2129,9 @@ export const MESSAGES: Record<Locale, Messages> = {
         done: 'Merged into your main branch. You can roll back while no newer commits land on it; the backup tag from run start stays as a recovery point.',
         revisedDone: 'Sent back with your notes. The run is paused until you resume it.',
         rolledBackDone: 'Rolled back. Your main branch is back where it was before approval.',
-        kpiTests: 'Checks Passed',
+        kpiTests: 'Tasks Completed',
         kpiFiles: 'Changed Files',
         kpiCost: 'Total Spend',
-        kpiCostUnavailable: 'Not billed',
         workspaceLocation: 'Output Folder',
         openFolder: 'Open Folder',
         openFile: 'Open',
@@ -2141,7 +2186,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       soundOff: '默认关闭',
       modeLive: '实时运行',
       modeReplay: '案例回放',
-      studioModeAria: '工作台模式',
+      toProMode: '切换到专业模式',
+      toGuidedMode: '回到引导模式',
     },
     tabs: {
       ariaLabel: '工作区视图',
@@ -2392,6 +2438,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       billingTokens: (prompt, completion, cached) => `输入 ${prompt} · 输出 ${completion} · 缓存 ${cached}`,
       billingPerModel: (prompt, completion) => `输入 ${prompt} · 输出 ${completion}`,
       billingExactBadge: '精确计费',
+      billingNotReported: '未上报',
+      billingCoverage: (reported, total) => `${total} 次调用中 ${reported} 次上报了用量`,
       totalElapsed: (elapsed) => `总耗时：${elapsed}`,
       estimatedTag: '推算',
       callCount: (count) => `${count} 次调用`,
@@ -2735,7 +2783,6 @@ export const MESSAGES: Record<Locale, Messages> = {
     },
     guided: {
       m3: GUIDED_M3_ZH,
-      mode: { guided: '引导模式', pro: '专业模式' },
       workbench: {
         stepsAria: '引导步骤',
         waitingForRun: '正在启动施工，计划就绪后这里会显示任务地图……',
@@ -2743,11 +2790,9 @@ export const MESSAGES: Record<Locale, Messages> = {
         pausedBanner: '运行已暂停，你可以从暂停处继续运行，或重新制定一份蓝图。',
         resumeRun: '继续运行',
         newBlueprint: '重新制定蓝图',
-        changeTeam: '切换工作区 / 工具',
         currentTeamPrefix: '当前团队：',
       },
       steps: [
-        { title: '工作区', hint: '选择项目文件夹，并确认本机已有的 AI 编程工具。' },
         { title: '蓝图', hint: '说说你想做什么，与架构伙伴一起把方案打磨成形。' },
         { title: '施工', hint: '查看 AI 团队如何规划、编写、测试并评审每个任务。' },
         { title: '验收', hint: '检查成果，决定是否合入你的主分支。' },
@@ -2928,8 +2973,8 @@ export const MESSAGES: Record<Locale, Messages> = {
       },
       signOff: {
         title: '最终验收',
-        testsPassed: '全部验证检查已通过',
-        testsSummary: (passed, total) => `${passed}/${total} 项验证检查通过`,
+        testsPassed: '全部任务已完成',
+        testsSummary: (passed, total) => `${passed}/${total} 个任务已完成`,
         changedFiles: '改动的文件',
         battleReport: '打开战报',
         approve: '批准并合并',
@@ -2942,10 +2987,9 @@ export const MESSAGES: Record<Locale, Messages> = {
         done: '已合入你的主分支。在主分支出现新提交之前仍可回滚；本次运行开始时创建的备份标签会保留作为恢复点。',
         revisedDone: '已附意见退回，运行将暂停，直到你重新启动。',
         rolledBackDone: '已回滚，主分支已恢复到批准前的状态。',
-        kpiTests: '通过检查',
+        kpiTests: '完成的任务',
         kpiFiles: '产物文件',
         kpiCost: '本次总花费',
-        kpiCostUnavailable: '未计费',
         workspaceLocation: '产物目录',
         openFolder: '打开项目文件夹',
         openFile: '打开',

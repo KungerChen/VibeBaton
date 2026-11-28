@@ -211,7 +211,11 @@ class TestPanelReport(unittest.TestCase):
                 current = self._render(lang=lang)
                 self.assertNotIn("Panel & Synthesis", current)
                 self.assertNotIn("专家会诊与综合", current)
-                self.assertEqual(current.encode("utf-8"), self._render(baseline.generate_battle_report, lang).encode("utf-8"))
+                # The line saying how many calls reported usage was added under the cost totals later.
+                coverage = "\n\n1 次调用中 1 次上报了用量。" if lang == "zh" else "\n\n1 of 1 calls reported usage."
+                self.assertIn(coverage, current)
+                self.assertEqual(current.replace(coverage, "", 1).encode("utf-8"),
+                                 self._render(baseline.generate_battle_report, lang).encode("utf-8"))
 
 
 if __name__ == "__main__":

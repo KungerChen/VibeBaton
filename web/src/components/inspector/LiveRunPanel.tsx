@@ -12,7 +12,7 @@ import { Button } from '../ui/button';
 import { Input, Label, Select } from '../ui/input';
 import { MarkdownView } from '../ui/MarkdownView';
 import { Modal } from '../ui/Modal';
-import { formatTokenCount, formatUsd } from './billingFormat';
+import { formatReportedUsd, formatTokenCount, usageCoverage } from './billingFormat';
 import { PricingModal } from './PricingModal';
 
 const eventLimit = 200;
@@ -210,7 +210,10 @@ export function LiveRunPanel({
     return { active, durationSec: computeLiveSeconds(item.duration_sec, serverNow, active, now) };
   });
   const modelLiveTotal = modelTimings.reduce((sum, { durationSec }) => sum + durationSec, 0);
-  const billing = telemetry?.billing?.has_exact_billing === true ? telemetry.billing : null;
+  // Costs show once a call reported usage, or once calls ran without any, so the total says "Not reported".
+  const billing = telemetry?.billing && (telemetry.billing.has_exact_billing === true || (telemetry.billing.total_calls ?? 0) > 0)
+    ? telemetry.billing : null;
+  const billingCoverage = usageCoverage(billing, locale);
   const hasModelRuntime = Boolean(runId) && telemetry !== null && telemetry.models.length > 0;
   const onStreamError = useEffectEvent((error: unknown) => {
     onToast(error instanceof Error ? error.message : String(error), 'err');
@@ -571,15 +574,18 @@ export function LiveRunPanel({
               {billing && (
                 <div className="right-inspector__billing-summary">
                   <span className="right-inspector__billing-badge font-mono">
-                    {messages.inspector.billingTotalCost(formatUsd(billing.total_cost_usd, locale))}
+                    {messages.inspector.billingTotalCost(formatReportedUsd(billing.total_cost_usd, locale))}
                   </span>
-                  <span>
-                    {messages.inspector.billingTokens(
-                      formatTokenCount(billing.total_prompt_tokens, locale),
-                      formatTokenCount(billing.total_completion_tokens, locale),
-                      formatTokenCount(billing.total_cached_tokens, locale),
-                    )}
-                  </span>
+                  {billing.has_exact_billing ? (
+                    <span>
+                      {messages.inspector.billingTokens(
+                        formatTokenCount(billing.total_prompt_tokens, locale),
+                        formatTokenCount(billing.total_completion_tokens, locale),
+                        formatTokenCount(billing.total_cached_tokens, locale),
+                      )}
+                    </span>
+                  ) : null}
+                  {billingCoverage ? <span>{billingCoverage}</span> : null}
                 </div>
               )}
               <div className="grid min-w-0 grid-cols-1 gap-2">
@@ -618,15 +624,17 @@ export function LiveRunPanel({
                           {messages.inspector.callCount(item.calls)} · {messages.inspector.avgDuration(formatDurationSec(item.avg_sec, locale))} · {sharePct.toFixed(1)}%
                         </span>
                       </div>
-                      {billing && item.cost_usd != null && (
+                      {billing && (
                         <div className="right-inspector__billing-model">
-                          <span>
-                            {messages.inspector.billingPerModel(
-                              formatTokenCount(item.prompt_tokens, locale),
-                              formatTokenCount(item.completion_tokens, locale),
-                            )}
-                          </span>
-                          <span className="font-mono text-text-strong">{formatUsd(item.cost_usd, locale)}</span>
+                          {item.prompt_tokens || item.completion_tokens ? (
+                            <span>
+                              {messages.inspector.billingPerModel(
+                                formatTokenCount(item.prompt_tokens, locale),
+                                formatTokenCount(item.completion_tokens, locale),
+                              )}
+                            </span>
+                          ) : null}
+                          <span className="ml-auto font-mono text-text-strong">{formatReportedUsd(item.cost_usd, locale)}</span>
                         </div>
                       )}
                     </div>

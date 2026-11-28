@@ -215,18 +215,18 @@ describe('i18n guarantees', () => {
     }
   });
 
-  test('guided messages expose the Guided/Pro labels and four steps in both locales', () => {
-    expect(MESSAGES.en.guided.mode).toEqual({ guided: 'Guided', pro: 'Pro' });
-    expect(MESSAGES.zh.guided.mode).toEqual({ guided: '引导模式', pro: '专业模式' });
-    expect(MESSAGES.en.guided.steps).toHaveLength(4);
-    expect(MESSAGES.zh.guided.steps).toHaveLength(4);
+  test('guided messages expose the Guided/Pro mode entries and the three numbered stages in both locales', () => {
+    expect([MESSAGES.en.header.toProMode, MESSAGES.en.header.toGuidedMode]).toEqual(['Switch to Pro mode', 'Back to Guided mode']);
+    expect([MESSAGES.zh.header.toProMode, MESSAGES.zh.header.toGuidedMode]).toEqual(['切换到专业模式', '回到引导模式']);
+    expect(MESSAGES.en.guided.steps.map(({ title }) => title)).toEqual(['Blueprint', 'Build', 'Sign-Off']);
+    expect(MESSAGES.zh.guided.steps.map(({ title }) => title)).toEqual(['蓝图', '施工', '验收']);
   });
 
   test('M3 copy covers each planned Guided area and every server recommendation reason', () => {
     const groups = [
       'stepper', 'cliSummary', 'installConfirm', 'signin', 'l0Model', 'brainstorm', 'launch',
       'lineup', 'recommendation', 'workflowSwitch', 'humanGate', 'failed', 'signOff', 'revision',
-      'rollback', 'drift', 'session', 'errors',
+      'rollback', 'drift', 'session', 'errors', 'readiness',
     ];
     // workflow_recommend no longer emits previous_lineup_preserved or preset_unavailable.
     const reasons = [

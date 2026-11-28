@@ -214,6 +214,11 @@
   font-variant-numeric: tabular-nums;
 }
 
+.guided-sign-off__kpi-note {
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+}
+
 .guided-sign-off__workspace-bar {
   display: flex;
   flex-wrap: wrap;
@@ -355,6 +360,34 @@
   color: var(--rose);
 }
 
+/* Neutral unless the checks passed (green) or failed (red): no records and no answer are not successes. */
+.guided-sign-off__verification {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--muted);
+  color: var(--text-strong);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.guided-sign-off__verification[data-verification='passed'] {
+  border-color: color-mix(in srgb, var(--emerald) 35%, var(--border));
+  background: var(--emerald-soft);
+}
+
+.guided-sign-off__verification[data-verification='failed'] {
+  border-color: color-mix(in srgb, var(--rose) 35%, var(--border));
+  background: var(--rose-soft);
+}
+
+.guided-sign-off__verification p,
+.guided-sign-off__verification ul {
+  margin: 0.3rem 0 0;
+}
+
 .guided-sign-off__actions {
   display: flex;
   flex-wrap: wrap;
@@ -410,7 +443,8 @@
 }
 
 .guided-sign-off__done pre,
-.guided-sign-off__error pre {
+.guided-sign-off__error pre,
+.guided-sign-off__verification pre {
   max-height: 12rem;
   overflow: auto;
   white-space: pre-wrap;

@@ -7,7 +7,7 @@ import math
 import re
 import time
 from collections import defaultdict, deque
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from . import pricing
 from .db import StateStore
@@ -97,6 +97,9 @@ class _BillingTelemetry(TypedDict):
     total_tokens: int
     total_cost_usd: float | None
     has_exact_billing: bool
+    # Run telemetry only: every model call counted, and how many of them reported usage (tokens or a cost).
+    total_calls: NotRequired[int]
+    reported_calls: NotRequired[int]
 
 
 class _ConflictTelemetry(TypedDict):
@@ -251,13 +254,14 @@ def _parse_cost_usd(value: object) -> float | None:
     return cost if math.isfinite(cost) else None
 
 
-def _record_billing(entry: dict[str, Any], billing: _BillingTelemetry, payload: dict[str, Any]) -> None:
+def _record_billing(entry: dict[str, Any], billing: _BillingTelemetry, payload: dict[str, Any]) -> bool:
+    """Add one call's usage to the totals; False when the call reported no usage at all."""
     prompt_tokens = _parse_token_count(payload.get("prompt_tokens"))
     completion_tokens = _parse_token_count(payload.get("completion_tokens"))
     cached_tokens = _parse_token_count(payload.get("cached_tokens"))
     cost_usd = _parse_cost_usd(payload.get("cost_usd"))
     if prompt_tokens == 0 and completion_tokens == 0 and cached_tokens == 0 and cost_usd is None:
-        return
+        return False
     if cost_usd is None and prompt_tokens + completion_tokens > 0:
         model_name = payload.get("model") if isinstance(payload.get("model"), str) else entry.get("model")
         if isinstance(model_name, str) and model_name.strip():
@@ -277,6 +281,7 @@ def _record_billing(entry: dict[str, Any], billing: _BillingTelemetry, payload: 
     if cost_usd is not None:
         billing["total_cost_usd"] = (billing["total_cost_usd"] or 0.0) + cost_usd
         entry["cost_usd"] = (entry["cost_usd"] or 0.0) + cost_usd
+    return True
 
 
 def _parse_role_event_meta(event: dict[str, Any]) -> tuple[str, str, str]:
@@ -522,6 +527,8 @@ def compute_run_telemetry(
         "total_tokens": 0,
         "total_cost_usd": None,
         "has_exact_billing": False,
+        "total_calls": 0,
+        "reported_calls": 0,
     }
     model_buckets: dict[tuple[str, str, str], dict[str, Any]] = {}
     model_starts: dict[tuple[str, str, str], float] = {}
@@ -580,8 +587,9 @@ def compute_run_telemetry(
         entry["calls"] += 1
         entry["duration_sec"] += dur
         entry["estimated"] = bool(entry["estimated"] or estimated)
-        if matched is not None:
-            _record_billing(entry, billing, payload)
+        billing["total_calls"] += 1
+        if matched is not None and _record_billing(entry, billing, payload):
+            billing["reported_calls"] += 1
 
     for leftover_queue in completed_queues.values():
         unpaired_completed.extend(leftover_queue)
@@ -611,7 +619,9 @@ def compute_run_telemetry(
             model_buckets[bucket_key] = entry
         entry["calls"] += 1
         entry["duration_sec"] += dur
-        _record_billing(entry, billing, payload)
+        billing["total_calls"] += 1
+        if _record_billing(entry, billing, payload):
+            billing["reported_calls"] += 1
 
     # Panel events report usage as tokens_in/tokens_out; reuse the billing extractors.
     panel_billing_entry: dict[str, Any] = {
@@ -623,7 +633,8 @@ def compute_run_telemetry(
         if event.get("kind") not in ("panel_member_completed", "panel_synthesized"):
             continue
         payload = _parse_json_payload(event.get("payload_json"))
-        _record_billing(
+        billing["total_calls"] += 1
+        if _record_billing(
             panel_billing_entry,
             billing,
             {
@@ -631,7 +642,8 @@ def compute_run_telemetry(
                 "completion_tokens": payload.get("tokens_out"),
                 "cost_usd": payload.get("cost_usd"),
             },
-        )
+        ):
+            billing["reported_calls"] += 1
 
     total_model_sec = sum(item["duration_sec"] for item in model_buckets.values())
     models: list[dict[str, Any]] = []
@@ -730,6 +742,10 @@ def _token_cost_section(
         f"| **{total_label}** | **{billing['total_prompt_tokens']}** | **{billing['total_completion_tokens']}** | "
         f"**{_format_cost_usd(billing['total_cost_usd'])}** |"
     )
+    # The totals cover only the calls that reported usage, so say how many did.
+    reported, total = billing["reported_calls"], billing["total_calls"]
+    lines.extend(["", f"{total} 次调用中 {reported} 次上报了用量。" if lang == "zh"
+                  else f"{reported} of {total} calls reported usage."])
     return lines
 
 

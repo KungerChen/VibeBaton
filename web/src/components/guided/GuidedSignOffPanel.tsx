@@ -15,7 +15,8 @@ import {
   type RunLineageFields,
 } from '../../api/client';
 import { MESSAGES, type Locale } from '../../i18n/messages';
-import { formatUsd } from '../inspector/billingFormat';
+import type { BillingTelemetry } from '../../types/graph';
+import { formatReportedUsd, usageCoverage } from '../inspector/billingFormat';
 import { Button } from '../ui/button';
 import { Textarea } from '../ui/input';
 import { MarkdownView } from '../ui/MarkdownView';
@@ -37,6 +38,8 @@ export interface SignOffSummary {
   changedFiles: string[];
   reportUrl: string;
   totalCostUsd?: number | null;
+  /** How many of the run's calls reported usage, stated next to the total. */
+  usage?: Pick<BillingTelemetry, 'reported_calls' | 'total_calls'> | null;
   workspacePath?: string | null;
   deliverables?: SignOffDeliverable[];
 }
@@ -51,6 +54,15 @@ export interface SignOffDigest {
   reportUrl: string;
   /** True only when there is at least one test and every test passed. */
   allPassed: boolean;
+}
+
+export type VerificationState = 'passed' | 'failed' | 'not_configured' | 'not_returned';
+
+/** What the checks of a merge step showed. An empty list is "not configured" and never counts as passed. */
+export function verificationState(gates: unknown): VerificationState {
+  if (!Array.isArray(gates)) return 'not_returned';
+  if (gates.length === 0) return 'not_configured';
+  return gates.every((gate) => (gate as Partial<GateCommandResult> | null)?.passed === true) ? 'passed' : 'failed';
 }
 
 /** Map a sign-off action and note to the exact payload the finalize endpoint expects. */
@@ -283,9 +295,8 @@ export function useGuidedSignOffView({
     && (confirmation.mode === 'undo' ? canUndo : canRollback)
     && (confirmation.mode !== 'revert_revision' || context?.lineage.parent_run_id));
   const reportHref = digest.reportUrl.trim() || `/api/runs/${encodeURIComponent(runId)}/report`;
-  const costDisplay = typeof summary.totalCostUsd === 'number' && Number.isFinite(summary.totalCostUsd)
-    ? formatUsd(summary.totalCostUsd, locale)
-    : copy.kpiCostUnavailable;
+  const costDisplay = formatReportedUsd(summary.totalCostUsd, locale);
+  const costCoverage = usageCoverage(summary.usage, locale);
   const deliverables = summary.deliverables ?? [];
 
   useEffect(() => {
@@ -555,6 +566,7 @@ export function useGuidedSignOffView({
           <div className="guided-sign-off__kpi">
             <span className="guided-sign-off__kpi-label">{copy.kpiCost}</span>
             <strong className="guided-sign-off__kpi-value">{costDisplay}</strong>
+            {costCoverage ? <span className="guided-sign-off__kpi-note">{costCoverage}</span> : null}
           </div>
         </div>
 
@@ -667,41 +679,38 @@ export function useGuidedSignOffView({
       </div>
 
       {currentOutcome ? (
-        <div className={currentOutcome.kind === 'conflict' || currentOutcome.kind === 'gate_failed'
-          ? 'guided-sign-off__error' : 'guided-sign-off__done'}
-        role={currentOutcome.kind === 'conflict' || currentOutcome.kind === 'gate_failed' ? 'alert' : 'status'}
-        data-outcome={currentOutcome.kind}>
-          {currentOutcome.kind === 'merged' || currentOutcome.kind === 'reintegrated' ? (
-            <>
-              <strong>{currentOutcome.kind === 'merged' ? m3.signOff.merged
-                : !Array.isArray(completedResult?.gates)
-                  ? (locale === 'zh' ? '改动已整合并合并；响应未包含检查结果。' : 'Changes were integrated and merged; the response did not include check results.')
-                  : completedResult.gates.every((item) => item.passed) ? m3.signOff.reintegrated
-                    : (locale === 'zh' ? '改动已合并，但响应中的检查结果异常；请刷新核对。' : 'Changes were merged, but the reported check results need review.')}</strong>
-              <p>{m3.signOff.mergedSha}: <code>{currentOutcome.result.merged_commit}</code></p>
-              {currentOutcome.kind === 'reintegrated' ? (
-                <>
+        <>
+          {/* The merge result says only what happened to the branch; checks are the separate verification result. */}
+          <div className={currentOutcome.kind === 'conflict' || currentOutcome.kind === 'gate_failed'
+            ? 'guided-sign-off__error' : 'guided-sign-off__done'}
+          role={currentOutcome.kind === 'conflict' || currentOutcome.kind === 'gate_failed' ? 'alert' : 'status'}
+          data-outcome={currentOutcome.kind}>
+            {currentOutcome.kind === 'merged' || currentOutcome.kind === 'reintegrated' ? (
+              <>
+                <strong>{currentOutcome.kind === 'merged' ? m3.signOff.merged : m3.signOff.reintegrated}</strong>
+                <p>{m3.signOff.mergedSha}: <code>{currentOutcome.result.merged_commit}</code></p>
+                {currentOutcome.kind === 'reintegrated' ? (
                   <p>{locale === 'zh' ? '基准分支在运行期间发生变化；本次结果已与新基准整合。'
                     : 'The base branch advanced during this run; the result was integrated with the updated base.'}</p>
-                  {Array.isArray(completedResult?.gates) ? <GateResults gates={completedResult.gates} locale={locale} /> : null}
-                </>
-              ) : null}
-            </>
-          ) : currentOutcome.kind === 'conflict' ? (
-            <>
-              <strong>{m3.signOff.conflict}</strong>
-              <p>{locale === 'zh' ? '没有合并任何改动。' : 'Nothing was merged.'} {m3.drift.conflict}</p>
-              <p>{m3.signOff.currentBaseSha}: <code>{currentOutcome.base_head}</code></p>
-              <ul>{currentOutcome.conflicts.map((path) => <li key={path}><code>{path}</code></li>)}</ul>
-            </>
-          ) : (
-            <>
-              <strong>{m3.signOff.gateFailed}</strong>
-              <p>{m3.drift.gateFailed}</p>
-              <GateResults gates={currentOutcome.gates} locale={locale} />
-            </>
-          )}
-        </div>
+                ) : null}
+              </>
+            ) : currentOutcome.kind === 'conflict' ? (
+              <>
+                <strong>{m3.signOff.conflict}</strong>
+                <p>{locale === 'zh' ? '没有合并任何改动。' : 'Nothing was merged.'} {m3.drift.conflict}</p>
+                <p>{m3.signOff.currentBaseSha}: <code>{currentOutcome.base_head}</code></p>
+                <ul>{currentOutcome.conflicts.map((path) => <li key={path}><code>{path}</code></li>)}</ul>
+              </>
+            ) : (
+              <>
+                <strong>{m3.signOff.gateFailed}</strong>
+                <p>{m3.drift.gateFailed}</p>
+              </>
+            )}
+          </div>
+          {currentOutcome.kind === 'reintegrated' ? <VerificationResult gates={completedResult?.gates} locale={locale} />
+            : currentOutcome.kind === 'gate_failed' ? <VerificationResult gates={currentOutcome.gates} locale={locale} /> : null}
+        </>
       ) : isApproved ? <p className="guided-sign-off__done" role="status">{m3.signOff.merged}</p> : null}
       {completedResult?.action === 'rollback' ? (
         <p className="guided-sign-off__done" role="status">{m3.rollback.restored}: <code>{completedResult.restored_to}</code></p>
@@ -843,18 +852,26 @@ export function useGuidedSignOffView({
   );
 }
 
-function GateResults({ gates, locale }: { gates: GateCommandResult[]; locale: Locale }) {
+/** The verification result in one of its four states; only "passed" is shown in green. */
+function VerificationResult({ gates, locale }: { gates: unknown; locale: Locale }) {
   const copy = MESSAGES[locale].guided.m3.signOff;
+  const state = verificationState(gates);
+  const label = {
+    passed: copy.verificationPassed, failed: copy.verificationFailed,
+    not_configured: copy.noGates, not_returned: copy.verificationNotReturned,
+  }[state];
+  const listed = Array.isArray(gates) ? gates as GateCommandResult[] : [];
   return (
-    <div>
-      <strong>{copy.gates}</strong>
-      {gates.length ? <ul>{gates.map((gate, index) => (
+    <section className="guided-sign-off__verification" data-verification={state} aria-label={copy.verification}>
+      <strong>{copy.verification}{locale === 'zh' ? '：' : ': '}{label}</strong>
+      {state === 'not_returned' ? <p>{copy.verificationNotReturnedHint}</p> : null}
+      {listed.length ? <ul>{listed.map((gate, index) => (
         <li key={`${gate.command}-${index}`}>
           <code>{gate.command}</code> — {gate.passed ? 'PASS' : 'FAIL'} ({gate.exit_code})
           {(gate.stderr || gate.stdout) ? <pre>{gate.stderr || gate.stdout}</pre> : null}
         </li>
-      ))}</ul> : <p>{copy.noGates}</p>}
-    </div>
+      ))}</ul> : null}
+    </section>
   );
 }
 

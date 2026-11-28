@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_STUDIO_MODE, STUDIO_MODE_STORAGE_KEY, loadStudioMode, saveStudioMode } from './studioMode';
+import appSource from '../App.tsx?raw';
+import { DEFAULT_STUDIO_MODE, STUDIO_MODE_STORAGE_KEY, hasSavedStudioMode, loadStudioMode, saveStudioMode } from './studioMode';
 
 function memoryStorage(initial: Record<string, string> = {}): Storage {
   const data = new Map(Object.entries(initial));
@@ -19,26 +20,47 @@ function throwingStorage(): Storage {
 }
 
 describe('studioMode store', () => {
-  test('uses the documented storage key and defaults to pro', () => {
+  test('uses the documented storage key and opens the workbench when nothing is saved', () => {
     expect(STUDIO_MODE_STORAGE_KEY).toBe('vibebaton.studioMode');
-    expect(DEFAULT_STUDIO_MODE).toBe('pro');
-    expect(loadStudioMode(memoryStorage())).toBe('pro');
-    expect(loadStudioMode(null)).toBe('pro');
-    expect(loadStudioMode()).toBe('pro');
+    expect(DEFAULT_STUDIO_MODE).toBe('guided');
+    expect(loadStudioMode(memoryStorage())).toBe('guided');
+    expect(loadStudioMode(null)).toBe('guided');
+    expect(loadStudioMode()).toBe('guided');
   });
 
-  test('round-trips both modes through storage', () => {
+  test('keeps a saved choice of either mode, so a refresh in Pro stays in Pro', () => {
+    expect(loadStudioMode(memoryStorage({ [STUDIO_MODE_STORAGE_KEY]: 'pro' }))).toBe('pro');
+    expect(loadStudioMode(memoryStorage({ [STUDIO_MODE_STORAGE_KEY]: 'guided' }))).toBe('guided');
     const storage = memoryStorage();
-    saveStudioMode('guided', storage);
-    expect(storage.getItem(STUDIO_MODE_STORAGE_KEY)).toBe('guided');
-    expect(loadStudioMode(storage)).toBe('guided');
     saveStudioMode('pro', storage);
+    expect(storage.getItem(STUDIO_MODE_STORAGE_KEY)).toBe('pro');
     expect(loadStudioMode(storage)).toBe('pro');
+    saveStudioMode('guided', storage);
+    expect(loadStudioMode(storage)).toBe('guided');
   });
 
-  test('falls back to pro for unknown values and blocked storage', () => {
-    expect(loadStudioMode(memoryStorage({ [STUDIO_MODE_STORAGE_KEY]: 'GUIDED' }))).toBe('pro');
-    expect(loadStudioMode(throwingStorage())).toBe('pro');
+  test('opens the workbench for unknown values and blocked storage', () => {
+    for (const value of ['GUIDED', 'PRO', 'lab', '']) {
+      expect(loadStudioMode(memoryStorage({ [STUDIO_MODE_STORAGE_KEY]: value })), value).toBe('guided');
+    }
+    expect(loadStudioMode(throwingStorage())).toBe('guided');
     expect(() => saveStudioMode('guided', throwingStorage())).not.toThrow();
+  });
+
+  test('a shared recipe link still opens in Pro, without replacing the saved choice', () => {
+    expect(appSource).toContain(
+      "useState<StudioMode>(() => (typeof window !== 'undefined' && window.location.hash.startsWith('#recipe=') ? 'pro' : loadStudioMode()))",
+    );
+  });
+
+  test('without a local server a first visit shows the Pro canvas, unless a mode was chosen before', () => {
+    expect(hasSavedStudioMode(memoryStorage())).toBe(false);
+    expect(hasSavedStudioMode(memoryStorage({ [STUDIO_MODE_STORAGE_KEY]: 'lab' }))).toBe(false);
+    expect(hasSavedStudioMode(null)).toBe(false);
+    expect(hasSavedStudioMode(throwingStorage())).toBe(false);
+    expect(hasSavedStudioMode(memoryStorage({ [STUDIO_MODE_STORAGE_KEY]: 'guided' }))).toBe(true);
+    expect(hasSavedStudioMode(memoryStorage({ [STUDIO_MODE_STORAGE_KEY]: 'pro' }))).toBe(true);
+    // The workbench needs the local server; the standalone demo only has the canvas to show.
+    expect(appSource).toContain("if (nextMode === 'demo' && !hasSavedStudioMode()) setStudioMode('pro');");
   });
 });

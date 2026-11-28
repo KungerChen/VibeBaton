@@ -373,6 +373,12 @@ export interface GuidedBrainstormStepProps {
   allowReplanLaunch?: boolean;
   /** Opens the place where the project budget is changed (linked from the launch confirmation). */
   onOpenBudget?(): void;
+  /** Why the workspace cannot build right now (readiness is blocked); starting stays disabled while set. */
+  launchBlock?: string | null;
+  /** Opens the Workspace & Tools wizard, where `launchBlock` is fixed. */
+  onOpenSetup?(): void;
+  /** Checks readiness again right before a new launch; false stops it before anything is saved or sent. */
+  checkReadiness?(lineup: WorkflowLineup): Promise<boolean>;
 }
 
 export type GuidedBrainstormServices = GuidedSessionApi & Pick<BatonApiClient,
@@ -564,7 +570,7 @@ function GuidedBrainstormWithSession(props: GuidedBrainstormStepProps & { servic
 }
 
 function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, services, guidedSession, onBusyChange,
-  allowReplanLaunch = false, onOpenBudget }:
+  allowReplanLaunch = false, onOpenBudget, launchBlock = null, onOpenSetup, checkReadiness }:
   GuidedBrainstormStepProps & { services: GuidedBrainstormServices; guidedSession: GuidedSessionState }) {
   const labels = MESSAGES[locale].guided.brainstorm;
   const m3 = MESSAGES[locale].guided.m3;
@@ -746,7 +752,7 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
   const launchable = (pasting
     ? !!rfc.markdown.trim() && !!rfc.readiness && pastedCurrent
     : canLaunch(card) && !!recommendation && !typing && !revisionPending && !retryError && !replanLaunchBlocked)
-    && selectedLineup.ready && !busy && sessionReady && flow !== null;
+    && selectedLineup.ready && !busy && sessionReady && flow !== null && !launchBlock;
   // The fast lane asks for a recommendation once its text is checked; a chat recommendation saved before
   // flows were reported is asked for again, so a flow on the card is never a guess.
   const recommendFor = pasting ? (rfc.readiness ? rfc.markdown : null)
@@ -1053,6 +1059,12 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
       setBusyAction('launch');
       setError(null);
       try {
+        // A new launch checks the workspace and tools again first; a saved pending request is only replayed.
+        // The server's own check before starting still follows.
+        if (!pendingLaunch && checkReadiness && !(await checkReadiness(request.lineup))) {
+          setConfirming(false);
+          return ''; // Nothing was saved or sent; the reason shows next to the launch card.
+        }
         // A pasted RFC becomes this run's blueprint draft, so a later revision or replan starts from it.
         if (pasting && !pendingLaunch) guidedSession.save({ brainstorm: { latest_rfc_draft: request.rfc_markdown } });
         const runId = await startKeyedLaunch({ api: api ?? defaultApi(), session, persistence: guidedSession,
@@ -1322,6 +1334,16 @@ function GuidedBrainstormBody({ locale, lineup, onLaunched, api, projectPath, se
               ? { checked: request.lean_flow !== false, onChange: changeLeanFlow } : null}
             confirmation={confirmation} onConfirm={launch} onCancelConfirm={() => setConfirming(false)}
             onOpenBudget={onOpenBudget} />
+        ) : null}
+        {shownRecommendation && launchBlock ? (
+          <div className="guided-brainstorm__failure" role="alert">
+            <p>{m3.readiness.launchBlocked.replace('{reason}', launchBlock)}</p>
+            {onOpenSetup ? (
+              <button type="button" className="guided-brainstorm__retry guided-brainstorm__open-setup" onClick={onOpenSetup}>
+                {m3.readiness.openSetup}
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </section>
 

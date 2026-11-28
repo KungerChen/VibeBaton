@@ -5,6 +5,7 @@ import {
   type ApiMode,
   type CliDriver,
   type CliLoginResult,
+  type CliRegistryScanResponse,
   type CliScanEntry,
   type CliScanResult,
   type EffortCorrection,
@@ -611,6 +612,60 @@ export function historyAllowsBuild(workspace: WorkspaceInfo | null): boolean {
   return state === 'unknown' || state === 'ready';
 }
 
+/** What this step knows about the folder and its tools; each part is null until it has been read. */
+export interface SetupReadinessInput {
+  workspace: WorkspaceInfo | null;
+  drivers: readonly CliDriver[];
+  scan: CliScanResult | null;
+  /** The scan's recommended team; `ready` means at least one complete team can run. */
+  recommended: RecommendedLineup | null;
+  configuredProviders?: readonly string[];
+}
+
+export type ReadinessState = 'ready' | 'partial' | 'blocked';
+export type ReadinessReason =
+  | { code: 'no_git' | 'no_commits' | 'no_team' }
+  | { code: 'tools_unavailable'; providers: string[] };
+export interface WorkspaceReadiness {
+  state: ReadinessState;
+  reasons: ReadinessReason[];
+}
+
+/**
+ * Whether a build can start here; the Continue button and the workbench readiness capsule both use it.
+ * Blocked: the folder has no Git history or first commit, or no team can run at all. Partly ready: a team
+ * can run, but a tool used by `team` (default: the recommended team) is not ready. Null until both the
+ * folder and the tool scan are known.
+ */
+export function workspaceReadiness(input: SetupReadinessInput, team?: Record<string, string> | null): WorkspaceReadiness | null {
+  const { workspace, scan, recommended } = input;
+  if (!workspace || !scan || !recommended) return null;
+  const reasons: ReadinessReason[] = [];
+  const history = workspaceHistoryState(workspace);
+  if (history === 'missing') reasons.push({ code: 'no_git' });
+  if (history === 'no-commits') reasons.push({ code: 'no_commits' });
+  if (!recommended.ready) reasons.push({ code: 'no_team' });
+  if (reasons.length) return { state: 'blocked', reasons };
+  const entries = Object.fromEntries(scan.drivers.map((entry) => [entry.id, entry]));
+  const available = new Set(availableLineupProviders(
+    recommended, input.drivers, entries, input.configuredProviders, scan.http_api_keys_present,
+  ));
+  const used = Object.values(team && Object.keys(team).length ? team : recommended.roles);
+  const missing = [...new Set(used)].filter((provider) => !available.has(provider));
+  return missing.length
+    ? { state: 'partial', reasons: [{ code: 'tools_unavailable', providers: missing }] }
+    : { state: 'ready', reasons: [] };
+}
+
+/** What the workbench needs to show readiness and to check it again before a launch. */
+export interface SetupReadinessReport {
+  input: SetupReadinessInput;
+  /** Loading, scanning, or another action of this step is still running. */
+  checking: boolean;
+  /** Reads the folder and scans the tools again; null when that check failed (the step shows why). */
+  recheck(): Promise<SetupReadinessInput | null>;
+}
+
 /** Hands the lineup to the next step only when it is ready; returns whether `onReady` fired. */
 export function confirmLineup(lineup: RecommendedLineup | null, onReady: (lineup: RecommendedLineup) => void): boolean {
   if (!lineup?.ready) return false;
@@ -738,6 +793,12 @@ export interface GuidedSetupStepProps {
   guidedSession?: GuidedSessionState;
   /** Called after the selected workspace has been persisted. */
   onWorkspaceChanged?(workspace: WorkspaceInfo): void;
+  /** Receives what readiness is computed from whenever it changes. */
+  onReadiness?(report: SetupReadinessReport): void;
+  /** Continue by itself once the workspace is ready, exactly as the Continue button would. */
+  autoContinue?: boolean;
+  /** Replaces "Continue to Blueprint" on the button when the wizard is opened over a stage. */
+  continueLabel?: string;
 }
 
 function hasSessionApi(api: GuidedSetupApi): api is GuidedSetupApi & GuidedSessionApi {
@@ -762,6 +823,7 @@ function GuidedSetupWithSession(props: GuidedSetupStepProps & { api: GuidedSetup
 
 function GuidedSetupBody({
   locale, onReady, apiMode, initialRoles = null, initialModelOverrides = null, api, guidedSession, onWorkspaceChanged,
+  onReadiness, autoContinue = false, continueLabel,
 }: Omit<GuidedSetupStepProps, 'api' | 'guidedSession'> & { api: GuidedSetupApi; guidedSession: GuidedSessionState | null }) {
   const copy = MESSAGES[locale].guided.setup;
   const credentialLabels = MESSAGES[locale].credentials;
@@ -795,7 +857,9 @@ function GuidedSetupBody({
   const [installError, setInstallError] = useState<string | null>(null);
   const [highlightSignIn, setHighlightSignIn] = useState<Record<string, boolean>>({});
   const [workspaceSaved, setWorkspaceSaved] = useState(true);
-  const scanInFlight = useRef<{ path: string | undefined; generation: number; promise: Promise<void> } | null>(null);
+  const scanInFlight = useRef<{
+    path: string | undefined; generation: number; promise: Promise<CliRegistryScanResponse | undefined>;
+  } | null>(null);
   const scanGeneration = useRef(0);
   const mounted = useRef(true);
   const workspacePath = useRef<string | undefined>(undefined);
@@ -820,13 +884,14 @@ function GuidedSetupBody({
     }
   }, [locale]);
 
-  const scanRegistry = useCallback((repoPath?: string): Promise<void> => {
+  /** Resolves with the scan it applied, or undefined when a newer scan or an unmount replaced it. */
+  const scanRegistry = useCallback((repoPath?: string): Promise<CliRegistryScanResponse | undefined> => {
     const inFlight = scanInFlight.current;
     if (inFlight && inFlight.path === repoPath && inFlight.generation === scanGeneration.current) return inFlight.promise;
     const generation = ++scanGeneration.current;
     setScanning(true);
     const promise = api.scanCliRegistry(repoPath).then((result) => {
-      if (!mounted.current || generation !== scanGeneration.current) return;
+      if (!mounted.current || generation !== scanGeneration.current) return undefined;
       if (signInRefresh.current && result.scan.drivers.some((entry) =>
         entry.id === signInRefresh.current?.driverId && entry.status === 'ready')) signInRefresh.current = null;
       setScanResult(result.scan);
@@ -834,6 +899,7 @@ function GuidedSetupBody({
       setInstallOpen((current) => current && result.scan.drivers.some((entry) => entry.id === current && entry.status === 'missing') ? current : null);
       setHttpApiKeysPresent(result.scan.http_api_keys_present);
       setLineup(result.lineup);
+      return result;
     }).finally(() => {
       if (scanInFlight.current?.promise === promise) {
         scanInFlight.current = null;
@@ -873,7 +939,7 @@ function GuidedSetupBody({
     setModelCatalog(catalog);
   }, []);
 
-  const scan = useCallback((repoPath?: string) => run('scan', () => scanRegistry(repoPath)), [run, scanRegistry]);
+  const scan = useCallback((repoPath?: string) => run('scan', async () => { await scanRegistry(repoPath); }), [run, scanRegistry]);
 
   useEffect(() => {
     if (apiMode === null) return;
@@ -1114,8 +1180,27 @@ function GuidedSetupBody({
     [effectiveLineup, savedProfiles],
   );
 
+  const readinessInput = useMemo<SetupReadinessInput>(
+    () => ({ workspace, drivers, scan: scanResult, recommended: lineup, configuredProviders }),
+    [configuredProviders, drivers, lineup, scanResult, workspace],
+  );
+  const readiness = workspaceReadiness(readinessInput, effectiveLineup?.roles);
+  const canContinue = readiness !== null && readiness.state !== 'blocked';
+
+  const recheck = useCallback(async (): Promise<SetupReadinessInput | null> => {
+    let fresh: SetupReadinessInput | null = null;
+    await run('scan', async () => {
+      const info = await api.getWorkspaceInfo();
+      const scanned = await scanRegistry(info.path);
+      if (!scanned) return;
+      setWorkspace(info);
+      fresh = { workspace: info, drivers, scan: scanned.scan, recommended: scanned.lineup, configuredProviders };
+    });
+    return fresh;
+  }, [api, configuredProviders, drivers, run, scanRegistry]);
+
   const handleConfirmLineup = () => {
-    if (!effectiveLineup?.ready || !historyAllowsBuild(workspace) || !workspaceSaved) return;
+    if (!effectiveLineup || !canContinue || !workspaceSaved) return;
     void run('continue', async () => {
       if (workspace?.path) await rememberWorkspace(workspace.path);
       if (api.saveLastUsedLineup) {
@@ -1140,6 +1225,24 @@ function GuidedSetupBody({
   const visibleDrivers = filterDrivers(drivers, entries, driverFilter);
   const isBusy = busy !== null || scanning;
   const sessionUnavailable = Boolean(guidedSession && !guidedSession.session);
+
+  // Until the first load has read the folder (or failed), the check is still running.
+  const checking = isBusy || (workspace === null && error === null);
+  useEffect(() => {
+    onReadiness?.({ input: readinessInput, checking, recheck });
+  }, [checking, onReadiness, readinessInput, recheck]);
+
+  // The same Continue the button runs, once per request, so saving the last-used team is unchanged.
+  const autoContinued = useRef(false);
+  useEffect(() => {
+    if (!autoContinue) {
+      autoContinued.current = false;
+      return;
+    }
+    if (autoContinued.current || readiness?.state !== 'ready' || isBusy || sessionUnavailable || !workspaceSaved) return;
+    autoContinued.current = true;
+    handleConfirmLineup();
+  }, [autoContinue, readiness?.state, isBusy, sessionUnavailable, workspaceSaved]);
 
   const historyState = workspaceHistoryState(workspace);
   const workspaceBusyLabel = busy === 'browse'
@@ -1376,9 +1479,9 @@ function GuidedSetupBody({
               </p>
               <div className="guided-setup__team-actions">
                 <button type="button" className="guided-setup__button guided-setup__button--primary"
-                  disabled={isBusy || sessionUnavailable || !workspaceSaved || !historyAllowsBuild(workspace)}
+                  disabled={isBusy || sessionUnavailable || !workspaceSaved || !canContinue}
                   onClick={handleConfirmLineup}>
-                  {copy.useLineup}
+                  {continueLabel ?? copy.useLineup}
                 </button>
                 {!historyAllowsBuild(workspace) ? <p className="guided-setup__git" data-git={false}>{copy.continueNeedsHistory}</p> : null}
               </div>

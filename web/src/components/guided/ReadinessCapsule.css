@@ -1,0 +1,123 @@
+/* Fills the session row beside "Start a new session"; long reasons and paths are cut, not wrapped. */
+.readiness-capsule {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.readiness-capsule__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.readiness-capsule__icon {
+  flex: none;
+  color: var(--muted-foreground);
+}
+
+.readiness-capsule__label {
+  flex: none;
+  font-weight: 600;
+}
+
+.readiness-capsule__reason,
+.readiness-capsule__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The path gives way first, and a narrow window drops it, so the reason stays readable. */
+.readiness-capsule__path {
+  flex-shrink: 100;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+@media (max-width: 900px) {
+  .readiness-capsule__path {
+    display: none;
+  }
+}
+
+.readiness-capsule[data-state='ready'] .readiness-capsule__pill {
+  border-color: color-mix(in srgb, var(--emerald) 45%, var(--border));
+}
+
+.readiness-capsule[data-state='ready'] .readiness-capsule__icon {
+  color: var(--emerald);
+}
+
+.readiness-capsule[data-state='partial'] .readiness-capsule__pill {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--border));
+  background: var(--amber-soft);
+}
+
+.readiness-capsule[data-state='partial'] .readiness-capsule__icon {
+  color: var(--amber);
+}
+
+.readiness-capsule[data-state='blocked'] .readiness-capsule__pill {
+  border-color: color-mix(in srgb, var(--rose) 45%, var(--border));
+  background: var(--rose-soft);
+}
+
+.readiness-capsule[data-state='blocked'] .readiness-capsule__icon {
+  color: var(--rose);
+}
+
+.readiness-capsule[data-state='checking'] .readiness-capsule__icon {
+  animation: readiness-capsule-spin 1s linear infinite;
+}
+
+.readiness-capsule__refresh {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.readiness-capsule__refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.readiness-capsule__pill:focus-visible,
+.readiness-capsule__refresh:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@keyframes readiness-capsule-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .readiness-capsule[data-state='checking'] .readiness-capsule__icon {
+    animation: none;
+  }
+}

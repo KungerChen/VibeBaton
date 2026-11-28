@@ -2,14 +2,21 @@ import { act, Children, createElement, isValidElement, type ReactElement, type R
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, assert, describe, expect, test, vi } from 'vitest';
-import { ApiError, type ApiMode, type BatonApiClient, type GuidedSession, type GuidedSessionPatch, type StopAndReplanResult } from '../../api/client';
+import {
+  ApiError, type ApiMode, type BatonApiClient, type CliDriver, type GuidedSession, type GuidedSessionPatch,
+  type RecommendedLineup, type StopAndReplanResult, type WorkflowLineup, type WorkspaceInfo,
+} from '../../api/client';
 import { MESSAGES } from '../../i18n/messages';
 import type { LiveRunSnapshot } from '../../types/graph';
 import workbenchSource from './GuidedWorkbench.tsx?raw';
 import { GuidedDecisionDrawer } from './GuidedDecisionDrawer';
 import { GuidedFailedBanner } from './GuidedFailedBanner';
 import { GuidedBrainstormStep, type GuidedBrainstormApi } from './GuidedBrainstormStep';
+import { GuidedSetupStep, type SetupReadinessInput, type SetupReadinessReport } from './GuidedSetupStep';
+import { GuidedSignOffPanel } from './GuidedSignOffPanel';
 import { NodeDetailDrawer } from './NodeDetailDrawer';
+import { ReadinessCapsule } from './ReadinessCapsule';
+import type { GuidedSessionState } from './useGuidedSession';
 import {
   GUIDED_STEPS,
   GuidedWorkbench,
@@ -131,7 +138,7 @@ describe('signOffSummaryFromSnapshot', () => {
 });
 
 describe('GuidedWorkbench', () => {
-  test('starts on the workspace step with all four step titles in the rail', () => {
+  test('the rail numbers only Blueprint, Build and Sign-Off; readiness is not a numbered step', () => {
     for (const locale of ['en', 'zh'] as const) {
       const html = renderToStaticMarkup(createElement(GuidedWorkbench, {
         locale,
@@ -139,17 +146,26 @@ describe('GuidedWorkbench', () => {
         liveSnapshot: null,
         onFollowRun: () => {},
       }));
-      for (const { title } of MESSAGES[locale].guided.steps) expect(html).toContain(title);
+      const steps = MESSAGES[locale].guided.steps;
+      expect(steps.map(({ title }) => title)).toEqual(locale === 'en' ? ['Blueprint', 'Build', 'Sign-Off'] : ['蓝图', '施工', '验收']);
+      const rail = /<ol class="guided-workbench__rail"[^>]*>([\s\S]*?)<\/ol>/.exec(html)?.[1] ?? '';
+      expect(rail.match(/<li/g)).toHaveLength(3);
+      for (const [index, { title }] of steps.entries()) {
+        expect(rail).toContain(`<span class="guided-workbench__step-index" aria-hidden="true">${index + 1}</span>`);
+        expect(rail).toContain(title);
+      }
+      expect(rail).not.toContain(MESSAGES[locale].guided.m3.stepper.setup);
+      // Before a stage is reached nothing on the rail is current.
       expect(html).toContain('data-step="setup"');
-      expect(html).toContain('aria-current="step"');
+      expect(rail).not.toContain('aria-current');
     }
   });
 
-  test('preserves customized team lineup and exposes change-team return controls in Brainstorm', () => {
+  test('preserves customized team lineup; the Blueprint body has no workspace bar or step-1 return', () => {
     expect(workbenchSource).toContain('initialRoles={lineup?.roles ?? null}');
     expect(workbenchSource).toContain('apiMode={apiMode}');
-    expect(workbenchSource).toContain('copy.workbench.changeTeam');
-    expect(workbenchSource).toContain('guided-workbench__step-btn');
+    expect(workbenchSource).not.toContain('guided-workbench__team-bar');
+    expect(workbenchSource).not.toContain('guided-workbench__step-btn');
   });
 });
 
@@ -185,6 +201,30 @@ function deferred<T>() {
   let reject!: (reason: unknown) => void;
   const promise = new Promise<T>((ok, fail) => { resolve = ok; reject = fail; });
   return { promise, resolve, reject };
+}
+
+const workspaceInfo: WorkspaceInfo = { path: '/repo', is_git_repo: true, branch: 'main', has_commits: true, has_rfc: false };
+const codexDriver: CliDriver = {
+  id: 'codex', name: 'Codex', tier: 'official', binary: 'codex', summary_en: '', summary_zh: '', prereq: [],
+  install_cmd: [], login_cmd: [], official_url: '', command_template: [], version_cmd: [], provider_ids: ['codex'], env_keys: [],
+};
+const readyTeam: RecommendedLineup = {
+  ready: true, roles: { brainstorm_and_final_gate: 'codex' }, model_overrides: {}, source: 'cli', notes_en: '', notes_zh: '',
+};
+
+/** What the wizard reports: the folder, one Codex tool and the team the scan recommends. */
+function readinessInput(options: { ready?: boolean; workspace?: Partial<WorkspaceInfo> } = {}): SetupReadinessInput {
+  const ready = options.ready ?? true;
+  return {
+    workspace: { ...workspaceInfo, ...options.workspace },
+    drivers: [codexDriver],
+    scan: {
+      drivers: [{ id: 'codex', status: ready ? 'ready' : 'missing', binary_path: null, version: null, prereq_missing: [],
+        reason_en: '', reason_zh: '' }],
+      http_api_keys_present: [], scanned_at: 1,
+    },
+    recommended: ready ? readyTeam : { ready: false, roles: {}, source: 'cli', notes_en: '', notes_zh: '' },
+  };
 }
 
 describe('GuidedWorkbench live interactions', () => {
@@ -492,5 +532,189 @@ describe('GuidedWorkbench live interactions', () => {
     await act(async () => { (confirm.props.onClick as () => void)(); });
     expect(api.resetGuidedSession).toHaveBeenCalledTimes(1);
     expect(resetSpy).toHaveBeenCalledTimes(1);
+  });
+
+  const readinessCopy = MESSAGES.en.guided.m3.readiness;
+  const body = () => find((node) => node.props.className === 'guided-workbench__body');
+  const capsule = () => find((node) => node.type === ReadinessCapsule);
+  const wizard = () => find((node) => node.type === GuidedSetupStep);
+  const wizardPanel = () => find((node) => node.type === 'div' && typeof node.props.className === 'string'
+    && node.props.className.split(' ').includes('guided-workbench__setup'));
+  const brainstorm = () => find((node) => node.type === GuidedBrainstormStep);
+
+  /** The wizard reports what it read; `recheck` stands in for reading the folder and scanning again. */
+  async function report(input: SetupReadinessInput, recheck = vi.fn(async (): Promise<SetupReadinessInput | null> => input)) {
+    await act(async () => {
+      (wizard().props.onReadiness as (value: SetupReadinessReport) => void)({ input, checking: false, recheck });
+    });
+    return recheck;
+  }
+
+  function atStage(stage: GuidedSession['active_stage']) {
+    setup(snapshot(null));
+    stored.active_stage = stage;
+    stored.active_run_id = null;
+  }
+
+  test('the rail marks the stage of the restored run among its three numbered steps', async () => {
+    setup(snapshot({ id: 'r1', status: 'RUNNING' }));
+    await mount();
+    const rail = find((node) => node.type === 'ol');
+    const steps = elements(rail.props.children as ReactNode).filter((node) => node.type === 'li');
+    // Children.toArray prefixes each key with ".$".
+    expect(steps.map((step) => String(step.key).replace(/^\.\$/, ''))).toEqual(['brainstorm', 'live', 'signoff']);
+    expect(steps.map((step) => step.props['aria-current'])).toEqual([undefined, 'step', undefined]);
+  });
+
+  test('a new session that is ready goes straight to Blueprint through the saved stage, without showing the wizard', async () => {
+    atStage('setup');
+    await mount();
+    expect(body().props['data-step']).toBe('setup');
+    expect(wizardPanel().props.hidden).toBe(true);
+    expect(wizard().props.autoContinue).toBe(false);
+    expect(find((node) => node.props.role === 'status' && node.props.children === readinessCopy.checkingHint)).toBeTruthy();
+    await report(readinessInput());
+    expect(wizard().props.autoContinue).toBe(true);
+    expect(wizardPanel().props.hidden).toBe(true);
+    // autoContinue runs the wizard's own Continue, which hands its team to onReady.
+    await act(async () => { (wizard().props.onReady as (team: RecommendedLineup) => void)(readyTeam); });
+    expect(stored.active_stage).toBe('blueprint');
+    expect(body().props['data-step']).toBe('brainstorm');
+    expect(wizard().props.autoContinue).toBe(false);
+    expect(wizardPanel().props.hidden).toBe(true);
+  });
+
+  test('a session left on setup with something missing opens the wizard and names the reason on the capsule', async () => {
+    atStage('setup');
+    await mount();
+    await report(readinessInput({ ready: false }));
+    expect(wizardPanel().props.hidden).toBe(false);
+    expect(wizard().props.autoContinue).toBe(false);
+    expect(capsule().props.readiness).toEqual({ state: 'blocked', reasons: [{ code: 'no_team' }] });
+    expect(body().props['data-step']).toBe('setup');
+    expect(stored.active_stage).toBe('setup');
+  });
+
+  test('turning red during Build never moves the stage back; the wizard opens only when asked', async () => {
+    setup(snapshot({ id: 'r1', status: 'RUNNING' }));
+    await mount();
+    await report(readinessInput({ workspace: { has_commits: false } }));
+    expect(capsule().props.readiness).toEqual({ state: 'blocked', reasons: [{ code: 'no_commits' }] });
+    expect(body().props['data-step']).toBe('live');
+    expect(wizardPanel().props.hidden).toBe(true);
+    await act(async () => { (capsule().props.onToggle as () => void)(); });
+    expect(wizardPanel().props.hidden).toBe(false);
+    expect(body().props['data-step']).toBe('live');
+    // Continue inside the wizard during a run only closes it.
+    await act(async () => { (wizard().props.onReady as (team: RecommendedLineup) => void)(readyTeam); vi.advanceTimersByTime(500); });
+    expect(wizardPanel().props.hidden).toBe(true);
+    expect(body().props['data-step']).toBe('live');
+    expect(stored.active_stage).toBe('build');
+    expect(api.saveGuidedSession).not.toHaveBeenCalled();
+  });
+
+  test('Blueprint with something missing opens the wizard on entry and blocks the launch with a linked reason', async () => {
+    atStage('blueprint');
+    await mount();
+    expect(body().props['data-step']).toBe('brainstorm');
+    expect(brainstorm().props.launchBlock).toBeNull();
+    expect(wizardPanel().props.hidden).toBe(true);
+    await report(readinessInput({ workspace: { is_git_repo: false, branch: null, has_commits: false } }));
+    expect(wizardPanel().props.hidden).toBe(false);
+    expect(brainstorm().props.launchBlock).toBe(readinessCopy.noGit);
+    expect(body().props['data-step']).toBe('brainstorm');
+    const hide = find((node) => node.type === 'button' && node.props.children === readinessCopy.hide);
+    await act(async () => { (hide.props.onClick as () => void)(); });
+    expect(wizardPanel().props.hidden).toBe(true);
+    await act(async () => { (brainstorm().props.onOpenSetup as () => void)(); });
+    expect(wizardPanel().props.hidden).toBe(false);
+    await report(readinessInput());
+    expect(brainstorm().props.launchBlock).toBeNull();
+    expect(stored.active_stage).toBe('blueprint');
+  });
+
+  test('checks again on a manual refresh and right before a launch; only a blocked or failed check stops it', async () => {
+    atStage('blueprint');
+    await mount();
+    const recheck = await report(readinessInput(), vi.fn(async (): Promise<SetupReadinessInput | null> => readinessInput({ ready: false })));
+    const team: WorkflowLineup = { roles: { brainstorm_and_final_gate: 'codex' }, model_overrides: {} };
+    const check = () => brainstorm().props.checkReadiness as (lineup: WorkflowLineup) => Promise<boolean>;
+    let allowed: boolean | undefined;
+    await act(async () => { allowed = await check()(team); });
+    expect(recheck).toHaveBeenCalledOnce();
+    expect(allowed).toBe(false);
+    recheck.mockResolvedValueOnce(readinessInput());
+    await act(async () => { allowed = await check()(team); });
+    expect(allowed).toBe(true);
+    // A tool the launched team uses is not ready: partly ready does not stop it; the server checks the team.
+    recheck.mockResolvedValueOnce(readinessInput());
+    await act(async () => { allowed = await check()({ ...team, roles: { brainstorm_and_final_gate: 'claude_sub' } }); });
+    expect(allowed).toBe(true);
+    recheck.mockResolvedValueOnce(null);
+    await act(async () => { allowed = await check()(team); });
+    expect(allowed).toBe(false);
+    expect(capsule().props.failed).toBe(true);
+    expect(brainstorm().props.launchBlock).toBe(readinessCopy.checkFailed);
+    await act(async () => { (capsule().props.onRefresh as () => void)(); });
+    expect(recheck).toHaveBeenCalledTimes(5);
+    expect(capsule().props.failed).toBe(false);
+  });
+
+  test('a changed team is checked against the tools the last scan found', async () => {
+    atStage('blueprint');
+    await mount();
+    await report(readinessInput());
+    expect(capsule().props.readiness).toEqual({ state: 'ready', reasons: [] });
+    const owner = brainstorm().props.guidedSession as GuidedSessionState;
+    await act(async () => { owner.save({ workflow: { lineup: { roles: { brainstorm_and_final_gate: 'claude_sub' } } } }); });
+    expect(capsule().props.readiness).toEqual({ state: 'partial', reasons: [{ code: 'tools_unavailable', providers: ['claude_sub'] }] });
+    expect(brainstorm().props.launchBlock).toBeNull();
+  });
+
+  test('the task drawer and the Sign-Off total get what tells a real zero from a cost nobody reported', async () => {
+    setup(snapshot({ id: 'r1', status: 'RUNNING' }, {
+      tasks: [{ id: 'T1', status: 'PASSED' }, { id: 'T2', status: 'PASSED' }],
+      events: [{ kind: 'role_completed', task_id: 'T1', payload_json: JSON.stringify({ cost_usd: 0 }) }],
+    }));
+    stored.open_drawer = { run_id: 'r1', task_id: 'T1' };
+    const rerender = await mount();
+    expect(find((node) => node.type === NodeDetailDrawer).props.costReported).toBe(true);
+    const canvas = find((node) => typeof node.type === 'function' && node.type.name === 'GuidedLiveCanvas');
+    await act(async () => { (canvas.props.onTaskClick as (id: string) => void)('T2'); });
+    expect(find((node) => node.type === NodeDetailDrawer).props.costReported).toBe(false);
+
+    const billing = { total_prompt_tokens: 0, total_completion_tokens: 0, total_cached_tokens: 0, total_tokens: 0,
+      total_cost_usd: 0, has_exact_billing: true, total_calls: 3, reported_calls: 1 };
+    current = snapshot({ id: 'r1', status: 'READY_FOR_FINAL_GATE' }, { telemetry: { elapsed_sec: 1, stages: [], models: [], billing } });
+    await rerender();
+    const panel = find((node) => node.type === GuidedSignOffPanel);
+    expect(panel.props.summary).toMatchObject({ totalCostUsd: 0, usage: billing });
+  });
+
+  // Over a stage the button applies the team and closes the wizard (during a run it only closes it),
+  // so only the setup screen may promise "Continue to Blueprint".
+  test.each([
+    ['setup', undefined],
+    ['blueprint', 'Done'],
+    ['a run', 'Done'],
+  ] as const)('the wizard button on %s has the label %s (none means "Continue to Blueprint")', async (where, label) => {
+    if (where === 'a run') setup(snapshot({ id: 'r1', status: 'RUNNING' }));
+    else atStage(where);
+    await mount();
+    await report(readinessInput({ ready: where !== 'setup' }));
+    expect(wizard().props.continueLabel).toBe(label);
+    expect([readinessCopy.done, MESSAGES.zh.guided.m3.readiness.done]).toEqual(['Done', '完成']);
+  });
+
+  test('the capsule sits in the row of "Start a new session" and names the folder; Blueprint has no workspace bar', async () => {
+    atStage('blueprint');
+    await mount();
+    await report(readinessInput());
+    const bar = find((node) => typeof node.props.className === 'string' && node.props.className.includes('guided-workbench__session-bar'));
+    const inBar = elements(bar.props.children as ReactNode);
+    expect(inBar.some((node) => node.type === ReadinessCapsule)).toBe(true);
+    expect(inBar.some((node) => node.type === 'button' && node.props.children === MESSAGES.en.guided.m3.session.reset)).toBe(true);
+    expect(capsule().props.workspacePath).toBe('/repo');
+    expect(elements(view).some((node) => node.props.className === 'guided-workbench__team-bar')).toBe(false);
   });
 });

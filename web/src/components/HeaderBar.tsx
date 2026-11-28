@@ -13,8 +13,6 @@ import { BrandMark } from './ui/BrandMark';
 import { Button } from './ui/button';
 import { Switch } from './ui/switch';
 
-const STUDIO_MODES: readonly StudioMode[] = ['guided', 'pro'];
-
 export type HeaderBarStudioProps = HeaderBarProps & {
   studioMode?: StudioMode;
   onStudioModeChange?: (mode: StudioMode) => void;
@@ -100,28 +98,14 @@ export function HeaderBar({
       <div className="header-bar__right" data-tour-id="header-controls">
         {studioMode && onStudioModeChange && (
           <>
-            <div
-              className="header-bar__studio-mode inline-flex items-center rounded-lg border border-border bg-muted p-0.5"
-              role="group"
-              aria-label={messages.header.studioModeAria}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="header-bar__studio-mode"
+              onClick={() => onStudioModeChange(studioMode === 'guided' ? 'pro' : 'guided')}
             >
-              {STUDIO_MODES.map((option) => (
-                <button
-                  key={option}
-                  className={cn(
-                    'rounded-md px-2 py-0.5 text-[11px] font-semibold transition-all cursor-pointer',
-                    studioMode === option
-                      ? 'bg-card text-text-strong shadow-xs'
-                      : 'text-muted-foreground hover:text-text-strong',
-                  )}
-                  type="button"
-                  aria-pressed={studioMode === option}
-                  onClick={() => onStudioModeChange(option)}
-                >
-                  {messages.guided.mode[option]}
-                </button>
-              ))}
-            </div>
+              {studioMode === 'guided' ? messages.header.toProMode : messages.header.toGuidedMode}
+            </Button>
             <span className="header-bar__divider" aria-hidden="true" />
           </>
         )}

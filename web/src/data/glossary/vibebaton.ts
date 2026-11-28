@@ -191,16 +191,16 @@ export const VIBEBATON_TERMS: GlossaryEntry[] = [
     id: 'guided-mode',
     term: 'Guided Mode',
     category: 'vibebaton',
-    oneLiner_en: 'The four-step Studio path that carries a project from workspace to sign-off.',
-    oneLiner_zh: 'Studio 中从选择工作区到最终验收的四步引导流程。',
+    oneLiner_en: 'The default Studio path that carries a project through Blueprint, Build, and Sign-Off.',
+    oneLiner_zh: 'Studio 默认的引导流程，带项目走过蓝图、施工、验收三个阶段。',
     plainExplain_en:
       'Think of a guided checklist that keeps the cockpit simple: choose the project, shape the blueprint, watch the build, and sign off. It presents the same engine and safety gates as Pro mode, but one decision at a time, with the jargon folded away until you open it.',
     plainExplain_zh:
       '可以把它想成一份让驾驶舱保持简洁的引导清单：选项目、打磨蓝图、观看施工、完成验收。它调用的引擎和安全门禁与专业模式完全相同，只是每次只呈现一个决策，术语默认收起，需要时再展开。',
     proExplain_en:
-      'A Studio presentation mode persisted in `localStorage`. It has four steps: workspace setup and CLI scan, multi-turn brainstorm ending in a Blueprint Card, live workbench with a node detail drawer and decision modal, and a sign-off panel with approve, revise, and rollback. It is a UI layer over the same REST API and engine used by Pro mode.',
+      'The Studio presentation mode that opens by default; the chosen mode is persisted in `localStorage`. It has three numbered stages: Blueprint (multi-turn brainstorm ending in a Blueprint Card, or a pasted RFC), Build (live workbench with a node detail drawer and decision modal), and Sign-Off (a panel with approve, revise, and rollback). Workspace setup and the CLI scan sit behind a readiness capsule that opens the setup wizard when something is missing. It is a UI layer over the same REST API and engine used by Pro mode.',
     proExplain_zh:
-      '持久化在 `localStorage` 中的 Studio 展示模式，包含四步：工作区选择与 CLI 扫描、以蓝图卡收尾的多轮头脑风暴、带节点详情抽屉与决策弹窗的实时工作台、以及提供批准、修改和回滚的验收面板。它只是 UI 层，底层 REST API 与引擎和专业模式共用。',
+      'Studio 默认打开的展示模式，所选模式持久化在 `localStorage` 中。它有三个编号阶段：蓝图（以蓝图卡收尾的多轮头脑风暴，或直接粘贴 RFC）、施工（带节点详情抽屉与决策弹窗的实时工作台）、验收（提供批准、修改和回滚的面板）。工作区选择与 CLI 扫描收进就绪胶囊，缺东西时才展开设置向导。它只是 UI 层，底层 REST API 与引擎和专业模式共用。',
     related: ['pro-mode', 'studio', 'blueprint-card', 'sign-off'],
   },
   {
@@ -210,13 +210,13 @@ export const VIBEBATON_TERMS: GlossaryEntry[] = [
     oneLiner_en: 'The full Studio workbench, exposing the entire canvas, inspectors, and run controls.',
     oneLiner_zh: 'Studio 的完整工作台，开放全部画布、属性面板与运行控制。',
     plainExplain_en:
-      'Pro mode is the open control room rather than the guided checklist: every preset, node, routing field, trace, and diagnostic is available at once. It is the default experience for people who want to inspect or edit the machinery directly, and Guided mode never takes it away.',
+      'Pro mode is the open control room rather than the guided checklist: every preset, node, routing field, trace, and diagnostic is available at once. It is for people who want to inspect or edit the machinery directly; the Studio opens in Guided mode, and Pro mode stays one click away in the top bar.',
     plainExplain_zh:
-      '专业模式不是引导清单，而是完全开放的控制室：所有配方、节点、路由字段、轨迹和诊断信息都同时可见。它面向希望直接检查或修改机制的人，是默认体验；进入引导模式也不会取代它。',
+      '专业模式不是引导清单，而是完全开放的控制室：所有配方、节点、路由字段、轨迹和诊断信息都同时可见。它面向希望直接检查或修改机制的人；Studio 默认打开引导模式，专业模式在顶栏一键即可进入。',
     proExplain_en:
-      'The default Studio mode, kept fully compatible with existing workflows. It exposes the preset library, node palette, graph validation, edge editing, live DAG, stage timing, model telemetry, battle report, recipe and case import-export, and final-gate controls. The Guided and Pro switcher only changes presentation, not engine behavior.',
+      'A Studio mode kept fully compatible with existing workflows; the Studio opens in Guided mode and Pro mode is entered from the top bar. It exposes the preset library, node palette, graph validation, edge editing, live DAG, stage timing, model telemetry, battle report, recipe and case import-export, and final-gate controls. The Guided and Pro switcher only changes presentation, not engine behavior.',
     proExplain_zh:
-      'Studio 的默认模式，与既有工作流完全兼容。它开放配方库、节点面板、图校验、连线编辑、实时 DAG、阶段耗时、模型遥测、战报、配方与案例导入导出，以及终审控制。引导与专业的切换只改变呈现方式，不改变引擎行为。',
+      'Studio 的一种模式，与既有工作流完全兼容；Studio 默认打开引导模式，专业模式从顶栏进入。它开放配方库、节点面板、图校验、连线编辑、实时 DAG、阶段耗时、模型遥测、战报、配方与案例导入导出，以及终审控制。引导与专业的切换只改变呈现方式，不改变引擎行为。',
     related: ['guided-mode', 'canvas', 'studio', 'preset'],
   },
   {

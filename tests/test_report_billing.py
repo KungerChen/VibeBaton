@@ -84,6 +84,8 @@ class TestReportBilling(unittest.TestCase):
                 "total_tokens": 5430,
                 "total_cost_usd": 0.034301,
                 "has_exact_billing": True,
+                "total_calls": 3,
+                "reported_calls": 3,
             },
         )
         models_by_role = {model["role"]: model for model in telemetry["models"]}
@@ -140,6 +142,8 @@ class TestReportBilling(unittest.TestCase):
                 "total_tokens": 0,
                 "total_cost_usd": None,
                 "has_exact_billing": False,
+                "total_calls": 3,
+                "reported_calls": 0,
             },
         )
         for model in telemetry["models"]:
@@ -194,6 +198,29 @@ class TestReportBilling(unittest.TestCase):
         self.assertTrue(heading)
         self.assertNotRegex(section, _HAN_RE)
         self.assertIn(r"| `\u6a21\u578b\|lite` | 10 | 0 | — |", section)
+
+    def test_counts_calls_and_how_many_reported_usage(self) -> None:
+        self._log_billing_events()
+        self._log_worker_completion()
+        self.store.log_event(self.run_id, "role_invoked", actor="milestone_reviewer:sonnet@high")
+        self.store.log_event(self.run_id, "panel_member_completed", payload={"tokens_in": 40, "tokens_out": 10})
+        self.store.log_event(self.run_id, "panel_synthesized", payload={"tokens_in": 0, "tokens_out": 0})
+
+        billing = compute_run_telemetry(self.store, self.run_id)["billing"]
+
+        # Three role calls with usage, one without, one still running, and two panel calls (one reported).
+        self.assertEqual((billing["total_calls"], billing["reported_calls"]), (7, 4))
+
+    def test_report_totals_state_how_many_calls_reported_usage(self) -> None:
+        self._log_billing_events()
+        self._log_worker_completion()
+
+        en_section = generate_battle_report(self.store, self.run_id, lang="en").partition(
+            "## Token Usage & Cost Breakdown\n")[2]
+        self.assertIn("| **Total** | **4300** | **1130** | **$0.0343** |\n\n3 of 4 calls reported usage.", en_section)
+        self.assertNotRegex(en_section, _HAN_RE)
+        zh_section = generate_battle_report(self.store, self.run_id, lang="zh").partition("## Token 与美元成本统计\n")[2]
+        self.assertIn("| **合计** | **4300** | **1130** | **$0.0343** |\n\n4 次调用中 3 次上报了用量。", zh_section)
 
     def test_missing_cost_for_claude_medium_model_falls_back_to_pricing_table(self) -> None:
         self.store.log_event(

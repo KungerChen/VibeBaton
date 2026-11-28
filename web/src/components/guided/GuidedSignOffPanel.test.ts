@@ -20,6 +20,7 @@ import {
   buildFinalizePayload,
   summarizeSignOff,
   useGuidedSignOffView,
+  verificationState,
   type GuidedSignOffPanelProps,
   type SignOffLineage,
   type SignOffSummary,
@@ -134,6 +135,21 @@ describe('sign-off summary', () => {
     expect(summarizeSignOff({ ...summary, testsPassed: 9 }, 'zh').allPassed).toBe(false);
   });
 
+  test('the count is worded as tasks completed and never claims that verification checks passed', () => {
+    // It counts tasks whose status is PASSED; whether any check ran for them is a different fact.
+    for (const locale of ['en', 'zh'] as const) {
+      const copy = MESSAGES[locale].guided.signOff;
+      const markup = renderToStaticMarkup(createElement(GuidedSignOffPanel, defaultProps({ locale, summary })));
+      for (const text of [copy.kpiTests, copy.testsPassed, copy.testsSummary(9, 12)]) {
+        expect(text).not.toMatch(/check|verif|检查|验证/i);
+      }
+      expect(markup).toContain(copy.kpiTests);
+      expect(markup).toContain(`12/12 · ${copy.testsPassed}`);
+    }
+    expect(summarizeSignOff(summary, 'en').tests).toBe('12/12 · All tasks completed');
+    expect(summarizeSignOff({ ...summary, testsPassed: 9 }, 'zh').tests).toBe('9/12 个任务已完成');
+  });
+
   test('renders the actual lineage, report, files, deliverables and cost', () => {
     const markup = renderToStaticMarkup(createElement(GuidedSignOffPanel, defaultProps({ summary: {
       ...summary, totalCostUsd: 0.425, workspacePath: '/repo',
@@ -148,6 +164,92 @@ describe('sign-off summary', () => {
     expect(markup).toContain('Health check');
     expect(markup).toContain('$0.425');
     expect(markup).toContain('Battle report');
+  });
+
+  test('a total no call reported reads "Not reported", a real zero stays $0, and both name the coverage', () => {
+    const notReported = renderToStaticMarkup(createElement(GuidedSignOffPanel, defaultProps({ summary: {
+      ...summary, totalCostUsd: null, usage: { reported_calls: 0, total_calls: 4 },
+    } })));
+    expect(notReported).toContain(MESSAGES.en.inspector.billingNotReported);
+    expect(notReported).toContain('0 of 4 calls reported usage');
+    expect(notReported).not.toContain('$0.00');
+    const zero = renderToStaticMarkup(createElement(GuidedSignOffPanel, defaultProps({ locale: 'zh', summary: {
+      ...summary, totalCostUsd: 0, usage: { reported_calls: 2, total_calls: 2 },
+    } })));
+    expect(zero).toContain('$0.0000');
+    expect(zero).toContain('2 次调用中 2 次上报了用量');
+    expect(zero).not.toContain(MESSAGES.zh.inspector.billingNotReported);
+  });
+});
+
+function outcomeBlock() {
+  const node = elements(view).find((item) => typeof item.props['data-outcome'] === 'string');
+  assert(node, 'Expected the merge result');
+  return node;
+}
+
+/** The rendered verification result (a child component, so read from the markup), or null when absent. */
+function verificationBlock(): { state: string; markup: string } | null {
+  const match = /<section class="guided-sign-off__verification" data-verification="([a-z_]+)"[\s\S]*?<\/section>/.exec(html());
+  return match ? { state: match[1], markup: match[0] } : null;
+}
+
+describe('verification result', () => {
+  test('has four states, and an empty or missing gate list is never "passed"', () => {
+    const passing = { ...gate, passed: true, exit_code: 0, stderr: '' };
+    expect(verificationState(undefined)).toBe('not_returned');
+    expect(verificationState(null)).toBe('not_returned');
+    expect(verificationState({ gates: [] })).toBe('not_returned');
+    expect(verificationState([])).toBe('not_configured');
+    expect(verificationState([passing, passing])).toBe('passed');
+    expect(verificationState([passing, gate])).toBe('failed');
+    expect(verificationState([{ command: 'npm test' }])).toBe('failed');
+  });
+
+  test('a re-integration that returned no gates shows "No gate records" in a neutral block, apart from the merge', async () => {
+    await mount({ finalizer: vi.fn(async () => ({ ...approval(true), gates: [] })) });
+    await click(en.signOff.approve);
+    expect(en.m3.signOff.noGates).toBe('No gate records');
+    expect(MESSAGES.zh.guided.m3.signOff.noGates).toBe('无门禁记录');
+    const verification = verificationBlock();
+    assert(verification, 'Expected a verification result');
+    expect(verification.state).toBe('not_configured');
+    expect(verification.markup).toContain(en.m3.signOff.noGates);
+    expect(html()).not.toContain('data-verification="passed"');
+    // Only "passed" (green) and "failed" (red) are coloured; the other two keep the neutral base style.
+    // The frontend dependencies omit @types/node, so type only the Node API used here.
+    const { readFileSync } = await vi.importActual<{ readFileSync(path: URL, encoding: 'utf8'): string }>('node:fs');
+    const signOffCss = readFileSync(new URL('./GuidedSignOffPanel.css', import.meta.url), 'utf8');
+    expect(signOffCss).toMatch(/\[data-verification='passed'\]\s*\{[^}]*--emerald/);
+    expect(signOffCss).not.toMatch(/not_configured|not_returned/);
+    expect(verification.markup).not.toContain(en.m3.signOff.verificationPassed);
+    // The merge result says only what happened to the branch.
+    const merge = renderToStaticMarkup(outcomeBlock());
+    expect(merge).toContain(en.m3.signOff.reintegrated);
+    expect(merge).not.toContain(en.m3.signOff.noGates);
+    expect(en.m3.signOff.reintegrated).not.toMatch(/check/i);
+    expect(MESSAGES.zh.guided.m3.signOff.reintegrated).not.toContain('检查');
+  });
+
+  test.each([
+    ['passed', [{ ...gate, passed: true, exit_code: 0, stderr: '' }], en.m3.signOff.verificationPassed],
+    ['failed', [gate], en.m3.signOff.verificationFailed],
+    ['not_returned', undefined, en.m3.signOff.verificationNotReturned],
+  ] as const)('a re-integration with %s gates shows that verification result', async (state, gates, label) => {
+    await mount({ finalizer: vi.fn(async () => ({ ...approval(true), gates: gates as GateCommandResult[] | undefined })) });
+    await click(en.signOff.approve);
+    const verification = verificationBlock();
+    assert(verification, 'Expected a verification result');
+    expect(verification.state).toBe(state);
+    expect(verification.markup).toContain(`${en.m3.signOff.verification}: ${label}`);
+    expect(outcomeBlock().props['data-outcome']).toBe('reintegrated');
+  });
+
+  test('a plain merge ran no checks at merge time and shows no verification result', async () => {
+    await mount();
+    await click(en.signOff.approve);
+    expect(outcomeBlock().props['data-outcome']).toBe('merged');
+    expect(verificationBlock()).toBeNull();
   });
 });
 
@@ -191,6 +293,10 @@ describe('merge outcomes', () => {
     expect(html()).toContain('assertion failed');
     expect(html()).toContain(en.m3.drift.gateFailed);
     expect(finalized).not.toHaveBeenCalled();
+    // "Not merged" and "Failed" are two separate results.
+    expect(renderToStaticMarkup(outcomeBlock())).not.toContain('npm test');
+    expect(verificationBlock()?.state).toBe('failed');
+    expect(en.m3.signOff.gateFailed).not.toMatch(/check/i);
   });
 
   test('a base-moved 409 stays retryable and does not masquerade as superseded', async () => {
@@ -213,7 +319,8 @@ describe('merge outcomes', () => {
     await mount({ finalizer: vi.fn(async () => ({ ...approval(true), gates: undefined })) });
     await click(en.signOff.approve);
     expect(html()).toContain('response did not include check results');
-    expect(html()).not.toContain(en.m3.signOff.reintegrated);
+    expect(html()).toContain('data-verification="not_returned"');
+    expect(html()).not.toContain('data-verification="passed"');
   });
 
   test('an old run response cannot finalize the newly selected run', async () => {

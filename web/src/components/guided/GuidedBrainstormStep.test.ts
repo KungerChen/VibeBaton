@@ -37,6 +37,7 @@ import {
   TYPEWRITER_MIN_MS,
   waitingPhase,
   type GuidedBrainstormApi,
+  type GuidedBrainstormStepProps,
 } from './GuidedBrainstormStep';
 
 const LINEUP: RecommendedLineup = {
@@ -754,7 +755,7 @@ describe('paste RFC fast lane', () => {
     };
   }
 
-  async function mount(initial: GuidedSession) {
+  async function mount(initial: GuidedSession, extra: Partial<GuidedBrainstormStepProps> = {}) {
     const document = new TestDocument();
     vi.stubGlobal('document', document);
     vi.stubGlobal('window', { document, HTMLIFrameElement: class {}, matchMedia: () => ({ matches: true }),
@@ -791,7 +792,7 @@ describe('paste RFC fast lane', () => {
     const container = document.createElement('div');
     const root = createRoot(container as unknown as HTMLElement);
     const element = () => createElement(GuidedBrainstormStep, {
-      locale: 'en', lineup: LINEUP, onLaunched, api, projectPath: '/repo', services: services as never,
+      locale: 'en', lineup: LINEUP, onLaunched, api, projectPath: '/repo', services: services as never, ...extra,
     });
     await act(async () => root.render(element()));
     const find = (name: string) => findNode(container, (_node, props) =>
@@ -916,6 +917,66 @@ describe('paste RFC fast lane', () => {
     await lane.type('   ');
     await lane.settle();
     expect(lane.find('guided-launch-bar')).toBeUndefined();
+    await act(async () => lane.root.unmount());
+  });
+
+  const readinessCopy = MESSAGES.en.guided.m3.readiness;
+  const smallTeam = { roles: LINEUP.roles, model_overrides: {}, size: 'small' as const };
+
+  test('a blocked workspace keeps the start disabled and links its reason to Workspace & Tools', async () => {
+    const onOpenSetup = vi.fn();
+    const lane = await mount(blankSession(), { launchBlock: readinessCopy.noGit, onOpenSetup });
+    await lane.type(RFC);
+    await lane.settle();
+    await lane.settle();
+    expect(reactProps(lane.byClass('guided-launch-bar__launch')).disabled).toBe(true);
+    expect(lane.container.textContent).toContain(readinessCopy.launchBlocked.replace('{reason}', readinessCopy.noGit));
+    await lane.call('guided-brainstorm__open-setup', 'onClick');
+    expect(onOpenSetup).toHaveBeenCalledOnce();
+    await act(async () => lane.root.unmount());
+  });
+
+  test('readiness is checked again right before a new launch; a blocked check saves and sends nothing', async () => {
+    const checkReadiness = vi.fn(async () => false);
+    const lane = await mount(blankSession(), { checkReadiness });
+    await lane.type(RFC);
+    await lane.settle();
+    await lane.settle();
+    await lane.call('guided-launch-bar__launch', 'onClick');
+    expect(checkReadiness).not.toHaveBeenCalled();
+    await lane.call('guided-launch-bar__confirm-start', 'onClick');
+    await lane.settle();
+    expect(checkReadiness).toHaveBeenCalledExactlyOnceWith(smallTeam);
+    expect(lane.api.startRun).not.toHaveBeenCalled();
+    expect(lane.state.session.workflow.launch_request_id).toBeNull();
+    expect(lane.state.session.workflow.guided_pending_launch).toBeUndefined();
+    expect(lane.find('guided-launch-bar__confirm')).toBeUndefined();
+
+    checkReadiness.mockResolvedValueOnce(true);
+    await lane.call('guided-launch-bar__launch', 'onClick');
+    await lane.call('guided-launch-bar__confirm-start', 'onClick');
+    await lane.settle();
+    expect(checkReadiness).toHaveBeenCalledTimes(2);
+    expect(lane.api.startRun).toHaveBeenCalledOnce();
+    await act(async () => lane.root.unmount());
+  });
+
+  test('a saved pending launch is sent again unchanged, without a new readiness check', async () => {
+    const pending = { rfc_markdown: RFC, mode: 'overnight' as const, lineup: smallTeam, preset: null, launch_request_id: 'saved-key' };
+    const saved = blankSession();
+    saved.brainstorm.guided_entry = 'paste';
+    saved.brainstorm.guided_pasted_rfc = RFC;
+    saved.workflow = { ...saved.workflow, mode: 'overnight', launch_request_id: 'saved-key',
+      guided_pending_launch: JSON.stringify(pending), lineup: smallTeam };
+    const checkReadiness = vi.fn(async () => false);
+    const lane = await mount(saved, { checkReadiness, launchBlock: readinessCopy.noTeam });
+    await lane.settle();
+    await lane.settle();
+    await lane.call('guided-launch-bar__launch', 'onClick');
+    await lane.call('guided-launch-bar__confirm-start', 'onClick');
+    await lane.settle();
+    expect(checkReadiness).not.toHaveBeenCalled();
+    expect(lane.api.startRun).toHaveBeenCalledExactlyOnceWith(pending);
     await act(async () => lane.root.unmount());
   });
 

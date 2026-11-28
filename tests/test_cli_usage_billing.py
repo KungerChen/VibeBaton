@@ -416,6 +416,7 @@ model = "deepseek-v4-pro@high"
         self.assertEqual(compute_run_telemetry(store, run_id)["billing"], {
             "total_prompt_tokens": 3600, "total_completion_tokens": 500, "total_cached_tokens": 700,
             "total_tokens": 4100, "total_cost_usd": 0.01366, "has_exact_billing": True,
+            "total_calls": 3, "reported_calls": 3,
         })
 
 

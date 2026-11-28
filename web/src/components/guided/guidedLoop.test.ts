@@ -525,12 +525,15 @@ describe('mounted four-stage loop', () => {
     expect(propsOf(byClass('guided-workbench__body'))['data-step']).toBe('brainstorm');
   });
 
-  test('returning to Workspace persists the stage before refresh', async () => {
+  test('Workspace & Tools opens from the readiness capsule without leaving Blueprint, also after a refresh', async () => {
     server = fakeServer(blueprintSession()); await mount();
-    await click(button('Workspace & Tools'));
-    expect(server.saved().active_stage).toBe('setup');
+    expect(propsOf(byClass('guided-workbench__setup')).hidden).toBe(true);
+    await click(byClass('readiness-capsule__pill'));
+    expect(propsOf(byClass('guided-workbench__setup')).hidden).toBe(false);
+    expect(server.saved().active_stage).toBe('blueprint');
+    expect(propsOf(byClass('guided-workbench__body'))['data-step']).toBe('brainstorm');
     await unmount(); await mount();
-    expect(propsOf(byClass('guided-workbench__body'))['data-step']).toBe('setup');
+    expect(propsOf(byClass('guided-workbench__body'))['data-step']).toBe('brainstorm');
   });
 
   test('does not leave Workspace before its Blueprint transition is saved', async () => {

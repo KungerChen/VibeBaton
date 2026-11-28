@@ -39,8 +39,11 @@ import {
   STALE_CATALOG_REFETCH_MS,
   historyAllowsBuild,
   workspaceHistoryState,
+  workspaceReadiness,
   type GuidedDriverRowProps,
   type GuidedSetupStepProps,
+  type SetupReadinessInput,
+  type SetupReadinessReport,
 } from './GuidedSetupStep';
 
 const dsh: CliDriver = {
@@ -1039,5 +1042,134 @@ describe('GuidedSetupStep workspace and scan coordination', () => {
     await screen.click(screen.button(MESSAGES.en.guided.setup.login));
     await act(async () => screen.focus());
     expect(api.scanCliRegistry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('workspaceReadiness', () => {
+  const scanned = scanResponse(['missing', 'ready']);
+  const input = (overrides: Partial<SetupReadinessInput> = {}): SetupReadinessInput => ({
+    workspace: repo, drivers: [dsh, claudeDriver], scan: scanned.scan, recommended: scanned.lineup, ...overrides,
+  });
+
+  test('has no verdict until both the folder and the tool scan are known', () => {
+    expect(workspaceReadiness(input({ workspace: null }))).toBeNull();
+    expect(workspaceReadiness(input({ scan: null }))).toBeNull();
+    expect(workspaceReadiness(input({ recommended: null }))).toBeNull();
+  });
+
+  test('ready: the folder has Git history and every tool the team uses is ready', () => {
+    expect(workspaceReadiness(input())).toEqual({ state: 'ready', reasons: [] });
+    expect(workspaceReadiness(input(), { critical_executor: 'claude_sub' })).toEqual({ state: 'ready', reasons: [] });
+    // An empty team falls back to the recommended one.
+    expect(workspaceReadiness(input(), {})).toEqual({ state: 'ready', reasons: [] });
+  });
+
+  test('blocked: no Git, no first save point, or no team that can run at all', () => {
+    expect(workspaceReadiness(input({ workspace: { ...repo, is_git_repo: false, branch: null, has_commits: false } })))
+      .toEqual({ state: 'blocked', reasons: [{ code: 'no_git' }] });
+    const nothing = scanResponse(['missing', 'installed_unauthenticated']);
+    expect(workspaceReadiness(input({ workspace: { ...repo, has_commits: false }, scan: nothing.scan, recommended: nothing.lineup })))
+      .toEqual({ state: 'blocked', reasons: [{ code: 'no_commits' }, { code: 'no_team' }] });
+  });
+
+  test('partly ready: a team can run, but a tool the chosen team uses is not ready', () => {
+    expect(workspaceReadiness(input(), { tactical_planner: 'dsh_opencode', critical_executor: 'claude_sub' }))
+      .toEqual({ state: 'partial', reasons: [{ code: 'tools_unavailable', providers: ['dsh_opencode'] }] });
+  });
+});
+
+describe('GuidedSetupStep readiness for the workbench', () => {
+  test('reports what readiness is computed from, and Continue follows the same verdict', async () => {
+    const api = setupApi(['missing', 'ready']);
+    api.getWorkspaceInfo.mockResolvedValueOnce({ ...repo, has_commits: false });
+    const reports: SetupReadinessReport[] = [];
+    const screen = await mountSetup(api, vi.fn(), { onReadiness: (report) => { reports.push(report); } });
+    const first = reports.at(-1)!;
+    expect(first.checking).toBe(false);
+    expect(workspaceReadiness(first.input)).toEqual({ state: 'blocked', reasons: [{ code: 'no_commits' }] });
+    expect(screen.button(MESSAGES.en.guided.setup.useLineup).reactProps().disabled).toBe(true);
+
+    let fresh: SetupReadinessInput | null = null;
+    await act(async () => { fresh = await first.recheck(); });
+    expect(api.getWorkspaceInfo).toHaveBeenCalledTimes(2);
+    expect(api.scanCliRegistry).toHaveBeenCalledTimes(2);
+    expect(workspaceReadiness(fresh!)).toEqual({ state: 'ready', reasons: [] });
+    expect(workspaceReadiness(reports.at(-1)!.input)).toEqual({ state: 'ready', reasons: [] });
+    expect(screen.button(MESSAGES.en.guided.setup.useLineup).reactProps().disabled).toBe(false);
+  });
+
+  test('reports checking until the first load has read the folder, so nothing looks like a failed check', async () => {
+    const api = setupApi(['missing', 'ready']);
+    const info = deferred<WorkspaceInfo>();
+    api.getWorkspaceInfo.mockReturnValueOnce(info.promise);
+    const reports: SetupReadinessReport[] = [];
+    await mountSetup(api, vi.fn(), { onReadiness: (report) => { reports.push(report); } });
+    expect(reports.length).toBeGreaterThan(0);
+    expect(reports.every((report) => report.checking)).toBe(true);
+    await act(async () => { info.resolve(repo); });
+    expect(reports.at(-1)!.checking).toBe(false);
+    expect(workspaceReadiness(reports.at(-1)!.input)?.state).toBe('ready');
+  });
+
+  test('a failed first load is reported as done, with no verdict', async () => {
+    const api = setupApi(['missing', 'ready']);
+    api.getCliRegistry.mockRejectedValueOnce(new Error('Registry unavailable'));
+    const reports: SetupReadinessReport[] = [];
+    await mountSetup(api, vi.fn(), { onReadiness: (report) => { reports.push(report); } });
+    expect(reports.at(-1)!.checking).toBe(false);
+    expect(workspaceReadiness(reports.at(-1)!.input)).toBeNull();
+  });
+
+  test('a failed check resolves with no input and shows the error in the wizard', async () => {
+    const api = setupApi(['missing', 'ready']);
+    const reports: SetupReadinessReport[] = [];
+    const screen = await mountSetup(api, vi.fn(), { onReadiness: (report) => { reports.push(report); } });
+    api.scanCliRegistry.mockRejectedValueOnce(new Error('Scan unavailable'));
+    let fresh: SetupReadinessInput | null | undefined;
+    await act(async () => { fresh = await reports.at(-1)!.recheck(); });
+    expect(fresh).toBeNull();
+    expect(screen.container.textContent).toContain('Scan unavailable');
+  });
+
+  test('continues on its own once ready when asked, saving the last-used team exactly as a click does', async () => {
+    const withLastUsed = () => Object.assign(setupApi(['missing', 'ready']), {
+      saveLastUsedLineup: vi.fn(async () => ({ profiles: [], last_used: null })),
+    });
+    const auto = withLastUsed();
+    const autoReady = vi.fn();
+    const autoScreen = await mountSetup(auto, autoReady, { autoContinue: true });
+    expect(autoReady).toHaveBeenCalledOnce();
+    expect(auto.saveLastUsedLineup).toHaveBeenCalledOnce();
+    await autoScreen.unmount();
+
+    const manual = withLastUsed();
+    const manualReady = vi.fn();
+    const manualScreen = await mountSetup(manual, manualReady);
+    expect(manualReady).not.toHaveBeenCalled();
+    await manualScreen.click(manualScreen.button(MESSAGES.en.guided.setup.useLineup));
+    expect(manualReady).toHaveBeenCalledOnce();
+    expect(manual.saveLastUsedLineup).toHaveBeenCalledOnce();
+    expect(autoReady.mock.calls[0][0]).toEqual(manualReady.mock.calls[0][0]);
+  });
+
+  test('the button that hands the team on takes another label when the wizard is opened over a stage', async () => {
+    const onReady = vi.fn();
+    const screen = await mountSetup(setupApi(['missing', 'ready']), onReady, { continueLabel: 'Done' });
+    expect(screen.container.textContent).not.toContain(MESSAGES.en.guided.setup.useLineup);
+    await screen.click(screen.button('Done'));
+    expect(onReady).toHaveBeenCalledOnce();
+  });
+
+  test('does not continue on its own while something is missing', async () => {
+    const noTeam = vi.fn();
+    const noTeamScreen = await mountSetup(setupApi(['missing', 'missing']), noTeam, { autoContinue: true });
+    expect(noTeam).not.toHaveBeenCalled();
+    await noTeamScreen.unmount();
+
+    const api = setupApi(['missing', 'ready']);
+    api.getWorkspaceInfo.mockResolvedValue({ ...repo, is_git_repo: false, branch: null, has_commits: false });
+    const noGit = vi.fn();
+    await mountSetup(api, noGit, { autoContinue: true });
+    expect(noGit).not.toHaveBeenCalled();
   });
 });

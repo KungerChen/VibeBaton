@@ -57,7 +57,7 @@ import { deriveStates, stepIntervalMs } from './engine/playback';
 import { buildShareUrl, decodeRecipeHash } from './engine/shareUrl';
 import { I18nProvider, useI18n } from './i18n';
 import { translatePresetText } from './i18n/presets';
-import { loadStudioMode, saveStudioMode, type StudioMode } from './lib/studioMode';
+import { hasSavedStudioMode, loadStudioMode, saveStudioMode, type StudioMode } from './lib/studioMode';
 import { ThemeProvider, useTheme } from './theme';
 import type {
   BatonCaseBundle,
@@ -233,7 +233,8 @@ function AppContent() {
   const liveRequestSeq = useRef(0);
   const [liveReconnecting, setLiveReconnecting] = useState(false);
   const [liveViewActive, setLiveViewActive] = useState(false);
-  const [studioMode, setStudioMode] = useState<StudioMode>(() => loadStudioMode());
+  // A shared recipe link is shown on the Pro canvas, as before the workbench became the default; this is not saved.
+  const [studioMode, setStudioMode] = useState<StudioMode>(() => (typeof window !== 'undefined' && window.location.hash.startsWith('#recipe=') ? 'pro' : loadStudioMode()));
   const [hasOpenedGuided, setHasOpenedGuided] = useState(() => studioMode === 'guided');
   const [glossaryOpen, setGlossaryOpen] = useState(false);
   const lastLiveCanvasRef = useRef<{ runId: string | null; signature: string } | null>(null);
@@ -353,6 +354,8 @@ function AppContent() {
       const nextMode = await (initialization.current ??= client.init());
       if (!active) return;
       setMode(nextMode);
+      // The workbench needs the local server; without one a first visit shows the Pro canvas, as it always did.
+      if (nextMode === 'demo' && !hasSavedStudioMode()) setStudioMode('pro');
       void client.listPresets().then((items) => {
         if (active) setPresets(items);
       }, reportError);

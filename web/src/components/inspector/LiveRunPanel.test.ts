@@ -177,6 +177,49 @@ test('renders the role-completed billing summary next to the pricing action', ()
   expect(panel).toContain('Prompt 120 · Completion 30 · Cached 40');
 });
 
+function modelRow(overrides: Partial<NonNullable<LiveRunSnapshot['telemetry']>['models'][number]>) {
+  return {
+    actor: 'bulk_worker:flash', role: 'bulk_worker', provider: 'deepseek_http', display_provider: 'DSH', model: 'flash',
+    calls: 1, duration_sec: 2, estimated: false, avg_sec: 2, share_pct: 50, prompt_tokens: 0, completion_tokens: 0,
+    cost_usd: null, ...overrides,
+  };
+}
+
+function billedPanel(models: ReturnType<typeof modelRow>[], billing: NonNullable<NonNullable<LiveRunSnapshot['telemetry']>['billing']>) {
+  return renderToStaticMarkup(createElement(LiveRunPanel, {
+    client: new BatonApiClient(), visible: true, onSelectRunId: () => {}, onToast: () => {},
+    liveSnapshot: { run: { id: 'run-billed', status: 'COMPLETED' }, milestones: [], tasks: [], events: [], quotas: [],
+      telemetry: { elapsed_sec: 4, stages: [], models, billing } },
+  }));
+}
+
+test('calls that reported no usage read "Not reported", never $0.00, and the total says how many reported', () => {
+  const panel = billedPanel([modelRow({ actor: 'a' }), modelRow({ actor: 'b', role: 'critical_executor' })], {
+    total_prompt_tokens: 0, total_completion_tokens: 0, total_cached_tokens: 0, total_tokens: 0,
+    total_cost_usd: null, has_exact_billing: false, total_calls: 2, reported_calls: 0,
+  });
+  expect(panel).toContain('Total cost Not reported');
+  expect(panel).toContain('0 of 2 calls reported usage');
+  expect(panel.match(/>Not reported</g)).toHaveLength(2);
+  expect(panel).not.toContain('$0.00');
+  expect(panel).not.toContain('Prompt 0');
+});
+
+test('a partly reported run keeps its real amounts, a real zero included, and names the coverage', () => {
+  const panel = billedPanel([
+    modelRow({ actor: 'a', prompt_tokens: 120, completion_tokens: 30, cost_usd: 0.0125 }),
+    modelRow({ actor: 'b', role: 'critical_executor' }),
+    modelRow({ actor: 'c', role: 'milestone_reviewer', cost_usd: 0 }),
+  ], {
+    total_prompt_tokens: 120, total_completion_tokens: 30, total_cached_tokens: 0, total_tokens: 150,
+    total_cost_usd: 0.0125, has_exact_billing: true, total_calls: 3, reported_calls: 2,
+  });
+  expect(panel).toContain('Total cost $0.0125');
+  expect(panel).toContain('2 of 3 calls reported usage');
+  expect(panel.match(/>Not reported</g)).toHaveLength(1);
+  expect(panel).toContain('$0.0000');
+});
+
 test.each([
   { status: 'GATE_CHECKING', startedAt: null, afterTick: '1m 30s' },
   { status: 'COOLDOWN', startedAt: null, afterTick: '1m 30s' },

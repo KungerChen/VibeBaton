@@ -1,7 +1,10 @@
 import './GuidedWorkbench.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNodesState } from '@xyflow/react';
-import { ApiError, type ApiMode, type BatonApiClient, type FinalizeAction, type GuidedSession, type RecommendedLineup, type StopAndReplanResult } from '../../api/client';
+import {
+  ApiError, type ApiMode, type BatonApiClient, type FinalizeAction, type GuidedSession, type RecommendedLineup,
+  type StopAndReplanResult, type WorkflowLineup,
+} from '../../api/client';
 import { graphToFlow } from '../../engine/flowAdapter';
 import { buildLiveRunGraph, projectLiveRunCanvas } from '../../engine/liveRunGraph';
 import { MESSAGES, type Locale } from '../../i18n/messages';
@@ -13,14 +16,17 @@ import { clearBrainstorm, GuidedBrainstormStep, type GuidedBrainstormApi, type L
 import { GuidedDecisionDrawer } from './GuidedDecisionDrawer';
 import { optionsFromEvent, type GuidedDecisionOption } from './GuidedDecisionModal';
 import { GuidedFailedBanner } from './GuidedFailedBanner';
-import { GuidedSetupStep } from './GuidedSetupStep';
+import { GuidedSetupStep, workspaceReadiness, type SetupReadinessReport } from './GuidedSetupStep';
 import { GuidedSignOffPanel, loadSignOffLineage, type SignOffDeliverable, type SignOffSummary } from './GuidedSignOffPanel';
 import { isStaleRunError, localizeGuidedError } from './guidedErrors';
-import { NodeDetailDrawer } from './NodeDetailDrawer';
+import { NodeDetailDrawer, taskCostReported } from './NodeDetailDrawer';
+import { ReadinessCapsule, readinessReasonTexts } from './ReadinessCapsule';
 import { useGuidedSession } from './useGuidedSession';
 
 export const GUIDED_STEPS = ['setup', 'brainstorm', 'live', 'signoff'] as const;
 export type GuidedStep = (typeof GUIDED_STEPS)[number];
+/** The numbered stages on the rail; `setup` is the readiness capsule and its wizard, not a stage. */
+export const RAIL_STEPS = ['brainstorm', 'live', 'signoff'] as const satisfies readonly GuidedStep[];
 
 /** Sign-off is only actionable once the backend accepts `/finalize` (or the run already landed). */
 const SIGNOFF_RUN_STATUSES = new Set(['READY_FOR_FINAL_GATE', 'COMPLETED']);
@@ -365,6 +371,12 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
   const [resetBusy, setResetBusy] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [childBusy, setChildBusy] = useState(false);
+  const [setupReport, setSetupReport] = useState<SetupReadinessReport | null>(null);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [recheckFailed, setRecheckFailed] = useState(false);
+  const entryChecked = useRef(false);
+  const setupPanel = useRef<HTMLDivElement>(null);
+  const reportSetup = useCallback((report: SetupReadinessReport) => setSetupReport(report), []);
 
   const snapshot = runId && runIdOf(liveSnapshot) === runId ? liveSnapshot : null;
   const stale = Boolean(runId && (staleRunId === runId || (snapshot?.run?.status === 'SUPERSEDED' && !stopBusy && !stopPending)));
@@ -372,6 +384,22 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
   const shownStep: GuidedStep = runId ? (stopBusy || stopPending || stale ? 'live'
     : snapshot?.run?.status === 'PAUSED' && session?.active_stage === 'signoff' ? 'signoff'
       : stepFromRun(snapshot?.run?.status) ?? 'live') : step;
+  // Readiness is shown on the capsule and only ever blocks launching; it never changes the stage.
+  const team = session && Object.keys(session.workflow.lineup.roles).length ? session.workflow.lineup.roles : lineup?.roles ?? null;
+  const readiness = setupReport ? workspaceReadiness(setupReport.input, team) : null;
+  const checkFailed = recheckFailed || (setupReport !== null && readiness === null && !setupReport.checking);
+  const setupMounted = Boolean(session || apiMode === 'demo' || (apiMode === undefined && !guidedSession.loading));
+  // Setup shows the wizard only when something is missing; a ready workspace continues to Blueprint by itself.
+  const advancing = readiness?.state === 'ready' && !checkFailed && Boolean(session) && !guidedSession.error;
+  const setupShown = setupOpen || (shownStep === 'setup' && (readiness !== null || checkFailed) && !advancing);
+  const launchBlock = checkFailed || readiness?.state === 'blocked'
+    ? readinessReasonTexts(readiness, checkFailed, locale).join(locale === 'zh' ? '；' : '; ') : null;
+  const checkBeforeLaunch = setupReport ? async (launchTeam: WorkflowLineup): Promise<boolean> => {
+    const fresh = await setupReport.recheck();
+    setRecheckFailed(fresh === null);
+    const verdict = fresh ? workspaceReadiness(fresh, launchTeam.roles) : null;
+    return verdict !== null && verdict.state !== 'blocked';
+  } : undefined;
 
   useEffect(() => {
     if (!session) { restoredSession.current = false; return; }
@@ -410,6 +438,20 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
       .catch(() => {});
     return () => { active = false; };
   }, [client, shownStep]);
+
+  // A scan or folder read that came back clears an earlier failed check.
+  useEffect(() => { setRecheckFailed(false); }, [setupReport?.input.scan, setupReport?.input.workspace]);
+
+  useEffect(() => {
+    if (entryChecked.current || (readiness === null && !checkFailed)) return;
+    entryChecked.current = true;
+    // Entering with something missing opens the wizard, but never over a run; on setup it shows anyway.
+    if (!runId && shownStep !== 'setup' && (checkFailed || readiness?.state === 'blocked')) setSetupOpen(true);
+  }, [readiness?.state, checkFailed, runId, shownStep]);
+
+  useEffect(() => {
+    if (setupOpen) setupPanel.current?.scrollIntoView?.({ block: 'start' });
+  }, [setupOpen]);
   const decision = waitingDecision(snapshot);
   const decisionOpen = Boolean(runId && decision && decision.key !== resolvedDecisionKey && !stale && !stopBusy && !stopPending);
   const replanContext = replanContextFromSession(session);
@@ -518,7 +560,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
     void check();
     return () => { active = false; clearTimeout(timer); };
   }, [settling, runId, client, saveSession, flushSession, locale]);
-  const shownIndex = GUIDED_STEPS.indexOf(shownStep);
+  const railIndex = (RAIL_STEPS as readonly GuidedStep[]).indexOf(shownStep);
   const pausedBannerText = snapshot?.run?.status === 'PAUSED'
     ? (lastSignOff?.runId === runId && lastSignOff.action === 'rollback'
       ? copy.m3.rollback.paused
@@ -610,17 +652,12 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
       setLastSignOff(null);
       setStaleRunId(null);
       setStep('setup');
+      setSetupOpen(false);
       setConfirmReset(false);
       onResetSession?.();
     } catch (failure) {
       setResetError(localizeGuidedError(failure, locale));
     } finally { setResetBusy(false); }
-  }
-
-  function returnToSetup() {
-    if (!session) { setStep('setup'); return; }
-    saveSession({ active_stage: 'setup' });
-    void flushSession().then(() => setStep('setup')).catch(() => {});
   }
 
   async function followCurrentRun() {
@@ -654,53 +691,39 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
   return (
     <div className="guided-workbench">
       <ol className="guided-workbench__rail" aria-label={copy.workbench.stepsAria}>
-        {copy.steps.map(({ title, hint }, index) => {
-          const canReturnToSetup = index === 0 && !runId && shownStep === 'brainstorm';
-          const content = (
-            <>
-              <span className="guided-workbench__step-index" aria-hidden="true">{index + 1}</span>
-              <span className="guided-workbench__step-text">
-                <span className="guided-workbench__step-title">{title}</span>
-                <span className="guided-workbench__step-hint">{hint}</span>
-              </span>
-            </>
-          );
-          return (
-            <li
-              key={GUIDED_STEPS[index]}
-              className={cn(
-                'guided-workbench__step',
-                index === shownIndex && 'guided-workbench__step--current',
-                index < shownIndex && 'guided-workbench__step--done',
-              )}
-              aria-current={index === shownIndex ? 'step' : undefined}
-            >
-              {canReturnToSetup ? (
-                <button
-                  type="button"
-                  className="guided-workbench__step-btn"
-                  onClick={returnToSetup}
-                >
-                  {content}
-                </button>
-              ) : (
-                content
-              )}
-            </li>
-          );
-        })}
+        {copy.steps.map(({ title, hint }, index) => (
+          <li
+            key={RAIL_STEPS[index]}
+            className={cn(
+              'guided-workbench__step',
+              index === railIndex && 'guided-workbench__step--current',
+              index < railIndex && 'guided-workbench__step--done',
+            )}
+            aria-current={index === railIndex ? 'step' : undefined}
+          >
+            <span className="guided-workbench__step-index" aria-hidden="true">{index + 1}</span>
+            <span className="guided-workbench__step-text">
+              <span className="guided-workbench__step-title">{title}</span>
+              <span className="guided-workbench__step-hint">{hint}</span>
+            </span>
+          </li>
+        ))}
       </ol>
 
       <section className="guided-workbench__body" data-step={shownStep}>
-        {session ? <div className="guided-workbench__notice guided-workbench__session-bar">
-          {confirmReset ? <div role="group" aria-label={copy.m3.session.reset}>
+        {setupMounted ? <div className="guided-workbench__notice guided-workbench__session-bar">
+          <ReadinessCapsule locale={locale} readiness={readiness} failed={checkFailed} checking={setupReport?.checking ?? true}
+            workspacePath={setupReport?.input.workspace?.path ?? workspacePath} expanded={setupShown}
+            onToggle={() => setSetupOpen((open) => !open)}
+            onRefresh={() => { if (setupReport) void setupReport.recheck().then((fresh) => setRecheckFailed(fresh === null)); }} />
+          {session ? (confirmReset ? <div role="group" aria-label={copy.m3.session.reset}>
             <span>{copy.m3.session.resetConfirm}</span>{' '}
             <button type="button" className="guided-workbench__button" disabled={resetBusy || childBusy || stopBusy || stopPending}
               onClick={() => void resetSession()}>{copy.m3.session.confirmReset}</button>{' '}
             <button type="button" className="guided-workbench__button" disabled={resetBusy}
               onClick={() => setConfirmReset(false)}>{copy.m3.session.cancel}</button>
           </div> : <button type="button" className="guided-workbench__button" disabled={childBusy || stopBusy || stopPending}
-            onClick={() => setConfirmReset(true)}>{copy.m3.session.reset}</button>}
+            onClick={() => setConfirmReset(true)}>{copy.m3.session.reset}</button>) : null}
           {resetError ? <p className="guided-workbench__error" role="alert">{resetError}</p> : null}
         </div> : null}
         {session && guidedSession.error ? <div className="guided-workbench__notice" role="alert">
@@ -720,8 +743,20 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
         {shownStep === 'setup' && !session && (guidedSession.loading || apiMode === null) ? (
           <p className="guided-workbench__hint" role="status">{locale === 'zh' ? '正在加载会话……' : 'Loading session…'}</p>
         ) : null}
-        {shownStep === 'setup' && (session || apiMode === 'demo' || (apiMode === undefined && !guidedSession.loading)) && (
-          <div className="guided-workbench__panel">
+        {shownStep === 'setup' && setupMounted && !setupShown ? (
+          <p className="guided-workbench__hint" role="status">{copy.m3.readiness.checkingHint}</p>
+        ) : null}
+        {/* The wizard stays mounted: it owns what readiness is read from, and only shows when needed or asked for. */}
+        {setupMounted ? (
+          <div ref={setupPanel} className="guided-workbench__panel guided-workbench__setup" hidden={!setupShown}>
+            {setupOpen && shownStep !== 'setup' ? (
+              <div className="guided-workbench__setup-head">
+                <h2>{copy.m3.readiness.panelTitle}</h2>
+                <button type="button" className="guided-workbench__button" onClick={() => setSetupOpen(false)}>
+                  {copy.m3.readiness.hide}
+                </button>
+              </div>
+            ) : null}
             <GuidedSetupStep
               locale={locale}
               api={client}
@@ -729,6 +764,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
               guidedSession={session ? guidedSession : undefined}
               onWorkspaceChanged={(info) => {
                 restoredSession.current = false;
+                entryChecked.current = false;
                 setWorkspacePath(info.path);
                 setWorkspaceGeneration((generation) => generation + 1);
                 setLineup(null);
@@ -737,7 +773,13 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
               }}
               initialRoles={lineup?.roles ?? null}
               initialModelOverrides={lineup?.model_overrides ?? null}
+              onReadiness={reportSetup}
+              autoContinue={shownStep === 'setup' && advancing && !setupOpen}
+              continueLabel={shownStep === 'setup' ? undefined : copy.m3.readiness.done}
               onReady={(ready) => {
+                setSetupOpen(false);
+                // During a run the wizard only fixes the folder and tools; the stage stays with the run.
+                if (runId) return;
                 setLineup(ready);
                 // A serialized value replaces the previous selection instead of recursively merging role maps.
                 if (session) {
@@ -749,31 +791,10 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
               }}
             />
           </div>
-        )}
+        ) : null}
 
         {shownStep === 'brainstorm' && lineup && (
           <div className="guided-workbench__panel">
-            <div className="guided-workbench__team-bar">
-              <span className="guided-workbench__team-text">
-                {workspacePath ? (
-                  <>
-                    <strong>{copy.setup.currentFolder}{locale === 'zh' ? '：' : ': '}</strong>
-                    <code>{workspacePath}</code>
-                  </>
-                ) : (
-                  locale === 'zh'
-                    ? '先与 L0 架构伙伴共创蓝图，蓝图就绪后再推荐并配置工作流团队。'
-                    : 'Shape the blueprint with L0 first; workflow and team options appear once the blueprint is ready.'
-                )}
-              </span>
-              <button
-                type="button"
-                className="guided-workbench__button"
-                onClick={returnToSetup}
-              >
-                {copy.workbench.changeTeam}
-              </button>
-            </div>
             <GuidedBrainstormStep
               locale={locale}
               lineup={lineup}
@@ -784,6 +805,9 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
               allowReplanLaunch
               onOpenBudget={onOpenBudget}
               projectPath={workspacePath}
+              launchBlock={launchBlock}
+              onOpenSetup={() => setSetupOpen(true)}
+              checkReadiness={checkBeforeLaunch}
               onLaunched={(launchedRunId) => {
                 setStaleRunId(null);
                 setResolvedDecisionKey(null);
@@ -902,6 +926,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
               summary={{
                 ...signOffSummaryFromSnapshot(snapshot),
                 totalCostUsd: snapshot.telemetry?.billing?.total_cost_usd ?? null,
+                usage: snapshot.telemetry?.billing ?? null,
                 workspacePath,
                 deliverables: signOffDeliverablesFromSnapshot(snapshot),
               }}
@@ -953,6 +978,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
           runId={runId}
           taskId={detailTaskId}
           locale={locale}
+          costReported={snapshot && detailTaskId ? taskCostReported(snapshot.events, detailTaskId) : undefined}
           fetcher={(id, taskId) => client.getRunTaskDetail(id, taskId, locale)}
           onClose={() => {
             setDetailTaskId(null);

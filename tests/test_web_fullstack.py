@@ -305,6 +305,8 @@ class WebFullStackTests(unittest.TestCase):
                 "total_tokens": 150,
                 "total_cost_usd": 0.0125,
                 "has_exact_billing": True,
+                "total_calls": 1,
+                "reported_calls": 1,
             },
         )
         self.assertEqual(

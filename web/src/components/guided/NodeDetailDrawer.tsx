@@ -17,6 +17,8 @@ export interface NodeDetailDrawerProps {
   locale: Locale;
   /** Injected in tests and by the Guided workbench; the default probes the local API first. */
   fetcher?: NodeDetailFetcher;
+  /** Whether an event of this task carried a cost (see `taskCostReported`); only then is a zero shown as $0.00. */
+  costReported?: boolean;
 }
 
 export interface DetailSummary {
@@ -55,8 +57,24 @@ function formatBilledUsd(value: number, locale: Locale): string {
   });
 }
 
+/**
+ * Whether any event of this task carried a numeric `cost_usd`. The task detail adds up exactly those,
+ * and sends 0 when there are none, so this tells a real $0.00 from a cost nobody reported.
+ */
+export function taskCostReported(events: readonly Record<string, unknown>[], taskId: string): boolean {
+  return events.some((event) => {
+    if (event.task_id !== taskId) return false;
+    let payload = event.payload ?? event.payload_json;
+    if (typeof payload === 'string') {
+      try { payload = JSON.parse(payload); } catch { return false; }
+    }
+    const cost = (payload as { cost_usd?: unknown } | null | undefined)?.cost_usd;
+    return typeof cost === 'number' && Number.isFinite(cost);
+  });
+}
+
 /** Format every value the drawer renders, keeping the raw task payload out of the JSX. */
-export function summarizeDetail(detail: RunTaskDetail, locale: Locale): DetailSummary {
+export function summarizeDetail(detail: RunTaskDetail, locale: Locale, costReported?: boolean): DetailSummary {
   const copy = MESSAGES[locale].guided.nodeDetail;
   const provider = detail.provider ? formatProviderDisplay(detail.provider) : '';
   return {
@@ -64,7 +82,9 @@ export function summarizeDetail(detail: RunTaskDetail, locale: Locale): DetailSu
     summary: detail.summary,
     model: [provider, detail.model].filter(Boolean).join(' / ') || '—',
     elapsed: formatElapsed(detail.elapsed_sec, locale),
-    cost: formatBilledUsd(detail.cost_usd, locale),
+    // A zero is only real when an event confirms a reported cost; any amount above zero was reported.
+    cost: detail.cost_usd === 0 && costReported !== true
+      ? MESSAGES[locale].inspector.billingNotReported : formatBilledUsd(detail.cost_usd, locale),
     tests: copy.testStatuses[detail.test_status] ?? displayToken(detail.test_status),
     changedFiles: [...detail.changed_files],
     verdict: detail.review_verdict ? (copy.verdicts[detail.review_verdict] ?? displayToken(detail.review_verdict)) : '—',
@@ -97,6 +117,7 @@ export function NodeDetailDrawer({
   onClose,
   locale,
   fetcher,
+  costReported,
 }: NodeDetailDrawerProps) {
   const copy = MESSAGES[locale].guided.nodeDetail;
   const headingId = useId();
@@ -139,7 +160,7 @@ export function NodeDetailDrawer({
   const detail = current !== null && current.phase === 'ready' ? current.detail : null;
   const errorMessage = current !== null && current.phase === 'error' ? current.message : null;
   const hasError = current !== null && current.phase === 'error';
-  const summary = detail ? summarizeDetail(detail, locale) : null;
+  const summary = detail ? summarizeDetail(detail, locale, costReported) : null;
   const segments = useGlossaryHighlights(summary?.summary ?? '', locale);
 
   if (!taskId) return null;

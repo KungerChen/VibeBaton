@@ -118,6 +118,8 @@ class TestHTTPProviderEngine(unittest.IsolatedAsyncioTestCase):
             "total_tokens": 1500,
             "total_cost_usd": 0.0031,
             "has_exact_billing": True,
+            "total_calls": 1,
+            "reported_calls": 1,
         })
 
         for lang, title in (("en", "Token Usage & Cost Breakdown"), ("zh", "Token 与美元成本统计")):

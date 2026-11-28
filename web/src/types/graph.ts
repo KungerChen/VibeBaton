@@ -283,6 +283,9 @@ export interface BillingTelemetry {
   total_tokens: number;
   total_cost_usd: number | null;
   has_exact_billing: boolean;
+  /** Every model call of the run, and how many of them reported usage; absent in older telemetry. */
+  total_calls?: number;
+  reported_calls?: number;
 }
 
 export interface TaskTiming {

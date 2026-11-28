@@ -8,6 +8,7 @@ import {
   NodeDetailDrawer,
   formatElapsed,
   summarizeDetail,
+  taskCostReported,
   type NodeDetailDrawerProps,
 } from './NodeDetailDrawer';
 
@@ -237,6 +238,37 @@ describe('summarizeDetail', () => {
       tests: MESSAGES.zh.guided.nodeDetail.testStatuses.passed,
       verdict: MESSAGES.zh.guided.nodeDetail.verdicts.PASS,
     });
+  });
+});
+
+describe('task cost that may not have been reported', () => {
+  test('the zero the server sends for a task without any cost reads "Not reported" unless events confirm it', () => {
+    expect(summarizeDetail({ ...detail, cost_usd: 0 }, 'en').cost).toBe('Not reported');
+    expect(summarizeDetail({ ...detail, cost_usd: 0 }, 'zh', false).cost).toBe('未上报');
+    expect(summarizeDetail({ ...detail, cost_usd: 0 }, 'en', true).cost).toBe('$0.00');
+    // Any amount above zero was reported.
+    expect(summarizeDetail({ ...detail, cost_usd: 0.04 }, 'en', false).cost).toBe('$0.04');
+  });
+
+  test('a task reported a cost when one of its events carried a numeric cost_usd', () => {
+    const events = [
+      { kind: 'role_completed', task_id: 'M1/T1', payload_json: JSON.stringify({ prompt_tokens: 10 }) },
+      { kind: 'role_completed', task_id: 'M1/T2', payload_json: JSON.stringify({ cost_usd: 0.2 }) },
+      { kind: 'role_completed', task_id: 'M1/T3', payload: { cost_usd: 0 } },
+      { kind: 'role_completed', task_id: 'M1/T4', payload_json: JSON.stringify({ cost_usd: true }) },
+      { kind: 'note', task_id: 'M1/T5', payload_json: 'not json' },
+    ];
+    expect(taskCostReported(events, 'M1/T1')).toBe(false);
+    expect(taskCostReported(events, 'M1/T2')).toBe(true);
+    expect(taskCostReported(events, 'M1/T3')).toBe(true);
+    expect(taskCostReported(events, 'M1/T4')).toBe(false);
+    expect(taskCostReported(events, 'M1/T5')).toBe(false);
+    expect(taskCostReported(events, 'M9')).toBe(false);
+  });
+
+  test('the drawer shows "Not reported" for a task whose calls reported no cost', async () => {
+    const { container } = await renderDrawer({ fetcher: vi.fn(async () => ({ ...detail, cost_usd: 0 })), costReported: false });
+    expect(field(container, 'cost')).toBe(MESSAGES.en.inspector.billingNotReported);
   });
 });
 
