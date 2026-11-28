@@ -31,7 +31,8 @@ from .config import (
     build_model_catalog,
 )
 from .db import ActiveRunError, RunTerminalError, StateStore
-from .gates import run_gate_suite
+from .evidence import record_gate_receipts
+from .gates import GateSuiteResult, run_gate_suite
 from .git_ops import (
     GitError,
     MergeConflictError,
@@ -596,6 +597,16 @@ class OrchestrationEngine:
                 self.store.reset_provider_backoff(active_provider.name)
             return res, f"{active_provider.name}:{active_model}"
 
+    async def _run_gates(
+        self, run_id: str, scope: str, target_id: str, commands: list[str], workdir: Path,
+        *, task_id: str | None = None, milestone_id: str | None = None,
+    ) -> GateSuiteResult:
+        """Run a gate suite and record one receipt per command it executed."""
+        suite = await run_gate_suite(commands, workdir=workdir)
+        record_gate_receipts(self.store, run_id, scope, target_id, suite.results,
+                             task_id=task_id, milestone_id=milestone_id)
+        return suite
+
     async def _merge_with_conflict_resolution(
         self,
         run_id: str,
@@ -653,7 +664,7 @@ class OrchestrationEngine:
                 return asyncio.run_coroutine_threadsafe(resolve_conflict(merge_wt, files, context), loop).result()
 
             def gate_checker(merge_wt: Path) -> bool:
-                gate = run_gate_suite(gate_commands or [], workdir=merge_wt)
+                gate = self._run_gates(run_id, "merge", scope_id, gate_commands or [], merge_wt)
                 return asyncio.run_coroutine_threadsafe(gate, loop).result().passed
 
             merge = asyncio.create_task(asyncio.to_thread(
@@ -1388,7 +1399,10 @@ class OrchestrationEngine:
                 # 2. Deterministic Mechanical Gate (Machine-First, LLM-Second)
                 if self.cfg.policies.machine_gate_before_ai_review and spec.verify_cmd:
                     self.store.update_task(run_id, spec.id, status=TaskStatus.GATE_CHECKING)
-                    gate_res = await run_gate_suite([spec.verify_cmd], workdir=worktree_dir)
+                    gate_res = await self._run_gates(
+                        run_id, "task", spec.id, [spec.verify_cmd], worktree_dir,
+                        task_id=spec.id, milestone_id=milestone_id,
+                    )
                     if not gate_res.passed:
                         gate_text = gate_res.summary_text()
                         self.store.log_event(
@@ -1682,7 +1696,10 @@ class OrchestrationEngine:
 
                 gate_report = "No milestone gate commands configured."
                 if milestone.gate_commands:
-                    gate_res = await run_gate_suite(milestone.gate_commands, workdir=review_wt)
+                    gate_res = await self._run_gates(
+                        run_id, "milestone", milestone.id, milestone.gate_commands, review_wt,
+                        milestone_id=milestone.id,
+                    )
                     gate_report = gate_res.summary_text()
                     if not gate_res.passed:
                         self.store.log_event(

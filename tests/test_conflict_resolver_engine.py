@@ -17,6 +17,7 @@ from vibebaton.cli_runner import CLIResult
 from vibebaton.config import HotReloadConfig, ProviderConfig
 from vibebaton.db import StateStore
 from vibebaton.engine import OrchestrationEngine
+from vibebaton.evidence import gate_receipts
 from vibebaton.gates import run_gate_suite
 from vibebaton.report import compute_run_telemetry
 from vibebaton.schemas import RunStatus, TaskStatus
@@ -153,6 +154,14 @@ class TestConflictResolverEngine(unittest.TestCase):
             if event["kind"].startswith("merge_conflict_")
         ]
 
+    def merge_receipts(self) -> list[tuple[str, str, bool]]:
+        """(target, command, passed) of each receipt the merge gate left; the target is a task merge."""
+        receipts = gate_receipts(self.store.get_events(self.run_id, limit=-1))
+        self.assertEqual({r["target_id"] for r in receipts if r["scope"] == "task"}, set(self.task_edits))
+        merges = [r for r in receipts if r["scope"] == "merge"]
+        self.assertTrue(all(r["target_id"] in {f"task_{task_id}" for task_id in self.task_edits} for r in merges))
+        return [(r["target_id"][:5], r["command"], r["passed"]) for r in merges]
+
     def assert_conflict_stopped_before_commit(self) -> None:
         self.assertEqual(self.git("show", "dev:features.txt"), self.base)
         self.assertIn(self.git("show", f"{self.milestone_branch}:features.txt"), self.task_edits.values())
@@ -183,6 +192,7 @@ class TestConflictResolverEngine(unittest.TestCase):
         for content in (self.base, *self.task_edits.values()):
             self.assertIn(content.strip(), prompt)
         self.assertEqual(self.merge_gate_calls, [([f'"{sys.executable}" verify.py'], resolver_cwd)])
+        self.assertEqual(self.merge_receipts(), [("task_", f'"{sys.executable}" verify.py', True)])
 
     def test_remaining_markers_exhaust_attempts_and_wait_for_human(self) -> None:
         status = asyncio.run(self.execute_pipeline(leave_markers=True))
@@ -193,6 +203,7 @@ class TestConflictResolverEngine(unittest.TestCase):
         ])
         self.assertEqual(len(self.resolver_calls), 2)
         self.assertEqual(self.merge_gate_calls, [])
+        self.assertEqual(self.merge_receipts(), [])
         detected, failed = self.conflict_events()
         self.assertEqual(detected[0], "merge_conflict_detected")
         self.assertEqual(failed, ("merge_conflict_failed", {
@@ -206,6 +217,7 @@ class TestConflictResolverEngine(unittest.TestCase):
         self.assertEqual(status, RunStatus.WAITING_HUMAN)
         [(resolver_cwd, _)] = self.resolver_calls
         self.assertEqual(self.merge_gate_calls, [([f'"{sys.executable}" verify.py --single-edit'], resolver_cwd)])
+        self.assertEqual(self.merge_receipts(), [("task_", f'"{sys.executable}" verify.py --single-edit', False)])
         self.assertEqual(self.conflict_events()[-1], ("merge_conflict_failed", {
             "conflicted_files": ["features.txt"], "reason": "gate rejected resolution",
         }))

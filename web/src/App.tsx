@@ -5,7 +5,7 @@ import { AttentionBanner } from './components/AttentionBanner';
 import { CanvasWorkspace, updateWorkspaceReadiness } from './components/CanvasWorkspace';
 import { GlossaryDrawer, GuidedWorkbench } from './components/guided';
 import { HeaderBar } from './components/HeaderBar';
-import { isLiveSnapshot, RunControlsContext, useRunControls } from './components/inspector/LiveRunPanel';
+import { RunControlsContext } from './components/inspector/LiveRunPanel';
 import { LeftSidebar } from './components/LeftSidebar';
 import { PlaybackBar } from './components/PlaybackBar';
 import { QuickStartModal, type QuickStartStepId } from './components/QuickStartModal';
@@ -58,6 +58,7 @@ import { buildShareUrl, decodeRecipeHash } from './engine/shareUrl';
 import { I18nProvider, useI18n } from './i18n';
 import { translatePresetText } from './i18n/presets';
 import { hasSavedStudioMode, loadStudioMode, saveStudioMode, type StudioMode } from './lib/studioMode';
+import { createRunStore, useRunStore, type RunStore } from './state/runStore';
 import { ThemeProvider, useTheme } from './theme';
 import type {
   BatonCaseBundle,
@@ -68,7 +69,6 @@ import type {
   NodeType,
   PresetItem,
   RolesConfigResponse,
-  RunListItem,
   Scenario,
   WorkflowGraph,
   WorkflowNode,
@@ -78,7 +78,6 @@ const starter = graphToFlow(starter_2tier);
 const initialCanvasJson = JSON.stringify(flowToGraph(starter_2tier, starter.nodes, starter.edges));
 const emptySelection: { nodeId: string | null; edgeId: string | null } = { nodeId: null, edgeId: null };
 const emptyTrace: GraphTraceEvent[] = [];
-const LIVE_EVENT_LIMIT = 200;
 const GUIDE_DISMISSED_KEY = 'vibebaton.quickstartDismissed';
 type WorkspacePane = 'canvas' | 'sidebar' | 'inspector';
 
@@ -202,7 +201,32 @@ function AppContent() {
     scenario: Scenario;
     trace: GraphTraceEvent[];
   } | null>(null);
-  const [liveSnapshot, setLiveSnapshot] = useState<LiveRunSnapshot | null>(null);
+  const runStoreRef = useRef<RunStore | null>(null);
+  if (runStoreRef.current === null) {
+    runStoreRef.current = createRunStore({
+      client,
+      onError: (error) => push(errorMessage(error), 'err'),
+      onSnapshot: (snapshot) => syncQuotaReadiness(snapshot.quotas),
+      onStreamSnapshot: (snapshot) => {
+        if (initialSnapshotHydratedRef.current) return;
+        const streamRunId = typeof snapshot.run?.id === 'string' ? snapshot.run.id : null;
+        const initialFingerprint = buildAlertFingerprint(streamRunId, deriveAttentionAlert(snapshot));
+        if (initialFingerprint) {
+          announcedFingerprints.current.add(initialFingerprint);
+        }
+        initialSnapshotHydratedRef.current = true;
+      },
+    });
+  }
+  const runStore = runStoreRef.current;
+  const {
+    snapshot: liveSnapshot,
+    recentRuns,
+    selectedRunId,
+    syncStatus: runSyncStatus,
+    reconnecting: liveReconnecting,
+    controlsBusy,
+  } = useRunStore(runStore);
   const attentionAlert = useMemo(() => deriveAttentionAlert(liveSnapshot), [liveSnapshot]);
   const run = liveSnapshot?.run;
   const runId = typeof run?.run_id === 'string' ? run.run_id : typeof run?.id === 'string' ? run.id : null;
@@ -223,15 +247,6 @@ function AppContent() {
   const baseTitle = messages.docTitle;
   const isSelectedRunActive = isRunStatusActive(liveSnapshot?.run?.status);
   const liveNowSec = useLiveClock(isSelectedRunActive, liveSnapshot?.telemetry?.server_now);
-  const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [runSyncStatus, setRunSyncStatus] = useState<'synced' | 'loading' | 'error'>('synced');
-  const selectedRunIdRef = useRef<string | null>(null);
-  selectedRunIdRef.current = selectedRunId;
-  const latestRunIdRef = useRef<string | null>(null);
-  const latestStatusRef = useRef<string | null>(null);
-  const liveRequestSeq = useRef(0);
-  const [liveReconnecting, setLiveReconnecting] = useState(false);
   const [liveViewActive, setLiveViewActive] = useState(false);
   // A shared recipe link is shown on the Pro canvas, as before the workbench became the default; this is not saved.
   const [studioMode, setStudioMode] = useState<StudioMode>(() => (typeof window !== 'undefined' && window.location.hash.startsWith('#recipe=') ? 'pro' : loadStudioMode()));
@@ -242,7 +257,6 @@ function AppContent() {
   const snapshotRunId = typeof liveSnapshot?.run?.id === 'string' ? liveSnapshot.run.id : null;
   const runSynced = runSyncStatus === 'synced' && (!selectedRunId || selectedRunId === snapshotRunId);
   const { toasts, push } = useToasts();
-  const runControls = useRunControls(client, onRefreshLiveRun, push);
 
   const graph = useMemo(() => flowToGraph(baseGraph, nodes, edges), [baseGraph, nodes, edges]);
   const canvasDirty = transferModal === 'import'
@@ -382,121 +396,16 @@ function AppContent() {
     });
   }, []);
 
-  const onLiveError = useEffectEvent((error: unknown) => {
-    push(errorMessage(error), 'err');
-  });
-
   useEffect(() => {
     if (mode !== 'local') {
-      setLiveSnapshot(null);
-      setRecentRuns([]);
-      setSelectedRunId(null);
-      setRunSyncStatus('synced');
-      setLiveReconnecting(false);
+      runStore.reset();
       setLiveViewActive(false);
-      latestRunIdRef.current = null;
-      latestStatusRef.current = null;
       initialSnapshotHydratedRef.current = false;
       return;
     }
-
-    let active = true;
-    setLiveReconnecting(false);
-
-    async function refreshRunsList() {
-      try {
-        const runs = await client.listRuns();
-        if (active) setRecentRuns(runs);
-      } catch {
-        // Initial or background history refresh failures do not block SSE live updates.
-      }
-    }
-
-    void refreshRunsList();
-
-    let source: EventSource;
-    try {
-      source = new EventSource(client.streamUrl());
-    } catch (error) {
-      onLiveError(error);
-      return;
-    }
-
-    function receiveSnapshot({ data }: MessageEvent<string>) {
-      try {
-        const parsed: unknown = JSON.parse(data);
-        if (!isLiveSnapshot(parsed)) throw new Error('Invalid live run snapshot.');
-        const trimmed: LiveRunSnapshot = {
-          ...parsed,
-          events: parsed.events.slice(-LIVE_EVENT_LIMIT),
-        };
-        const streamRunId = typeof trimmed.run?.id === 'string' ? trimmed.run.id : null;
-        const streamStatus = typeof trimmed.run?.status === 'string' ? trimmed.run.status : null;
-        if (!initialSnapshotHydratedRef.current) {
-          const initialFingerprint = buildAlertFingerprint(streamRunId, deriveAttentionAlert(trimmed));
-          if (initialFingerprint) {
-            announcedFingerprints.current.add(initialFingerprint);
-          }
-          initialSnapshotHydratedRef.current = true;
-        }
-        const prevLatestRunId = latestRunIdRef.current;
-        const prevLatestStatus = latestStatusRef.current;
-        latestRunIdRef.current = streamRunId;
-        latestStatusRef.current = streamStatus;
-
-        if (!selectedRunIdRef.current || selectedRunIdRef.current === prevLatestRunId || selectedRunIdRef.current === streamRunId) {
-          setSelectedRunId(streamRunId);
-          setLiveSnapshot(trimmed);
-          setRunSyncStatus('synced');
-          syncQuotaReadiness(trimmed.quotas);
-        }
-        if (streamRunId !== prevLatestRunId || streamStatus !== prevLatestStatus) {
-          void refreshRunsList();
-        }
-        setLiveReconnecting(false);
-      } catch (error) {
-        onLiveError(error);
-      }
-    }
-
-    function receiveEvent({ data }: MessageEvent<string>) {
-      try {
-        const event: unknown = JSON.parse(data);
-        if (typeof event !== 'object' || event === null || Array.isArray(event)) {
-          throw new Error('Invalid live run event.');
-        }
-        const row = event as Record<string, unknown>;
-        const eventRunId = typeof row.run_id === 'string' ? row.run_id : null;
-        setLiveSnapshot((current) => {
-          if (!current?.run || typeof current.run.id !== 'string') return current;
-          if (selectedRunIdRef.current && selectedRunIdRef.current !== current.run.id) return current;
-          if (eventRunId && eventRunId !== current.run.id) return current;
-          const lastId = current.events.at(-1)?.id;
-          if (typeof row.id === 'number' && typeof lastId === 'number' && row.id <= lastId) return current;
-          return {
-            ...current,
-            events: [...current.events, row].slice(-LIVE_EVENT_LIMIT),
-          };
-        });
-        setLiveReconnecting(false);
-      } catch (error) {
-        onLiveError(error);
-      }
-    }
-
-    source.addEventListener('snapshot', receiveSnapshot);
-    source.addEventListener('event', receiveEvent);
-    source.onopen = () => setLiveReconnecting(false);
-    source.onerror = () => setLiveReconnecting(true);
-    return () => {
-      active = false;
-      source.removeEventListener('snapshot', receiveSnapshot);
-      source.removeEventListener('event', receiveEvent);
-      source.onopen = null;
-      source.onerror = null;
-      source.close();
-    };
-  }, [client, mode, syncQuotaReadiness]);
+    runStore.connect();
+    return () => runStore.disconnect();
+  }, [mode, runStore]);
 
   useEffect(() => {
     if (mode === null) return;
@@ -713,59 +622,9 @@ function AppContent() {
     setLiveViewActive(true);
   }
 
-  async function onSelectRunId(nextRunId: string) {
-    if (!nextRunId) return;
-    const req = ++liveRequestSeq.current;
-    setSelectedRunId(nextRunId);
-    setRunSyncStatus('loading');
-    try {
-      const snap = await client.getRun(nextRunId);
-      if (req !== liveRequestSeq.current) return;
-      const trimmed: LiveRunSnapshot = { ...snap, events: snap.events.slice(-LIVE_EVENT_LIMIT) };
-      setLiveSnapshot(trimmed);
-      setRunSyncStatus('synced');
-      syncQuotaReadiness(trimmed.quotas);
-      void client.listRuns().then((runs) => {
-        if (req === liveRequestSeq.current) setRecentRuns(runs);
-      }, () => {});
-    } catch (error) {
-      if (req === liveRequestSeq.current) {
-        setRunSyncStatus('error');
-        push(errorMessage(error), 'err');
-      }
-    }
-  }
-
-  async function onRefreshLiveRun() {
-    const req = ++liveRequestSeq.current;
-    try {
-      const targetId = selectedRunIdRef.current;
-      const snap = targetId && targetId !== latestRunIdRef.current
-        ? await client.getRun(targetId)
-        : await client.getLatestRun();
-      if (req !== liveRequestSeq.current) return;
-      const trimmed: LiveRunSnapshot = { ...snap, events: snap.events.slice(-LIVE_EVENT_LIMIT) };
-      const resolvedId = typeof trimmed.run?.id === 'string' ? trimmed.run.id : null;
-      if (!targetId) setSelectedRunId(resolvedId);
-      setLiveSnapshot(trimmed);
-      setRunSyncStatus('synced');
-      syncQuotaReadiness(trimmed.quotas);
-      void client.listRuns().then((runs) => {
-        if (req === liveRequestSeq.current) setRecentRuns(runs);
-      }, () => {});
-    } catch (error) {
-      if (req === liveRequestSeq.current) {
-        if (selectedRunIdRef.current && selectedRunIdRef.current !== snapshotRunId) {
-          setRunSyncStatus('error');
-        }
-        push(errorMessage(error), 'err');
-      }
-    }
-  }
-
   function onAttentionRunAction(action: 'approve' | 'reject' | 'resume', note?: string) {
     if (!runSynced || !runId) return;
-    void runControls.changeRun(runId, action, note);
+    void runStore.changeRun(runId, action, note);
   }
 
   async function onEnableNotifications() {
@@ -1040,7 +899,7 @@ function AppContent() {
       runId={runId}
       locale={locale}
       notificationPermission={notificationPermission}
-      busy={runControls.busy}
+      busy={controlsBusy}
       controlsDisabled={!runSynced}
       onApprove={() => onAttentionRunAction('approve')}
       onReject={(note) => onAttentionRunAction('reject', note)}
@@ -1071,7 +930,7 @@ function AppContent() {
             onFollowRun={(followRunId) => {
               lastLiveCanvasRef.current = null;
               setLiveViewActive(true);
-              void onSelectRunId(followRunId);
+              void runStore.followRun(followRunId);
             }}
             onResetSession={dismissCurrentAttention}
             onOpenBudget={() => {
@@ -1191,7 +1050,7 @@ function AppContent() {
         onChange={(inspector) => setPaneWidths((current) => ({ ...current, inspector }))}
       />
       <div className="app-pane app-pane--inspector" id="workspace-inspector" data-active={pane === 'inspector'}>
-        <RunControlsContext.Provider value={{ ...runControls, onOpenCaseExport: handleOpenCaseExport }}>
+        <RunControlsContext.Provider value={{ busy: controlsBusy, changeRun: runStore.changeRun, onOpenCaseExport: handleOpenCaseExport }}>
           <RightInspector
             mode={mode ?? 'demo'}
             client={client}
@@ -1211,8 +1070,8 @@ function AppContent() {
             runSynced={runSynced}
             runSyncStatus={runSyncStatus}
             liveReconnecting={liveReconnecting}
-            onSelectRunId={(id) => void onSelectRunId(id)}
-            onRefreshLiveRun={onRefreshLiveRun}
+            onSelectRunId={(id) => void runStore.selectRun(id)}
+            onRefreshLiveRun={runStore.refresh}
             onOpenStartRun={mode === 'local' ? openLaunchBar : undefined}
             openBattleReportToken={battleReportToken}
           />

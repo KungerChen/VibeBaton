@@ -553,6 +553,88 @@ export interface GateCommandResult {
   duration_sec: number;
 }
 
+/** A recorded `gate_receipt` event: one command a gate suite ran. */
+export interface GateReceipt {
+  event_id: number;
+  scope: 'task' | 'milestone' | 'merge' | 'final';
+  target_id: string;
+  command: string;
+  exit_code: number;
+  passed: boolean;
+  duration_sec: number;
+  output_tail: string;
+  created_at: number;
+}
+
+export interface HandoffNodeRef {
+  kind: 'panel' | 'planner' | 'task' | 'milestone' | 'final_gate';
+  id: string | null;
+}
+
+export interface HandoffInvocation {
+  event_id: number;
+  artifact_key: string | null;
+  role: string;
+  model: string;
+  side: 'from' | 'to';
+  created_at: number;
+  status: string | null;
+  duration_sec: number | null;
+}
+
+export interface RunHandoff {
+  /** `${from}>${to}`, for example "planner>task:T1". */
+  id: string;
+  from: HandoffNodeRef;
+  to: HandoffNodeRef;
+  /** Whether recorded events back this handoff. */
+  recorded: boolean;
+  event_ids: number[];
+  at: number | null;
+  invocations: HandoffInvocation[];
+  /** null when no changed files were recorded. */
+  changed_files: string[] | null;
+  receipts: GateReceipt[];
+  review: { verdict: string; summary: string; reviewer: string; event_id: number } | null;
+  takeover: { status: string | null; holder: string | null };
+  blocked_reason: string | null;
+}
+
+export interface RunHandoffsResponse {
+  run_id: string;
+  handoffs: RunHandoff[];
+}
+
+export interface ArtifactText {
+  text: string;
+  truncated: boolean;
+  bytes: number;
+}
+
+export interface RunArtifactResponse {
+  run_id: string;
+  artifact_key: string;
+  prompt: ArtifactText | null;
+  output: ArtifactText | null;
+}
+
+export interface EvidenceCriterion {
+  index: number;
+  text: string;
+  state: 'receipt' | 'files_only' | 'not_linked';
+  result: 'passed' | 'failed' | null;
+  receipts: GateReceipt[];
+  files: string[];
+}
+
+export interface RunEvidenceResponse {
+  run_id: string;
+  rfc_available: boolean;
+  criteria: EvidenceCriterion[];
+  run_level_receipts: GateReceipt[];
+  summary: { criteria: number; passed: number; failed: number; files_only: number; not_linked: number; receipts: number };
+}
+
 export type RevisionResult = FinalizeResult & {
   action: 'revise'; status: 'SUPERSEDED'; revisions_path: string;
   revision_run_id: string; revision_status: string; daemon_pid: number;
@@ -1087,6 +1169,19 @@ export class BatonApiClient {
   getRunTaskDetail(runId: string, taskId: string, locale?: 'en' | 'zh'): Promise<RunTaskDetail> {
     const query = locale === 'zh' ? '?lang=zh' : '';
     return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}${query}`);
+  }
+
+  getRunHandoffs(runId: string): Promise<RunHandoffsResponse> {
+    return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/handoffs`);
+  }
+
+  /** The server answers 404 for a key this run did not record. */
+  getRunArtifact(runId: string, artifactKey: string): Promise<RunArtifactResponse> {
+    return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactKey)}`);
+  }
+
+  getRunEvidence(runId: string): Promise<RunEvidenceResponse> {
+    return this.requestJson(`/api/runs/${encodeURIComponent(runId)}/evidence`);
   }
 
   resolveRunTask(runId: string, { taskId, choice, note = '' }: ResolveRunTaskRequest): Promise<ResolveRunTaskResult> {

@@ -6,6 +6,7 @@ import { BatonApiClient } from '../../api/client';
 import { I18nProvider } from '../../i18n';
 import type { LiveRunSnapshot, RunAttentionState, StageTelemetry } from '../../types/graph';
 import { LiveRunPanel } from './LiveRunPanel';
+import panelSource from './LiveRunPanel.tsx?raw';
 
 // The Node test runner needs only the host methods used to render the panel and open its dialog.
 function createPanelContainer() {
@@ -499,6 +500,44 @@ test('disables approval and control actions and fires zero requests while switch
     if (rejectBtn) await act(async () => click(rejectBtn as never));
     expect(client.resolveRun).not.toHaveBeenCalled();
     expect(client.controlRun).not.toHaveBeenCalled();
+  } finally {
+    try {
+      act(() => root.unmount());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+});
+
+test('opens no event stream of its own; run data comes only through props', () => {
+  expect(panelSource).not.toContain('EventSource');
+});
+
+test('renders the empty state without a snapshot and without contacting the server', async () => {
+  const fetchImpl = vi.fn<typeof fetch>();
+  const client = new BatonApiClient('', fetchImpl);
+  client.mode = 'local';
+  const opened = vi.fn();
+  const onToast = vi.fn();
+  const { container } = createPanelContainer();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('window', {
+    HTMLIFrameElement: class HTMLIFrameElement {},
+    localStorage: { getItem: () => 'en' },
+  });
+  vi.stubGlobal('EventSource', class { constructor(url: string) { opened(url); } });
+  const root = createRoot(container as unknown as HTMLElement);
+
+  try {
+    await act(async () => root.render(createElement(I18nProvider, {
+      children: createElement(LiveRunPanel, { client, visible: true, onToast }),
+    })));
+
+    expect(container.text).toContain('No runs yet.');
+    expect(container.text).toContain('No events yet.');
+    expect(opened).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(onToast).not.toHaveBeenCalled();
   } finally {
     try {
       act(() => root.unmount());

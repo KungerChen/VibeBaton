@@ -30,7 +30,7 @@ from time import monotonic
 from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol, Sequence, TypedDict
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, case_export, cli_registry, credentials, guided_session, model_catalog, presets, pricing
+from . import __version__, case_export, cli_registry, credentials, evidence, guided_session, model_catalog, presets, pricing
 from .brainstorm import RFC_RELATIVE_PATH, auto_select_l0_model, brainstorm_turn, confirm_blueprint
 from .config import (
     ALLOWED_BUDGET_PROFILES,
@@ -116,6 +116,9 @@ ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("GET", re.compile(r"/api/runs/([^/]+)/report"), "_get_run_report"),
     ("GET", re.compile(r"/api/runs/([^/]+)/case-export"), "_get_run_case_export"),
     ("GET", re.compile(r"/api/runs/([^/]+)/tasks/([^/]+)"), "_get_run_task"),
+    ("GET", re.compile(r"/api/runs/([^/]+)/handoffs"), "_get_run_handoffs"),
+    ("GET", re.compile(r"/api/runs/([^/]+)/artifacts/([^/]+)"), "_get_run_artifact"),
+    ("GET", re.compile(r"/api/runs/([^/]+)/evidence"), "_get_run_evidence"),
     ("GET", re.compile(r"/api/runs/([^/]+)"), "_get_run"),
     ("POST", re.compile(r"/api/runs/start"), "_post_run_start"),
     ("POST", re.compile(r"/api/runs/([^/]+)/control"), "_post_run_control"),
@@ -2175,6 +2178,42 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
             {"run_id": run_id, "battle_report_markdown": generate_battle_report(store, run_id, lang=lang)},
         )
 
+    def _get_run_handoffs(self, run_id: str) -> None:
+        store = self.server.store
+        if store.get_run(run_id) is None:
+            self._send_run_not_found(run_id)
+            return
+        handoffs = evidence.derive_handoffs(
+            store.get_events(run_id, limit=-1), store.get_milestones(run_id), store.get_tasks(run_id),
+        )
+        self._send_json(200, {"run_id": run_id, "handoffs": handoffs})
+
+    def _get_run_artifact(self, run_id: str, artifact_key: str) -> None:
+        store = self.server.store
+        if store.get_run(run_id) is None:
+            self._send_run_not_found(run_id)
+            return
+        run_dir = self.server.repo_path / ".baton" / "runs" / run_id
+        artifact = evidence.read_artifact(run_dir, store.get_events(run_id, limit=-1), artifact_key)
+        if artifact is None:
+            self._send_json(404, {"error": f"Run {run_id!r} recorded no artifact {artifact_key!r}"})
+            return
+        self._send_json(200, {"run_id": run_id, **artifact})
+
+    def _get_run_evidence(self, run_id: str) -> None:
+        store = self.server.store
+        run = store.get_run(run_id)
+        if run is None:
+            self._send_run_not_found(run_id)
+            return
+        # Only the run's own snapshot counts; the live RFC file may have changed since.
+        snapshot = Path(run["rfc_snapshot_path"] or self.server.repo_path / ".baton" / "runs" / run_id / "00_RFC.md")
+        try:
+            rfc_text = snapshot.read_text(encoding="utf-8")
+        except OSError:
+            rfc_text = None
+        self._send_json(200, {"run_id": run_id, **evidence.derive_evidence(rfc_text, store.get_events(run_id, limit=-1))})
+
     def _get_run_case_export(self, run_id: str) -> None:
         query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
         include_reviews = query.get("include_reviews", ["1"])[0]
@@ -2805,7 +2844,13 @@ class _CanvasRequestHandler(BaseHTTPRequestHandler):
                 target = integrated["integrated_sha"]
                 if not target:
                     raise _LineageError("INTEGRATION_FAILED", "Integration returned no commit")
-                gates = _gate_integrated_commit(repo, target, _lineage_gate_commands(store, chain), worktree_root)
+                try:
+                    gates = _gate_integrated_commit(repo, target, _lineage_gate_commands(store, chain), worktree_root)
+                except _LineageError as exc:
+                    # A failing re-integration gate is evidence too: keep its receipts before refusing.
+                    evidence.record_gate_receipts(store, run_id, "final", run_id, exc.details.get("gates") or [])
+                    raise
+                evidence.record_gate_receipts(store, run_id, "final", run_id, gates)
             else:
                 target = result_sha
             changed = _git_stdout(repo, "diff", "--name-only", base_head, target).splitlines()

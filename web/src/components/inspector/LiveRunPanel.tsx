@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n';
 import { formatLiveEventMessage, translateEventKind, translateTier } from '../../i18n/liveEvents';
 import type { Locale } from '../../i18n/messages';
 import { formatProviderDisplay, translateRole } from '../../i18n/presets';
+import { performRunAction, type RunAction } from '../../state/runStore';
 import type { LiveRunSnapshot, RunListItem } from '../../types/graph';
 import type { RightInspectorProps } from '../types';
 import { Badge, type BadgeProps } from '../ui/badge';
@@ -15,7 +16,6 @@ import { Modal } from '../ui/Modal';
 import { formatReportedUsd, formatTokenCount, usageCoverage } from './billingFormat';
 import { PricingModal } from './PricingModal';
 
-const eventLimit = 200;
 const emptySnapshot: LiveRunSnapshot = { run: null, milestones: [], tasks: [], events: [], quotas: [], telemetry: null };
 const statusBadgeVariant = new Map<string, BadgeProps['variant']>([
   ['RUNNING', 'info'],
@@ -32,23 +32,6 @@ const statusBadgeVariant = new Map<string, BadgeProps['variant']>([
   ['REJECTED', 'destructive'],
   ['ESCALATED', 'warning'],
 ]);
-
-function isRow(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isRows(value: unknown): value is Record<string, unknown>[] {
-  return Array.isArray(value) && value.every(isRow);
-}
-
-export function isLiveSnapshot(value: unknown): value is LiveRunSnapshot {
-  return isRow(value) && (value.run === null || isRow(value.run))
-    && isRows(value.milestones) && isRows(value.tasks) && isRows(value.events) && isRows(value.quotas);
-}
-
-function withRecentEvents(snapshot: LiveRunSnapshot): LiveRunSnapshot {
-  return { ...snapshot, events: snapshot.events.slice(-eventLimit) };
-}
 
 function display(value: unknown, fallback = '—'): string {
   return typeof value === 'string' || typeof value === 'number' ? String(value) : fallback;
@@ -114,8 +97,6 @@ type LiveRunPanelProps = Pick<
   onOpenCaseExport?: (runId: string) => void;
 };
 
-type RunAction = 'pause' | 'resume' | 'approve' | 'reject';
-
 export function useRunControls(
   client: LiveRunPanelProps['client'],
   refresh: () => Promise<void>,
@@ -129,16 +110,9 @@ export function useRunControls(
     inFlight.current = true;
     setBusy(true);
     try {
-      if (action === 'pause' || action === 'resume') {
-        await client.controlRun(runId, action);
-      } else {
-        await client.resolveRun(runId, action, note);
-      }
-      await refresh();
-      return true;
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : String(error), 'err');
-      return false;
+      return await performRunAction(client, refresh, (error) => {
+        onToast(error instanceof Error ? error.message : String(error), 'err');
+      }, runId, action, note);
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -171,9 +145,6 @@ export function LiveRunPanel({
 }: LiveRunPanelProps) {
   const { locale, messages } = useI18n();
   const panelId = useId();
-  const hasLiftedState = onSelectRunId !== undefined;
-  const [localSnapshot, setLocalSnapshot] = useState<LiveRunSnapshot>(emptySnapshot);
-  const [localReconnecting, setLocalReconnecting] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
   const [report, setReport] = useState<{ runId: string; lang: Locale; markdown: string } | null>(null);
   const [reportRawMode, setReportRawMode] = useState(false);
@@ -183,14 +154,13 @@ export function LiveRunPanel({
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const eventLog = useRef<HTMLDivElement>(null);
   const reportCopyTimer = useRef<number | undefined>(undefined);
-  const snapshotRevision = useRef(0);
   const lastReportTokenRef = useRef(0);
 
-  const snapshot = hasLiftedState ? (liveSnapshot ?? emptySnapshot) : localSnapshot;
-  const reconnecting = hasLiftedState ? Boolean(liveReconnecting) : localReconnecting;
+  const snapshot = liveSnapshot ?? emptySnapshot;
+  const reconnecting = Boolean(liveReconnecting);
   const runsList: RunListItem[] = recentRuns ?? [];
   const runId = typeof snapshot.run?.id === 'string' ? snapshot.run.id : undefined;
-  const isRunSynced = !hasLiftedState || (runSynced && (!selectedRunId || !runId || selectedRunId === runId));
+  const isRunSynced = runSynced && (!selectedRunId || !runId || selectedRunId === runId);
   // The selected run changes immediately; its snapshot arrives later, so share the selected id.
   const caseRunId = selectedRunId ?? runId;
   const status = display(snapshot.run?.status, 'UNKNOWN');
@@ -215,65 +185,6 @@ export function LiveRunPanel({
     ? telemetry.billing : null;
   const billingCoverage = usageCoverage(billing, locale);
   const hasModelRuntime = Boolean(runId) && telemetry !== null && telemetry.models.length > 0;
-  const onStreamError = useEffectEvent((error: unknown) => {
-    onToast(error instanceof Error ? error.message : String(error), 'err');
-  });
-
-  useEffect(() => {
-    if (hasLiftedState) return;
-    setLocalSnapshot(emptySnapshot);
-    setLocalReconnecting(false);
-
-    let source: EventSource;
-    try {
-      source = new EventSource(client.streamUrl());
-    } catch (error) {
-      onStreamError(error);
-      return;
-    }
-
-    function receiveSnapshot({ data }: MessageEvent<string>) {
-      try {
-        const next: unknown = JSON.parse(data);
-        if (!isLiveSnapshot(next)) throw new Error('Invalid live run snapshot.');
-        snapshotRevision.current += 1;
-        setLocalSnapshot(withRecentEvents(next));
-        setLocalReconnecting(false);
-      } catch (error) {
-        onStreamError(error);
-      }
-    }
-
-    function receiveEvent({ data }: MessageEvent<string>) {
-      try {
-        const event: unknown = JSON.parse(data);
-        if (!isRow(event)) throw new Error('Invalid live run event.');
-        snapshotRevision.current += 1;
-        setLocalSnapshot((current) => {
-          if (current.run && typeof event.run_id === 'string' && event.run_id !== current.run.id) return current;
-          const lastId = current.events.at(-1)?.id;
-          if (typeof event.id === 'number' && typeof lastId === 'number' && event.id <= lastId) return current;
-          return withRecentEvents({ ...current, events: [...current.events, event] });
-        });
-        setLocalReconnecting(false);
-      } catch (error) {
-        onStreamError(error);
-      }
-    }
-
-    source.addEventListener('snapshot', receiveSnapshot);
-    source.addEventListener('event', receiveEvent);
-    source.onopen = () => setLocalReconnecting(false);
-    source.onerror = () => setLocalReconnecting(true);
-    return () => {
-      snapshotRevision.current += 1;
-      source.removeEventListener('snapshot', receiveSnapshot);
-      source.removeEventListener('event', receiveEvent);
-      source.onopen = null;
-      source.onerror = null;
-      source.close();
-    };
-  }, [client, hasLiftedState]);
 
   useEffect(() => {
     setExpandedTaskId(null);
@@ -302,17 +213,7 @@ export function LiveRunPanel({
   }, [client, locale, onToast, report, visible]);
 
   async function refreshActiveRun() {
-    if (onRefreshLiveRun) {
-      await onRefreshLiveRun();
-      return;
-    }
-    const revision = ++snapshotRevision.current;
-    try {
-      const latest = await client.getLatestRun();
-      if (revision === snapshotRevision.current) setLocalSnapshot(withRecentEvents(latest));
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : String(error), 'err');
-    }
+    await onRefreshLiveRun?.();
   }
 
   const localControls = useRunControls(client, refreshActiveRun, onToast);

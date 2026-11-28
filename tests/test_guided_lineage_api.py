@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tests.test_guided_api import GuidedApiTestCase, _git
 from vibebaton import web_server
+from vibebaton.evidence import gate_receipts
 from vibebaton.schemas import MilestoneSpec, PlanDAG, RunStatus, TaskSpec, TaskStatus
 
 
@@ -183,6 +184,10 @@ class TestGuidedLineageApi(GuidedApiTestCase):
         self.assertTrue(body["reintegrated"])
         self.assertEqual(len(body["gates"]), 2)
         self.assertTrue(all(gate["passed"] for gate in body["gates"]))
+        # Each command the re-integration ran left a receipt on the approved run.
+        receipts = gate_receipts(self.store.get_events(revision, limit=-1))
+        self.assertEqual([(r["scope"], r["target_id"], r["command"], r["exit_code"]) for r in receipts],
+                         [("final", revision, command, 0)] * 2)
         self.assertEqual(_git(self.repo, "merge-base", "--is-ancestor", external, head), "")
         self.assertTrue((self.repo / "external.txt").is_file())
         self.assertTrue((self.repo / "first.txt").is_file())
@@ -197,6 +202,8 @@ class TestGuidedLineageApi(GuidedApiTestCase):
         self.assertEqual(status, 409, body)
         self.assertEqual(body["code"], "GATE_FAILED")
         self.assertEqual(_git(self.repo, "rev-parse", "main"), external)
+        (receipt,) = gate_receipts(self.store.get_events(first, limit=-1))
+        self.assertEqual((receipt["scope"], receipt["exit_code"], receipt["passed"]), ("final", 7, False))
         self.assertEqual(self.store.get_run(first)["status"], "READY_FOR_FINAL_GATE")
 
     def test_new_main_commit_during_gates_is_never_discarded(self) -> None:

@@ -29,10 +29,14 @@ import {
   type CliRegistry,
   type CliRegistryScanResponse,
   type FinalizeResult,
+  type GateReceipt,
   type GuidedSession,
   type WorkflowRecommendation,
   type InitGitResult,
   type ResolveRunTaskResult,
+  type RunArtifactResponse,
+  type RunEvidenceResponse,
+  type RunHandoffsResponse,
   type RunTaskDetail,
   type WorkspaceInfo,
 } from './client';
@@ -893,6 +897,70 @@ test('calls every Guided Studio endpoint with typed payloads', async () => {
     [`/api/runs/${encodedRun}/finalize`, jsonRequest('POST', { action: 'approve', note: '' })],
     [`/api/runs/${encodedRun}/finalize`, jsonRequest('POST', { action: 'revise', note: 'Add tests' })],
   ]);
+});
+
+test('reads the handoffs, an artifact and the evidence of a run with encoded path segments', async () => {
+  const runId = 'run #7';
+  const encodedRun = 'run%20%237';
+  const artifactKey = 'M1/T1:worker #2?x';
+  const receipt: GateReceipt = {
+    event_id: 12, scope: 'task', target_id: 'T1', command: 'npm test', exit_code: 0, passed: true,
+    duration_sec: 1.5, output_tail: 'ok', created_at: 100,
+  };
+  const handoffs: RunHandoffsResponse = {
+    run_id: runId,
+    handoffs: [{
+      id: 'planner>task:T1', from: { kind: 'planner', id: null }, to: { kind: 'task', id: 'T1' },
+      recorded: true, event_ids: [10, 11], at: 99,
+      invocations: [{
+        event_id: 10, artifact_key: artifactKey, role: 'bulk_worker', model: 'flash', side: 'to',
+        created_at: 98, status: null, duration_sec: null,
+      }],
+      changed_files: null, receipts: [receipt], review: null,
+      takeover: { status: null, holder: null }, blocked_reason: null,
+    }],
+  };
+  const artifact: RunArtifactResponse = {
+    run_id: runId, artifact_key: artifactKey, prompt: { text: 'Do it', truncated: false, bytes: 5 }, output: null,
+  };
+  const evidence: RunEvidenceResponse = {
+    run_id: runId, rfc_available: true,
+    criteria: [{ index: 1, text: 'Run `npm test`.', state: 'receipt', result: 'passed', receipts: [receipt], files: [] }],
+    run_level_receipts: [],
+    summary: { criteria: 1, passed: 1, failed: 0, files_only: 0, not_linked: 0, receipts: 1 },
+  };
+  const fetchImpl = healthyFetch()
+    .mockResolvedValueOnce(Response.json(handoffs))
+    .mockResolvedValueOnce(Response.json(artifact))
+    .mockResolvedValueOnce(Response.json(evidence));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+
+  await expect(client.getRunHandoffs(runId)).resolves.toEqual(handoffs);
+  await expect(client.getRunArtifact(runId, artifactKey)).resolves.toEqual(artifact);
+  await expect(client.getRunEvidence(runId)).resolves.toEqual(evidence);
+  expect(fetchImpl.mock.calls.slice(1)).toEqual([
+    [`/api/runs/${encodedRun}/handoffs`, { method: 'GET' }],
+    [`/api/runs/${encodedRun}/artifacts/M1%2FT1%3Aworker%20%232%3Fx`, { method: 'GET' }],
+    [`/api/runs/${encodedRun}/evidence`, { method: 'GET' }],
+  ]);
+});
+
+test('the run evidence reads surface a missing artifact and stay unavailable in demo mode', async () => {
+  const fetchImpl = healthyFetch().mockResolvedValueOnce(Response.json({ error: 'Unknown artifact' }, { status: 404 }));
+  const client = new BatonApiClient('', fetchImpl);
+  await client.init();
+  await expect(client.getRunArtifact('run-1', 'missing')).rejects.toMatchObject({
+    name: 'ApiError', status: 404, message: 'Unknown artifact',
+  });
+
+  const demoFetch = vi.fn<typeof fetch>();
+  const demo = new BatonApiClient('', demoFetch);
+  const calls = [demo.getRunHandoffs('run-1'), demo.getRunArtifact('run-1', 'key'), demo.getRunEvidence('run-1')];
+  await Promise.all(calls.map((call) => expect(call).rejects.toMatchObject({
+    name: 'ApiError', status: 0, message: 'Not available in standalone demo',
+  })));
+  expect(demoFetch).not.toHaveBeenCalled();
 });
 
 test('installCli sends only the chosen cliId with confirmed: true, even if extra fields are passed', async () => {
