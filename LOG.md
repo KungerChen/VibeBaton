@@ -532,3 +532,12 @@ is pre-task commit `53299ce`; no new commit has been made. The whitelist exclude
   - 过期的文档：`README.md` 和 `README.zh-CN.md` 里"四步"引导流程的描述、`docs/TUTORIAL.md` 里"默认是专业模式"和旧模式开关的描述，放到 Phase 1 收尾统一改。
   - 原本就无人使用的文案键 `guided.workbench.currentTeamPrefix` 和 `m3.stepper.*` 没有删。
 - 状态：自检通过，已交付。代码提交 `484370f`；回退标签 `pre-p1-m3-20261127` 指向 `53a8a6e`；随本条所在提交快进合并到 `main`，`dev` 指到同一提交，重建前端并更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签。README 未修改（留到 Phase 1 收尾）。
+
+## 20261127-windows-posix-gate-fix
+
+- 时间：2026-11-27（本机时间）。问题排查与修复：针对 `m3-demo` 连续两次在 Milestone M1 失败的问题（`cmd.exe` 执行蓝图/规划器生成的 `if [ -f ... ]; then ... fi` 与 `test -z "$(...)"` 报错退出，且 GBK 错误输出按 UTF-8 解码显示乱码）。
+- 改动：
+  - `src/vibebaton/gates.py`：新增 `_find_windows_posix_bash()`（优先定位 Git for Windows `bash.exe`，避开 `WindowsApps` / `System32` WSL 占位）、`_looks_like_posix_shell()`（识别 `if [`、`then`/`elif`/`fi`、`test -[znfderwx]`、`$(...)`、`| grep` 等 POSIX 语法，保留显式 `cmd`/`powershell` 路径）和 `_decode_process_output()`（UTF-8 优先，Windows 回退系统首选编码）。Windows 下检测到 POSIX 门禁命令且找到 Git Bash 时改用 `bash.exe -c` 执行。
+  - `src/vibebaton/brainstorm.py` 与 `prompts/l1_planner.md`：要求共创与 L1 规划生成的验证命令使用跨平台写法，禁止输出 `if [ ... ]; then ... fi`、`test -z "$(...)"`、`grep`、`ls -la` 等 POSIX 专用语法。
+  - `tests/test_gates.py`：补充 POSIX 命令识别、GBK 错误输出解码，以及 Windows 下 `if [ -f ... ]` 和 `test -z "$(...)"` 门禁通过 Git Bash 实跑的回归测试。
+- 验证：运行 `tests.test_gates`（7 项全部通过）与全量 `python -m unittest discover -s tests`（1026 项通过，6 项按平台/环境条件跳过）。

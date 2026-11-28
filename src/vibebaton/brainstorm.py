@@ -184,8 +184,11 @@ How each turn works:
   opening a page in a browser) and do not want a full test suite, keep their manual verification
   steps AND propose one yourself: add a minimal, non-destructive runnable check command (prefer
   detected project commands, or a lightweight file/syntax/smoke check) in a ```bash block so the
-  execution gate can launch. Never finish with `"question": ""` and all five checklist items
-  settled unless the RFC already contains a ```bash verification command block.
+  execution gate can launch. Every proposed verification command must be cross-platform (working in
+  both Windows `cmd.exe` and POSIX shells, e.g. `python -m unittest`, `npm test`, `node --test`, or
+  a single `python -c "..."` one-liner); do NOT use POSIX-only shell syntax (`if [ -f ... ]; then
+  ... fi`, `test -z "$(...)"`, `ls -la`, or `| grep`). Never finish with `"question": ""` and all
+  five checklist items settled unless the RFC already contains a ```bash verification command block.
 - Never invent file paths. Only cite paths that appear in the project summary or that they
   mentioned; otherwise describe the area in words.
 - If the request is clearly too big for one build, suggest splitting it into a few steps, write the

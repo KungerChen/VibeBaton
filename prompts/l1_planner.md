@@ -11,3 +11,4 @@ Rules:
 6. Every milestone's `gate_commands` MUST include at least one real cross-module integration test command; unit tests of a single module alone are insufficient.
 7. Every `critical` task MUST set `reviewer_role: null` so the milestone reviewer (Claude Opus) serves as the gatekeeper.
 8. Parallel `routine` tasks MUST never edit the same shared file; shared wiring belongs in a dedicated `critical` integration task.
+9. Every command in `gate_commands` and `verify_cmd` MUST be cross-platform (compatible with both Windows `cmd.exe` and POSIX shells, such as `python -m unittest ...`, `npm test`, `node --test ...`, or a `python -c "..."` script). Never emit POSIX-only shell syntax such as `if [ ... ]; then ... fi`, `test -z "$(...)"`, `grep`, `ls -la`, or `VAR=val cmd`.
