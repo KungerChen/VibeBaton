@@ -598,3 +598,31 @@ is pre-task commit `53299ce`; no new commit has been made. The whitelist exclude
 - 未验证：没有在浏览器里看（没有界面改动）；没有用真实模型跑。
 - 途中发现：开工前核对基线时，Python 全量与前端测试、类型检查、构建同时在跑，1026 项里有 1 项以 HTTP 读取超时报错（输出只留了末尾，没有记下是哪一项）；之后单独跑全量（已含本条改动）1027 项全部通过，判断为并行负载造成的超时，不是代码问题。此后跑 Python 全量时不再并行跑别的重任务。本机另有一个用户自己启动的 `vibebaton ui` 进程，实测一律换端口，不去碰它。
 - 状态：自检通过，已交付。代码提交 `377d22f`；回退标签 `pre-p2-prep-20261127` 指向 `def5e24`；随本条所在提交快进合并到 `main`，`dev` 指到同一提交，重建前端并更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签。
+
+## 20261127-rfc-studio-workbench-p2
+
+- 时间：2026-11-27（本机时间）。目标及授权：为 Phase 2 立项并换代 RFC。用户当日的授权明确包含"自行为 Phase 2 立项、合并、推送和更换 RFC"，只在约定的八种情况停下；本条不含代码改动。分支 `docs/rfc-studio-workbench-p2`，基线 `582f0e7`。
+- 改动：
+  - 现行 RFC《Studio Workbench, Phase 1》原样归档到 `docs/RFC_STUDIO_WORKBENCH_P1.md`，开头加了一行归档说明，其余逐字节不变。
+  - `.baton/00_RFC.md` 换成《VibeBaton Studio Workbench, Phase 2: Build and Sign-Off Main Stage》：英文，沿用五个固定章节（Goals / Constraints / Non-Goals / Architecture & Deliverables / Verification & Acceptance Criteria），末尾 bash 块四条验证命令（比 Phase 1 多一条 `npm --prefix web run typecheck`），最后保留一节更新过的"仅作信息"路线图。
+  - `AGENTS.md`：现行 RFC 的说明改为 Phase 2，"历史设计"里加上 Phase 1 RFC 的归档。
+- 范围（只有这六项，与方案书第 9 节 Phase 2 一致）：运行存储；只读实时接力图；情境抽屉与底坞；`LiveRunPanel` 字段迁移；交接棒连线卡；证据矩阵（条件 × 门禁结果，三态）。四个里程碑、十条验收标准：里程碑 1 运行存储与证据记录（标准 1、2）；里程碑 2 接力图、情境抽屉、交接卡（标准 3、4）；里程碑 3 底坞、字段迁移、运行跟随（标准 5、6、7）；里程碑 4 证据矩阵与放行旅程（标准 8、9、10）。Phase 3、Phase 4 和二期的内容都写进了 Non-Goals。
+- 与方案书的差异（都是为了让方案书要的东西有事实可显示，不增删上面六项）：
+  - 新增 `gate_receipt` 运行事件。方案书没有提门禁回执；但引擎目前不把门禁命令的结果结构化地记下来（通过时什么都不记，失败时只记一条不带退出码的事件），证据矩阵就没有"有门禁回执"这一态可显示，交接卡也拿不到"门禁命令与退出码"。回执是 `events` 表里的一种新事件，不改数据库结构；本期之前的运行没有回执，如实显示为没有。
+  - 新增三个只读接口（交接列表、交接物、证据表）。推导放在服务端：前端只保留最近 200 条事件，在前端推导会把更早的交接和回执算丢。
+  - 证据矩阵的关联规则定为"字面引用"：验收条目自己的文字里逐字出现某条回执的命令才算"有门禁回执"；只逐字出现了改动文件的路径算"仅有改动文件"；其余"未关联"。不做相似度匹配，不调用模型。原因是绑定关系由谁产生仍未定（方案书第 13 节第 1 项，Phase 3 之前由用户定），本期只显示 RFC 里白纸黑字写着的关联。定稿时比草稿多加一句：只有一个词的命令（例如 `make`）必须写在行内代码里才算引用，免得正文里的普通词被当成引用而显示出"通过"。
+  - 没有被任何条目引用的回执单列为"运行级回执"，不藏起来，也不硬配给某一条。
+  - 从矩阵勾选未满足的条件发起返工（方案书 8.2）本期不做，理由同上，写进了 Non-Goals。
+  - 运行存储的"跟随最新运行"按方案书 5.5 写成显式状态：自己刚发的运行默认跟随，打开旧运行后关闭。
+- 定稿前对着现在的代码核过的三处：
+  - Goals 第 2 条"`role_invoked` 已带 `artifact_key`"：上一条已交付，成立。
+  - 四处门禁命令确实都经过 `run_gate_suite`：`engine.py` 里合并冲突解决后的门禁（`_merge_with_conflict_resolution` 的 `gate_checker`）、任务的 `verify_cmd`（`_execute_task`）、里程碑门禁（`_execute_milestone` 的补救循环内），以及 `web_server.py` 的 `_gate_integrated_commit`（终审时基准分支已移动才会运行）。
+  - 工作台顶行现在有就绪胶囊和按需展开的向导，RFC 里补了一句：抽屉和底坞放在工作台正文里、胶囊那一行的下方；向导仍在阶段上方展开，不替换接力图。另把 `LiveRunPanel` 的说法写准：它不再自己开事件流，数据经现有 props 来自运行存储。
+- 写入前自检（四项全部满足）：
+  - 范围没有超出六项：逐条对照 Goals 和 Architecture & Deliverables，新增的回执事件和三个接口都只服务于交接卡和证据矩阵。
+  - 没有违反已拍板的决策：引擎不消费工作流图或预设；一份 RFC 只做一期；证据矩阵不改 `schemas.py`、三态如实显示、改过文件不算通过；未上报费用、空门禁、未知交接的如实显示写进了 Constraints；`studioMode`、`liveViewActive` 和三个回滚按钮本期保留；没有单次运行预算覆盖、费用预报和常驻副驾。硬性约束（标准库、不改数据库结构和 PlanDAG、会话文件格式、阶段枚举、`normalize_spec`、文案键位）都在 Constraints 里。
+  - 每个里程碑都有可验证的验收标准（对应关系见上）。
+  - `rfc_checker.check_rfc_readiness`：评分 100，`safe_for_overnight` 为真，无缺失章节，无警告；`extract_verification_commands` 取到四条命令。
+- 验证：`tests.test_rfc_checker` 与 `tests.test_desktop_app` 共 46 项通过（它们读 RFC 检查器和文档里的固定字样）；本条没有代码改动，没有重跑全量。
+- 未验证：没有用真实规划模型对这份 RFC 做规划调用（Phase 1 立项时做过一次路线图抽查，那次要花约 8 分钟的真实模型额度）；本期由本对话直接按里程碑施工，不经引擎规划，所以不依赖它。
+- 状态：已立项，未施工。回退标签 `pre-p2-rfc-20261127` 指向 `582f0e7`；随本条所在提交快进合并到 `main`，`dev` 指到同一提交，更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签。

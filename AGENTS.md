@@ -1,7 +1,7 @@
 # 项目协作入口
 
 - 当前能力、运行方式与结构见 [README.md](README.md)。
-- 目标与验收复用 [.baton/00_RFC.md](.baton/00_RFC.md)（现行：Studio Workbench Phase 1）、[Studio 总体方案书](docs/STUDIO_MASTER_PLAN.md)（后续各期的蓝本）、[路线图](docs/ROADMAP.md) 和 [Guided Lineage 契约](docs/guided2/lineage_contract.md)；历史设计见 [Guided Mode 2.0 RFC](docs/guided2/RFC_GUIDED_MODE_2.md) 和 [阶段 3 RFC](docs/RFC_STAGE3_DRAFT.md)。
+- 目标与验收复用 [.baton/00_RFC.md](.baton/00_RFC.md)（现行：Studio Workbench Phase 2）、[Studio 总体方案书](docs/STUDIO_MASTER_PLAN.md)（后续各期的蓝本）、[路线图](docs/ROADMAP.md) 和 [Guided Lineage 契约](docs/guided2/lineage_contract.md)；历史设计见 [Studio Workbench Phase 1 RFC](docs/RFC_STUDIO_WORKBENCH_P1.md)、[Guided Mode 2.0 RFC](docs/guided2/RFC_GUIDED_MODE_2.md) 和 [阶段 3 RFC](docs/RFC_STAGE3_DRAFT.md)。
 - 施工记录先查 [LOG-INDEX.md](LOG-INDEX.md)，再按 ID 查 [LOG.md](LOG.md)。
 - Python 实现在 `src/vibebaton/`，回归测试在 `tests/`，Studio 前端在 `web/`。
 - 在仓库根目录验证 Python 前，确保 `PYTHONPATH` 优先指向当前工作树的 `src`。PowerShell 可运行 `$env:PYTHONPATH = Join-Path (Get-Location) 'src'`，然后运行 `python -m unittest discover -s tests`。
