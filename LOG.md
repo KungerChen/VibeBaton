@@ -747,3 +747,59 @@ is pre-task commit `53299ce`; no new commit has been made. The whitelist exclude
   - 在总览里开着战报或定价弹窗时，如果来了待处理决策，抽屉切到决策，弹窗随总览一起关闭。
   - 顶部提醒条（`AttentionBanner`）仍保留自己的批准 / 驳回按钮，与抽屉里的决策面板并存；把它降级为只指路属于 Phase 3 的收件箱。
 - 状态：自检通过，已交付。代码提交 `3541fe8`；回退标签 `pre-p2-m3-20261128` 指向 `cd9aed7`；随本条所在提交快进合并到 `main`，`dev` 指到同一提交，重建前端并更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签。
+
+## 20261128-p2-m4-evidence-matrix
+
+- 时间：2026-11-28（本机时间）。目标及授权：现行 RFC 里程碑 4（证据矩阵与放行旅程），对应验收标准 8、9、10；同时是 Phase 2 的收尾：两条放行旅程在浏览器里走通、README 按现状更新、十条验收标准逐条给出证据。授权同前。本条由本会话（Fable 5.2）直接施工，没有用子代理。分支 `feat/p2-m4-evidence-matrix`，基线 `2e49ccb`。
+- 改动：
+  - 新增 `web/src/components/guided/EvidenceMatrix.tsx`、`.css`：验收页的证据矩阵。本次运行的 RFC 快照里每条编号的验收条件一行，一个证据格，三态：有门禁回执（按回执如实显示"通过"或"失败"，可展开看每张回执的命令、退出码、范围和输出末尾）、仅有改动文件（中性色，并写明"改了文件不等于检查过，所以不计入通过"）、未关联（中性色）。上方的汇总只数有回执的结果，例如"3 条验收条件中，1 条有通过的门禁回执"。下方单列"运行级回执"：这次运行里跑过、但没有任何条件提到的门禁命令。整个运行没有任何回执时另有一句"这里没有任何一项算作通过"。
+  - `GuidedSignOffPanel.tsx` 新增可选属性 `evidenceLoader`，矩阵放在任务计数之后、输出文件夹之前；`GuidedWorkbench.tsx` 把 `client.getRunEvidence` 接上去，读的是正在查看的那个运行。运行状态变化时重读（批准时的终审回执会进来），读取失败给出重试，读不到时不显示别的运行的行。
+  - 文案：新增 `guided.evidence` 一组，中英文键位一致。
+  - `README.md`、`README.zh-CN.md` 各 1 处、`docs/TUTORIAL.md` 2 处（只改事实）：引导模式的"施工"由"任务地图加任务详情抽屉"改为只读接力图、情境抽屉（含交接卡、运行总览、决策）和底坞；"验收"补上证据矩阵和三态。教程里"决策卡"和"提交决定"的说法改为抽屉里的决策面板和写明对象的按钮。
+- 决策：
+  - 格子显示"通过"要同时满足三件事：服务端判这一行为有回执、结果为通过、并且前端自己核对这一行每条命令的最新一张回执退出码都是 0。任何一项不满足都不是"通过"；回执里自带的 `passed` 字段不被采信。这是在服务端规则之外再守一道，免得以后接口变了就出现没有回执的绿格。
+  - 子修订的 RFC 快照里同时有上一版蓝图和修订后的蓝图（中间隔着"Requested changes"一节），两套编号的验收条件都会各占一行，编号会重复。没有擅自只取后一套：哪一套算数属于"绑定关系由谁产生"的问题，仍未定；现在两套都如实列出。
+  - README 里 v1.2.0 的"新增 REST 接口"清单和测试数量徽标是当时的发布记录，没有改；本期新增的三个只读接口没有补进那份清单。
+  - 截图放在仓库外的 `D:\Projects\VibeBaton-evidence\phase2\`，不提交，理由同前（截图里有本机路径）。
+- Phase 2 十条验收标准的证据：
+  - 标准 1（每条门禁命令一张回执；失败的写失败；本期之前的运行没有回执也没有通过）：`tests/test_gate_receipts.py`（真实引擎：里程碑门禁、任务检查、先失败后修复、不带门禁的计划）、`tests/test_conflict_resolver_engine.py`（合并门禁通过与被拒）、`tests/test_guided_lineage_api.py`（终审重新整合通过与失败）、`tests/test_evidence_api.py`（没有回执也没有键的运行能打开且没有任何通过）。浏览器：门禁先失败一次的运行里，交接卡和底坞门禁页都列出退出码 1 的失败回执和退出码 0 的通过回执（`m2\en-07`、`m3\13`）。
+  - 标准 2（工作台与专业界面同一个存储、同一个运行；面板不自己开流；选择、暂停、继续、停止照旧）：`runStore.test.ts` 25 项和源码扫描（全仓只有 `runStore.ts` 创建 `EventSource`）；里程碑 1 的浏览器实测（两个界面同一个运行 ID、暂停与继续、看旧运行不被带走、全程一条事件流，`m1\01`–`05`）。"停止"见下面"未验证"。
+  - 标准 3（施工里选中节点或连线只改抽屉，不改图、不离开实时视图）：`GuidedLiveCanvas.test.ts`、`GuidedWorkbench.test.ts` 的选中用例；里程碑 2 的浏览器实测（拖不动、连不了、删不掉，阶段始终是施工，`m2\en-01`–`05`）。
+  - 标准 4（有记录与仅按计划的连线画法不同；未记录的交接卡写"未知"；有记录的交接卡逐项显示）：`relayHandoffs.test.ts`、`HandoffCard.test.ts`；里程碑 2 的浏览器实测（实线与虚线随事件变化、未记录卡上的"Unknown"、提示词与输出按需读取、失败与通过的回执，`m2\en-04`–`07`、`m2\zh-02`、`zh-03`）。
+  - 标准 5（`LiveRunPanel` 清单里的每个字段都能在抽屉或底坞里找到；暂停、继续、停止和人工决策在那里能用并写明对象）：`liveRunPanelInventory.test.ts` 23 项（21 个字段逐项断言，外加源码里 46 个文案键的全覆盖断言）；里程碑 3 的浏览器实测（总览、技术细节、战报、定价、暂停与继续、任务面板、事件日志，`m3\02`–`09`），本条的两条旅程里又各答复了一次人工决策（`journey1\06`、`journey4\04`）。
+  - 标准 6（底坞在蓝图阶段没有；收起为一行最新事件；展开有时间线、终端、门禁）：`BottomDock.test.ts`、`GuidedWorkbench.test.ts` 的底坞用例；浏览器（`m3\01`、`02`、`06`–`08`、`13`、`14`）。
+  - 标准 7（看旧运行时别的运行的事件和待处理决策不改变正在看的运行；显示短 ID 和回去的入口；每个决策发到按钮写明的运行和任务）：`GuidedWorkbench.test.ts` 的查看旧运行与决策对象用例、`runStore.test.ts` 的跟随用例；浏览器两次：里程碑 3（运行级决策，`m3\10`–`12`）和本条的旅程 4（任务级决策，见下）。
+  - 标准 8（验收页每条条件一行、三态之一；仅有改动文件为中性且不计入通过；没有证据写"未关联"；没有退出码为 0 的回执就没有"通过"）：`tests/test_evidence.py` 的证据表用例、`EvidenceMatrix.test.ts` 10 项（含变异检查）；浏览器见下面旅程 1 的第 3 步和第 8 步。
+  - 标准 9（旅程 1 在同一个外壳里走通）：见下面"验证"。
+  - 标准 10（全部 Python 测试、全部 Studio 测试通过，类型检查干净，生产构建成功）：见下面"验证"。
+- 验证（已验证）：
+  - 前端：vitest 83 个文件、1039 项通过（基线 82 个文件、1029 项，本条新增 10 项），`npm --prefix web run typecheck` 无报错，`npm --prefix web run build` 成功。
+  - Python 全量（`PYTHONPATH` 指向工作树的 `src`，`VIBEBATON_DISABLE_MODEL_SYNC=1`，清掉 `PYTHONIOENCODING`）：1054 项通过、跳过 6 项，无失败（与上一条相同，本条没有改后端）。这是在最终工作树上跑的第二遍；第一遍 1054 项里有 1 项失败，是下面“途中发现”里记的耗时断言偶发项，单独重跑 3 次都通过。
+  - 先失败后通过：矩阵的测试与组件同时写成；之后做了两次变异检查——把"仅有改动文件"当成通过时 5 项失败，把"有回执但失败"当成通过并去掉退出码核对时 4 项失败，恢复后全部通过。
+  - 旅程 1（方案书第 10 节，新手闭环；演示仓库 `j1`，全新浏览器配置，英文，1440×900，替身 CLI）：
+    1. 已就绪的工作区，打开即蓝图，就绪胶囊为 Ready。在对话框里写一句话发出，架构伙伴问了一个问题并给出选项，点选后蓝图五项清单全部明确，出现发车卡，写明精简流程。
+    2. 核对确认后发车，进入施工，看到接力图。运行里里程碑门禁先失败一次，修复后通过，里程碑评审要求人工决定：抽屉切到决策，标题写明运行短 ID 和里程碑 M1；填了备注，点"Approve and let run …… continue"，页面发出的是这个运行的 `/resolve`（批准加备注），运行继续到验收。
+    3. 验收页的证据矩阵：条件 1（文字里用行内代码写了 `python hello.py`）为"Gate receipt: passed"，展开有三张回执（失败、通过、通过，最新一张通过）；条件 2（只提到 hello.py）为"Changed files only"；条件 3 为"Not linked"；汇总"1 of 3 criteria have a gate receipt that passed"。
+    4. 点"Request Changes"，写修改意见并提交：运行 A 变为 SUPERSEDED，页面回到蓝图，意见已在对话框里；发出后得到修订后的蓝图和发车卡，确认后建立子运行 B，B 的父运行是 A。
+    5. 子运行 B 施工中同样要了一次人工决定（子运行的蓝图带着上一版的全文），答复后到达验收；矩阵里两套条件各三行，两条有通过的回执。
+    6. 从顶行的运行历史打开父运行 A：顶行显示"Viewing run ……"和"Back to the current run"，A 以只读的施工视图显示，可点的只有"打开战报"和"模型单价"，没有任何能改变它的按钮；会话仍指向 B。
+    7. 回到 B，点"Approve & Merge"：页面显示"Changes merged."和合并提交，B 为 COMPLETED。
+    8. 空门禁：新开会话，粘贴一份没有检查命令的 RFC（计划不带任何门禁），运行到验收。矩阵两行都是"Not linked"，汇总"0 of 2 criteria have a gate receipt that passed"，并写着"这次运行没有记录任何门禁回执"；矩阵里没有任何绿色的通过标记，也没有"passed"的格子；底坞门禁页写"No gate receipts"。
+    全程在同一个外壳里（顶栏、三步阶段轨、工作台，没有进过专业界面，也没有保存过模式），页面只开过一条事件流。
+  - 旅程 4 的对象绑定部分（演示仓库 `j4`，全新浏览器配置）：先有一个已完成的运行 A。从界面发运行 B（三条目标，判为中等规模，走完整流程，带逐任务评审）。B 施工中，从运行历史打开 A：顶行"Viewing run <A>"，阶段为 A 的验收，底坞和验收页都是 A 的。随后 B 的任务评审要求人工决定（服务端 B 为 WAITING_HUMAN）：页面仍是 A，没有任何决策面板，仍只有一条事件流。在 A 的验收页逐行看证据：三行分别为有回执通过、仅有改动文件、未关联，另有一张运行级回执 `git status --short`；展开条件 1 看到 `python hello.py`、退出码 0。点"Back to the current run"：抽屉主人为决策，标题"Task M1T1 needs a decision from you"，下面写着"Run <B>"；选批准并点"Reply to task M1T1"，页面发出的请求是运行 B 的 `/resolve`，内容带 `task_id: M1T1`，没有任何请求发往 A。
+  - `LiveRunPanel` 的每个字段在新界面里的位置，逐项对照里程碑 3 的截图：同步与重连状态在底坞右侧（`m3\02`）；运行历史在运行总览里、验收和蓝图阶段在顶行（`m3\02`、`m3\01`、`journey1\07`）；运行状态、总耗时、提醒行、计费合计与"未上报"和覆盖率在总览上半部分（`m3\02`、`05`）；阶段耗时、模型耗时（调用次数、平均、占比、估算标记、逐模型 token 与费用）、任务列表、运行 ID 在总览的技术细节（`m3\03`）；任务详情的模型、耗时、计数、文件、最近错误、事件在任务面板（`m3\09`、`m2\en-02`）；事件日志和原始备注在底坞时间线（`m3\06`）；暂停与继续在总览（`m3\05`）；人工决策的批准、驳回、备注在决策面板（`m3\12`、`journey1\06`）；战报的渲染、原文、复制（`m3\04`）；模型单价（总览按钮，弹窗内容读过文字，没有单独截图）；发车入口就是蓝图阶段的发车卡（`journey1\04`）。
+  - 截图：旅程 1 共 17 张，在 `D:\Projects\VibeBaton-evidence\phase2\journey1\`：`01-ready-workspace-first-screen.png`、`02-one-sentence.png`、`03-guided-question.png`、`04-launch-confirmation.png`、`05-build-relay-graph.png`、`06-human-decision-in-the-drawer.png`、`07-sign-off-evidence-matrix.png`、`08-matrix-receipts-open.png`、`09-request-changes.png`、`10a-back-on-blueprint-with-the-note.png`、`10-revised-blueprint-confirmation.png`、`10b-child-run-decision.png`、`11-sign-off-of-the-child-revision.png`、`12-parent-run-still-reachable-read-only.png`、`13-child-revision-signed-off.png`、`14-no-gates-nothing-passed.png`、`15-no-gates-dock.png`。旅程 4 共 4 张，在 `D:\Projects\VibeBaton-evidence\phase2\journey4\`：`01-viewing-older-run-a-while-b-works.png`、`02-b-asks-while-a-stays-on-screen.png`、`03-evidence-of-run-a-row-by-row.png`、`04-decision-names-run-b-and-its-task.png`。
+- 未验证：
+  - 旅程 1 是分三段跑完的，不是一次不间断的脚本：第一遍走到"要求修改"之后脚本少了一步（没有把修改意见发出去），第二遍走到子运行时没料到它也会要人工决定；每次都在同一个浏览器页面、同一个服务端、同一份会话里从停下的地方接着走，产品一侧没有重来，也没有改代码。
+  - 验收标准 2 里的"停止"：在已暂停的运行上点停止会卡在"尚未停稳"（里程碑 1 记过的原有问题），失败运行上的停止并重新规划本期没有在浏览器里走。停止的代码路径本期没有改动，相关的现有测试全部通过。
+  - 证据矩阵里"有回执但失败"的格子、读取失败与重试、合并门禁和终审回执进入矩阵，只有组件测试和后端测试覆盖，替身运行里没有出现。
+  - 中文界面下的证据矩阵、底坞、运行总览只核对过组件测试里的文案；浅色主题和窄屏下的验收页没有看。
+  - 旅程 4 的后半段（从谱系查看三种回滚）属于 Phase 3，没有做。收件箱角标同样是 Phase 3 的内容：看旧运行时别的运行有待处理决策，目前页面上没有任何提示。
+  - 全部浏览器实测都由替身 CLI 完成，没有调用真实模型；点击和输入由 DevTools 协议派发。
+  - 文档改动没有测试覆盖；`tests/test_desktop_app.py` 只检查两份 README 里的几个固定字样，仍然通过。
+- 途中发现、未处理（前三条里程碑条目里记过的不再重复，这里只列本条新发现的和对后续有影响的）：
+  - 子修订的验收条件在矩阵里出现两套（见"决策"）。
+  - 任务级人工决策批准后会立刻再次进入等待（里程碑 2 记过）：旅程 4 里答复之后运行 B 又回到同一个决策，这条旅程只验证了请求发往正确的运行和任务，没有验证运行因此继续。
+  - Python 全量里有两个偶发失败的现有测试，都与本期改动无关，单独重跑都通过：`tests.test_guided_api.TestBrainstormApi.test_multi_turn_chat_accepts_history`（等待回应超时）和 `tests.test_allocation.TestAllocationReport.test_report_without_allocation_events_matches_legacy_bytes`（把耗时断言为 `0.0s`，偶尔得到 `0.1s`）。
+  - 引擎写的运行总结在没有门禁命令时仍是"passed mechanical gates and AI reviews"，显示在顶部提醒条和战报里（Phase 1 记过，不在本期范围）；本期的证据矩阵、交接卡和底坞在同一页上如实显示"没有门禁回执"，两处说法并存。
+- 状态：自检通过，已交付。Phase 2 四个里程碑全部交付，按授权到此停下，不开始 Phase 3。代码提交 `1bac2fa`；回退标签 `pre-p2-m4-20261128` 指向 `2e49ccb`；随本条所在提交快进合并到 `main`，`dev` 指到同一提交，重建前端并更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签。
