@@ -626,3 +626,41 @@ is pre-task commit `53299ce`; no new commit has been made. The whitelist exclude
 - 验证：`tests.test_rfc_checker` 与 `tests.test_desktop_app` 共 46 项通过（它们读 RFC 检查器和文档里的固定字样）；本条没有代码改动，没有重跑全量。
 - 未验证：没有用真实规划模型对这份 RFC 做规划调用（Phase 1 立项时做过一次路线图抽查，那次要花约 8 分钟的真实模型额度）；本期由本对话直接按里程碑施工，不经引擎规划，所以不依赖它。
 - 状态：已立项，未施工。回退标签 `pre-p2-rfc-20261127` 指向 `582f0e7`；随本条所在提交快进合并到 `main`，`dev` 指到同一提交，更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签。
+
+## 20261127-p2-m1-run-store
+
+- 时间：2026-11-27（本机时间）。目标及授权：现行 RFC《Studio Workbench, Phase 2》里程碑 1（运行存储与证据记录），对应验收标准 1、2。授权同前。分工：后端（回执、证据模块、三个接口）由本会话（Fable 5.2）直接施工；前端运行存储委托给一个 Opus 5.5（effort=high）子代理并行施工，只动 `web/`，不做 git 操作；本会话读完整 diff、重跑验证、浏览器实测并交付。分支 `feat/p2-m1-run-store`，基线 `f800aca`。
+- 改动：
+  - `src/vibebaton/evidence.py`（新增，只用标准库，不读写数据库）：`receipt_payload` 与 `record_gate_receipts`（每条门禁命令写一条 `gate_receipt` 事件，payload 为 `scope`、`target_id`、`command`、`exit_code`、`passed`、`duration_sec`、`output_tail`，输出只留末尾 4000 个字符）；`gate_receipts`（从事件读回执，"通过"只认退出码为 0）；`derive_handoffs`（按计划的每条接力边列出一次交接和事件记下的内容）；`read_artifact`（按该运行记录过的 `artifact_key` 读提示词和输出，各自最多 200000 字节）；`acceptance_criteria` 与 `derive_evidence`（验收条目 × 回执与改动文件，三态）。
+  - `src/vibebaton/engine.py`：新增 `_run_gates`，任务检查（scope `task`，目标是任务 ID）、里程碑门禁（`milestone`，里程碑 ID）、合并冲突解决后的门禁（`merge`，目标是 `task_<id>` 或 `milestone_<id>` 开头的合并范围）三处改为经它运行并留回执；对 `run_gate_suite` 的调用方式不变。
+  - `src/vibebaton/web_server.py`：终审时基准已移动、重新整合后跑的门禁留回执（scope `final`，目标是运行 ID），失败时先留回执再拒绝；新增三个只读路由 `GET /api/runs/{run_id}/handoffs`、`/artifacts/{artifact_key}`、`/evidence`。
+  - `web/src/state/runStore.ts`（新增）：不依赖 React 的存储加 `useRunStore` 钩子，接管事件流（快照与单条事件、只留最近 200 条、重连状态）、所选运行、最新运行、最近运行列表、同步状态、跟随最新运行和运行控制（暂停、继续、批准、驳回、刷新）。
+  - `web/src/App.tsx`：`AppContent` 不再自己开 `EventSource`、不再存这些状态，改为创建并读取存储（净减约 170 行）；提醒去重、额度同步、`liveViewActive`、画布与回放等留在原处。`web/src/components/inspector/LiveRunPanel.tsx`：删掉自带事件流的回退，数据经现有 props 来自存储。
+  - `web/src/api/client.ts`：三个接口的类型与调用（`getRunHandoffs`、`getRunArtifact`、`getRunEvidence`）。
+  - 测试：新增 `tests/test_evidence.py`（18 项）、`tests/test_gate_receipts.py`（4 项，真实引擎与 git）、`tests/test_evidence_api.py`（5 项）、`web/src/state/runStore.test.ts`（25 项）；`tests/test_conflict_resolver_engine.py` 三个现有用例和 `tests/test_guided_lineage_api.py` 两个现有用例里各加了回执断言，`LiveRunPanel.test.ts`、`client.test.ts` 各加 2 项。没有删改任何原有断言。
+- 决策：
+  - 跟随规则：初始跟随；`selectRun`（从运行历史里挑）只有挑的是最新运行才保持跟随；`followRun`（工作台刚发车或恢复自己的运行）开启跟随；`backToLatest` 回到最新并恢复跟随。流里来的快照只在"还没选过运行、就是正在看的运行、或正在跟随且原先看的是上一个最新运行"时替换正在看的运行，否则只更新"最新运行"。与原行为只有一处不同：挑过旧运行之后，即使它后来又成为最新，再出现更新的运行也不会被带走，这正是验收标准 7 要的。
+  - 提醒去重和额度同步通过回调留在 App，没有搬进存储：它们属于提醒和就绪两个功能，不属于"运行"。`LiveRunPanel` 独立渲染时的本地运行控制保留（现有测试在用），与存储共用同一个 `performRunAction`，没有两份实现。
+  - 交接按计划的边列出（规划或上一个里程碑 → 任务 → 里程碑 → 下一个任务或终审），每条带 `recorded`：进入任务的交接要有对该任务的调用事件，任务交给里程碑要有 `task_passed`，里程碑交出要有 `milestone_passed`，交给终审要有 `ready_for_final_gate`。没有事件就是 `false`，其余字段为空或 `null`，不从计划补。交接和回执都用事件行的 `id` 作标识。
+  - 证据表的引用规则按立项时定的字面引用实现：条目文字取自验收章节的编号项及其续行，围栏代码块不算条目自己的文字；命令要逐字出现，单个词的命令必须在行内代码里；路径要作为完整路径出现（`my-greeting.txt` 不算引用了 `greeting.txt`）。一个条目引用的每条命令都以最新一张回执为准，全部退出码为 0 才显示通过；回执里自带的 `passed` 字段不被采信，只看退出码。
+  - 交接物接口先查这个键是否被该运行的 `role_invoked` 记录过，再要求键只含字母、数字、点、下划线和短横线，最后才拼路径；路径形状的键（含 `..`、斜杠、反斜杠）一律 404。
+  - 证据表只读运行自己的 RFC 快照（`rfc_snapshot_path` 或 `.baton/runs/<run_id>/00_RFC.md`），读不到就返回 `rfc_available: false` 和零行，不退回去读可能已改动的现行 RFC。
+  - 案例导出没有改：它把不认识的事件种类按"信息"写进回放轨迹，`gate_receipt` 也会这样出现，文字是命令加 PASS 或 FAIL，照常经过脱敏。
+- 验证（已验证）：
+  - Python 全量（`PYTHONPATH` 指向工作树的 `src`，`VIBEBATON_DISABLE_MODEL_SYNC=1`，清掉 `PYTHONIOENCODING`）：1054 项通过、跳过 6 项，无失败（基线 1027 项，新增 27 项）。
+  - 前端：vitest 76 个文件、952 项通过（基线 75 个文件、923 项，新增 29 项），`npm --prefix web run typecheck` 无报错，`npm --prefix web run build` 成功。子代理跑了一遍，本会话在最终工作树上重跑一遍，数字一致。
+  - 先失败后通过：前端新测试在实现前 4 项失败（模块不存在、三个调用不存在、面板源码里有 `EventSource`、不传快照时面板自己去开流）。后端回执做了变异检查：临时让 `record_gate_receipts` 不写事件，`test_gate_receipts` 3 项、冲突解决 3 项、终审 2 项共 8 项失败，恢复后通过。证据模块的单元测试与模块是同时写的，没有单独的先失败记录。
+  - 验收标准 1：四种范围各有测试。任务检查与里程碑门禁用真实引擎跑；里程碑门禁先失败一次时得到"失败、通过、通过"三张回执，失败那张退出码非 0 且带输出；合并门禁在冲突解决成功和门禁拒绝两种情况下各一张（通过 / 失败），解决失败时没有；终审重新整合得到两张 `final` 回执，门禁失败时得到退出码 7 的失败回执且主分支没有移动。不带门禁命令的计划没有回执，证据表里没有任何一行通过。真实服务端加真实守护进程、模型 CLI 为替身的一次精简流程运行里：两条里程碑门禁各一张回执；交接三条全部有记录；条目 1（文字里用行内代码写了 `python hello.py`）为"有回执、通过"，条目 2（只提到 hello.py）为"仅有改动文件"，条目 3 为"未关联"；没被引用的 `git status --short` 列在运行级回执里；交接物接口返回提示词和输出，路径形状的键和 `00_RFC` 返回 404。
+  - 验收标准 2，浏览器（演示仓库 `m1a`，全新浏览器配置，英文，1440×900，脚本统计页面创建过的所有 `EventSource`）：从蓝图粘贴 RFC 发车，执行环节延时 45 秒。工作台施工页和专业界面 Live Run 面板显示的是同一个运行 ID；专业界面点"Pause"后服务端状态为 PAUSED，回到工作台看到暂停提示条，在工作台点"Resume Run"后服务端回到 RUNNING；在专业界面的运行历史里打开先前已完成的运行，6 秒后仍停在它上面（另一个运行此时在跑），再选回当前运行正常。整个过程页面只创建过 1 个事件流连接（`/api/runs/stream`）。
+  - 截图 7 张，在 `D:\Projects\VibeBaton-evidence\phase2\m1\`：`01-workbench-build-shows-the-launched-run.png`、`02-pro-live-run-panel-shows-the-same-run.png`、`03-pro-paused.png`、`04-workbench-sees-the-pause.png`、`05-pro-older-run-stays-while-another-runs.png`、`06-workbench-stop-confirmation.png`、`07-stop-not-settled-yet.png`。
+- 未验证：
+  - 验收标准 2 里的"停止"没有在浏览器里走到底，见下一段的第一条；停止的代码路径本轮没有改动（工作台直接调用停止接口，不经过运行存储），相关的现有测试全部通过。失败运行上的停止留到里程碑 4 的旅程里再走。
+  - 断网重连提示、演示模式（无本地服务）下的空状态、专业界面里的批准与驳回，只有组件测试和存储测试覆盖，没有在浏览器里走。
+  - 合并门禁和终审门禁的回执只有测试覆盖，没有在替身运行里出现（需要冲突或基准移动）。
+  - 真实模型没有参与。
+- 途中发现、未处理：
+  - 暂停后停止会卡住（原有行为，与本轮无关）：运行在任务执行到一半时被暂停，守护进程退出，任务状态留在 RUNNING；这时在工作台暂停提示条里点"Start New Blueprint"并确认，停止接口一直回答"has not settled; stop remains requested"，重试也一样，因为停止请求记的是"当时没有执行者"，而库里还有一个忙碌状态的任务（`db.run_stop_settled`）。点"Resume Run"仍然可以继续。这属于引擎的停止与暂停语义，不在本期范围里，需要用户决定是否另行处理。
+  - 专业界面在隐藏状态下挂载实时画布，切过去时画布区是空的，要点一下适应视图（原有行为）。
+  - 存储的回调闭包取自首次渲染，依赖 `push`、`syncQuotaReadiness` 保持同一引用（现在都是稳定引用）。
+  - 先前通过接口发的运行停在待终审时，会挡住从界面的新发车（"仓库已有活动运行"，既有规则）；实测脚本改为先批准它再测。
+- 状态：自检通过，已交付。代码提交 `41200c5`；回退标签 `pre-p2-m1-20261127` 指向 `f800aca`；随本条所在提交快进合并到 `main`，`dev` 指到同一提交，重建前端并更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签。
