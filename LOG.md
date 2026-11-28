@@ -578,3 +578,23 @@ is pre-task commit `53299ce`; no new commit has been made. The whitelist exclude
   - 引导页发车的运行 ID 很长，仓库路径较深时 `git worktree add` 会失败（里程碑 1 发现）。
   - 向导常驻后每次打开工作台都会扫描一次工具；在就绪的工作区新开会话会不经点击保存一次"上次使用的团队"。
 - 状态：Phase 1 三个里程碑和收尾都已交付。本条所在提交快进合并到 `main`，`dev` 指到同一提交，重建前端并更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签；回退标签 `pre-p1-wrapup-20261127` 指向 `fbe4f5f`。按用户当日的新指示，Phase 2 交给新的对话接手：先做准备（核实方案书 12.3 的假设 1 和 2，给 `role_invoked` 事件补 `artifact_key`），再立项和施工。Phase 2 的 RFC 草稿、施工说明模板和零费用实测工具已从会话临时目录移到 `D:\Projects\VibeBaton-evidence\handoff\`，不进仓库。
+
+## 20261127-p2-prep-artifact-key
+
+- 时间：2026-11-27（本机时间）。目标及授权：Phase 2 立项前的准备，即现行 RFC 路线图里 Phase 2 一行"必须先解决"的两件事：核实方案书 12.3 的假设 1 和 2；给 `role_invoked` 事件的 payload 补 `artifact_key`。本对话按用户当日的交接接手 Phase 2（交接文件在仓库外，不提交），授权同前几条：自检通过即交付，只在约定的八种情况停下。本条由本会话（Fable 5.2）直接施工，没有用子代理。分支 `feat/role-invoked-artifact-key`，基线 `def5e24`。
+- 改动：
+  - `src/vibebaton/engine.py`：`_invoke_role` 记录 `role_invoked` 事件时带上 `payload={"artifact_key": artifact_key}`，共 2 行。其余不变。
+  - 新增 `tests/test_role_invoked_artifact_key.py`（1 项）：真实引擎加真实 git，走一遍小任务精简流程并让门禁先失败一次；模型调用经真实的 `run_provider_cli` 执行一个空命令（提示词文件由真实代码写出），只把模型的回答换成假的。断言三条 `role_invoked` 的 payload 依次是 `T1_exec_1`、`milestone_M1_fix_r1`、`milestone_M1_review_r1`，每个键在 `.baton/runs/<run_id>/prompts/` 下都有同名的 `.md`，并且事件行的 `id` 互不相同且递增。
+- 方案书 12.3 的两条假设：
+  - 假设 1（每次交接都有落盘的交接物和稳定的事件 ID）：补上本条改动后成立，有三处边界。成立的依据：`events` 表有自增主键 `id`；运行快照接口 `_run_snapshot` 和事件流里的单条事件都是整行返回，带 `id` 和 `payload_json`，所以前端拿得到稳定的事件 ID；每次角色调用的提示词和输出分别落在 `.baton/runs/<run_id>/prompts/<artifact_key>.md` 和 `out/<artifact_key>.json`；`role_invoked` 现在带着这个键。三处边界：（1）HTTP 类型的提供方只写输出文件，不写提示词文件（`http_provider.py` 没有 `prompt_file`），这类调用的提示词在交接卡上只能显示"未记录"；（2）限流后重试同一次调用会沿用同一个键，文件被后一次覆盖，事件有多条而文件只有一份；（3）本条之前记录的运行，`role_invoked` 没有键，交接物只能显示"未知"。
+  - 假设 2（每次任务尝试的起止时间足够细）：遥测里不成立，事件里成立。`telemetry.task_timings` 只有任务级的 `duration_sec`、`started_at`（仅运行中）和 `is_active`，没有按尝试拆分的字段；每次调用的起止可以由 `role_invoked` 和随后的 `role_completed` 两条事件的 `created_at` 推出，`role_completed` 的 payload 里还有 `duration_sec`。它只影响 Phase 3 的接力泳道，Phase 2 不依赖。
+- 决策：
+  - 只加 payload，不动事件的 `message`、`actor` 和其他列：读取方里 `report.py` 的 `_parse_role_event_meta` 要求 payload 里同时有 `role`、`provider`、`model` 三个字符串才采用 payload，否则照旧解析 `message`，所以多一个 `artifact_key` 不改变它的结果；计费只读 `role_completed`；`case_export.py` 对 `role_invoked` 只取种类和上面这个函数的结果，不导出 payload。现有测试里没有对 `role_invoked` 的 payload 做整字典比较的断言，没有改任何现有测试。
+  - 测试没有照 `tests/test_engine_lean_flow.py` 的做法替换 `_invoke_role`，因为被测的那一行就在 `_invoke_role` 里；改为替换 `run_provider_cli` 并在里面先调用真实实现，这样"键对应的提示词文件确实存在"由真实代码证明。
+- 验证（已验证）：
+  - 先失败后通过：实现前新测试失败，三条 payload 都是 `{}`；实现后通过。
+  - Python 全量（`PYTHONPATH` 指向工作树的 `src`，`VIBEBATON_DISABLE_MODEL_SYNC=1`，清掉 `PYTHONIOENCODING`）：1027 项通过、跳过 6 项，无失败（基线 1026 项，新增 1 项）。
+  - 前端没有改动；开工前核对过基线：vitest 75 个文件、923 项通过，`npx tsc --noEmit` 无输出，生产构建成功。
+- 未验证：没有在浏览器里看（没有界面改动）；没有用真实模型跑。
+- 途中发现：开工前核对基线时，Python 全量与前端测试、类型检查、构建同时在跑，1026 项里有 1 项以 HTTP 读取超时报错（输出只留了末尾，没有记下是哪一项）；之后单独跑全量（已含本条改动）1027 项全部通过，判断为并行负载造成的超时，不是代码问题。此后跑 Python 全量时不再并行跑别的重任务。本机另有一个用户自己启动的 `vibebaton ui` 进程，实测一律换端口，不去碰它。
+- 状态：自检通过，已交付。代码提交 `377d22f`；回退标签 `pre-p2-prep-20261127` 指向 `def5e24`；随本条所在提交快进合并到 `main`，`dev` 指到同一提交，重建前端并更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签。
