@@ -541,3 +541,40 @@ is pre-task commit `53299ce`; no new commit has been made. The whitelist exclude
   - `src/vibebaton/brainstorm.py` 与 `prompts/l1_planner.md`：要求共创与 L1 规划生成的验证命令使用跨平台写法，禁止输出 `if [ ... ]; then ... fi`、`test -z "$(...)"`、`grep`、`ls -la` 等 POSIX 专用语法。
   - `tests/test_gates.py`：补充 POSIX 命令识别、GBK 错误输出解码，以及 Windows 下 `if [ -f ... ]` 和 `test -z "$(...)"` 门禁通过 Git Bash 实跑的回归测试。
 - 验证：运行 `tests.test_gates`（7 项全部通过）与全量 `python -m unittest discover -s tests`（1026 项通过，6 项按平台/环境条件跳过）。
+
+## 20261127-p1-wrapup
+
+- 时间：2026-11-27（本机时间）。目标及授权：Phase 1 收尾，即用户授权里的第 4 步：全量验证，在浏览器里把验收标准 3（旅程 2）在最终外壳上走一遍并留截图，写明八条验收标准逐条的证据；同时按授权更新 README 中与实际不符的描述。本条自己没有代码改动，提交在上一条的门禁修复（`fbe4f5f`）之上，分支 `docs/p1-wrapup`。
+- 改动（只改文档里的事实）：
+  - `README.md`、`README.zh-CN.md` 各 3 处：引导模式由"四步闭环"改为"默认界面、三个编号阶段，加就绪胶囊和按需展开的工作区与工具向导"，补上粘贴 RFC、发车确认和小项目精简流程；快速开始和"零密钥预览"两处写明 Studio 默认打开引导模式工作台，教程回放和离线模拟器在专业模式里。
+  - `docs/TUTORIAL.md` 17 处：第三章第 2 步原来教人点"▶ 启动真实运行"走三段式发车向导，按钮和向导都已删除，改写为从"去引导模式开始运行"进工作台、粘贴或对话、核对确认后发车；第四章标题和步骤由"四步"改为就绪胶囊加三个阶段，模式切换的说法改为现在的两个按钮和默认值，补上精简流程、"未上报"和"无门禁记录"；专家会诊一章里 `StartRunModal` 的说法改为发车卡上的"专家小组"开关；"教程（Guide）"按钮的位置补上"专业模式"。
+- 代交付的改动：上一条 `20261127-windows-posix-gate-fix` 是另一个对话留在工作区里的未提交改动（`gates.py`、`brainstorm.py`、`prompts/l1_planner.md`、`tests/test_gates.py` 和它自己的 LOG 条目）。它占着本条要追加的两个 LOG 文件，按授权里"必须停下"的第 6 条问了用户，用户选择由本会话复核后一并交付。复核做了这些：读完整 diff；确认只用标准库；在带这处修复的工作树上跑 Python 全量、前端测试、类型检查和构建，全部通过。然后把它作为独立提交 `fbe4f5f` 交付，回退标签 `pre-windows-gate-fix-20261127` 指向 `369cb76`。它的 LOG 条目原样保留，没有改写。
+- 决策：
+  - README 里 v1.2.0 的"新增 REST 接口"清单和 `docs/ROADMAP.md` 的 Stage 6 条目是当时的发布记录，没有改；里程碑 2 新增的 `POST /api/guided/recommend` 没有补进那份清单。
+  - 用户的授权只点名 README。`docs/TUTORIAL.md` 一并改的理由：教程在教读者点一个已经不存在的按钮，属于"运行方式与实际不符"；改法同样只动事实，不重写章节结构和措辞风格。
+  - 旅程 2 的最终证据放在仓库外的 `D:\Projects\VibeBaton-evidence\phase1\final\`，不提交，理由同前。
+- Phase 1 八条验收标准的证据：
+  - 标准 1（小任务不调用规划、一做一审、到达终审、事件写明精简流程）：`tests/test_engine_lean_flow.py` 6 项（真实引擎与 git，只把模型调用换成假的）；里程碑 1 的零费用实测（真实服务端加真实守护进程、替身 CLI）；本条的旅程 2 复跑中，运行数据库里 `plan_flow_selected` 为 `lean` / `small_rfc_has_verification`，角色调用只有 `critical_executor:gpt-6.2-sol@high` 和 `milestone_reviewer:claude-opus-5-5@medium` 各一次，没有规划调用，运行到达 `READY_FOR_FINAL_GATE`。
+  - 标准 2（关掉开关或没有检查命令走完整流程，命令行照旧）：里程碑 1 的三种情况实测和 `baton run` 实测；里程碑 2 中文实测关掉开关后事件为 `full` / `lean_flow_off`；里程碑 3 的空门禁实测用的是没有检查命令的 RFC，发车卡写明完整流程，战报里有规划、执行、审校三个角色的调用。
+  - 标准 3（旅程 2）：本条在最终外壳上重走一遍，见下面"验证"；里程碑 2 另有英文精简流程和中文"调整模型加超时重试"两遍。
+  - 标准 4（`StartRunModal` 不存在，三处入口都进工作台）：源码树里检索不到 `StartRunModal`（`launchEntries.test.ts` 也断言这一点）；本条在最终构建上把顶栏、右栏 Inspector 页、Trace & Live Run 页三处"去引导模式开始运行"逐个点了一遍，都进入工作台，没有弹窗。
+  - 标准 5（就绪的工作区落在蓝图且阶段轨三步；未就绪显示原因并展开向导；施工或验收中刷新回到同一运行同一阶段）：见上一条 `20261127-p1-m3-three-act-shell` 的验证，截图 `01`、`unready-no-git-*`、`09`、`10`、`13`。
+  - 标准 6（重新整合没有返回门禁时显示中性的"无门禁记录"）：见上一条，截图 `15`，服务端回应为 `reintegrated: true`、`gates: []`。
+  - 标准 7（没有用量的调用显示"未上报"，合计写明覆盖率）：见上一条，截图 `12`、`13`、`14`、`pro-live-run-panel-*`，以及中英文战报里的覆盖率一行。
+  - 标准 8（Python 测试、Studio 测试全部通过，生产构建成功）：见下面"验证"。
+- 验证（已验证）：
+  - Python 全量（`PYTHONPATH` 指向工作树的 `src`，`VIBEBATON_DISABLE_MODEL_SYNC=1`）：1026 项通过、跳过 6 项，无失败；在带门禁修复、改完文档的最终工作树上跑。比里程碑 3 交付时多出的 4 项来自门禁修复。
+  - 前端：vitest 75 个文件、923 项通过，`npx tsc --noEmit` 和 `npm --prefix web run build` 通过（代码与里程碑 3 交付时相同）。
+  - 旅程 2，最终外壳（演示仓库 `p1b`，全新浏览器配置，英文，1440×900）：打开后不点任何东西，第一屏就是蓝图，阶段轨为"1 Blueprint（当前）、2 Build、3 Sign-Off"，胶囊为 Ready，粘贴框完整可见。输入 RFC 后评分 100/100，发车卡写明精简流程。第一次点击打开确认，列出：文档 Hello script；团队为 L0 与两个 L1 角色 Claude Code · Claude Opus 5.5 · Medium，L2 与 L3 角色 OpenAI Codex · GPT-6.2 Sol · High；自动施工；精简流程；预算 Balanced（项目默认）。第二次点击发车，这次启动请求的回应被脚本拦掉：页面到时限后提示"The request got no answer in time. The start result is unknown. Retry with the same request to check."，此时服务端已有 1 个运行。再点一次"确认并启动"，发出的请求与第一次逐字节相同，服务端回应 `reused: true` 和同一个运行 ID，运行列表里仍只有 1 个运行，页面进入验收阶段。运行数据库里 `guided_launch_selection` 的团队与确认区逐项相同，规模为 `small`，流程事件和角色调用见标准 1。
+  - 上面这次复跑的第一遍里，脚本模拟"回应丢失"时没有响应页面自己的超时取消，页面因此一直停在"正在启动"。这是脚本的问题，不是产品行为：真实的请求挂起会被页面的超时取消掉。改正脚本后在新的演示仓库上重跑，结果如上。
+  - 截图 8 张，在 `D:\Projects\VibeBaton-evidence\phase1\final\`：`01-first-screen-accepts-a-pasted-rfc.png`、`02-pasted-rfc-scored-with-launch-card.png`、`03-launch-confirmation.png`、`04-start-result-unknown.png`、`05-one-run-after-the-retry.png`、`06-sign-off.png`、`07-pro-entries-header-and-inspector.png`、`08-pro-entry-live-run-panel.png`。
+  - 方案书 12.3 的假设 7（角色表单能否覆盖旧弹窗里手写 JSON 的 `model_overrides`）：成立。六个角色键都在发车卡的"调整团队"表单里，工具、型号、思考强度都能改，并且只作用于本次运行。旧 JSON 框能写目录以外的任意型号字符串，现在不能：表单里的值都经过 `model_catalog.normalize_spec`，这是硬性约束要求的，不算缺口。
+- 未验证：
+  - Phase 1 的浏览器实测全部由替身 CLI 完成，没有调用真实模型。真实模型能否在单个任务里做完一份小 RFC，仍未验证。里程碑 1 条目里记的 Windows 门禁问题，用户用真实模型试跑时确实遇到了，已由上一条的修复处理（POSIX 写法改由 Git Bash 执行）；真实模型下是否还有别的不兼容写法，没有验证。
+  - 各里程碑条目"未验证"里列出的项目没有在收尾时补做：没有任何可用团队时的阻塞、修改团队后的重检、验证结果的通过 / 失败 / 未返回三态、浅色主题下的验收页，都只有组件测试覆盖。
+  - 文档改动没有测试覆盖；`tests/test_desktop_app.py` 只检查两份 README 里的几个固定字样，仍然通过。
+- 途中发现、未处理（三条里程碑条目里已分别记录，这里只列对后续有影响的）：
+  - 引擎的运行总结在没有门禁命令时仍写"passed mechanical gates"，战报里没上报用量的模型 token 列显示 0。两处都属于如实显示，但都在后端，Phase 1 的范围只有前端的两项。
+  - 引导页发车的运行 ID 很长，仓库路径较深时 `git worktree add` 会失败（里程碑 1 发现）。
+  - 向导常驻后每次打开工作台都会扫描一次工具；在就绪的工作区新开会话会不经点击保存一次"上次使用的团队"。
+- 状态：Phase 1 三个里程碑和收尾都已交付。本条所在提交快进合并到 `main`，`dev` 指到同一提交，重建前端并更新 `.bootstrap-runner`，推送 `main`、`dev` 和标签；回退标签 `pre-p1-wrapup-20261127` 指向 `fbe4f5f`。按用户当日的新指示，Phase 2 交给新的对话接手：先做准备（核实方案书 12.3 的假设 1 和 2，给 `role_invoked` 事件补 `artifact_key`），再立项和施工。Phase 2 的 RFC 草稿、施工说明模板和零费用实测工具已从会话临时目录移到 `D:\Projects\VibeBaton-evidence\handoff\`，不进仓库。

@@ -74,7 +74,7 @@ flowchart LR
 
 `v1.2.0` 把 Studio 串成从空目录到验收完成的一条引导路径，识别本机已装的编码 CLI，并在界面内解释每个术语。
 
-- **引导模式（Guided Mode）：** 四步闭环——**工作区**选择项目目录并按需开启版本记录；**蓝图**围绕想法对话，直到 VibeBaton 生成蓝图卡再确认；**施工**时在任务地图上跟随进度、打开任务详情抽屉并在应用内完成决策；**验收**时选择批准并合并、要求修改或回滚（批准并合并后可用）。回滚只撤销仍位于基线分支最新的本次获批合并，恢复到批准前记录的基准提交；`baton-backup/<run_id>` 标签保留作手动恢复锚点。
+- **引导模式（Guided Mode）：** Studio 默认打开的界面，三个编号阶段组成闭环——**蓝图**围绕想法对话，直到 VibeBaton 生成蓝图卡，或直接粘贴写好的 RFC，核对发车确认后开始；**施工**时在任务地图上跟随进度、打开任务详情抽屉并在应用内完成决策；**验收**时选择批准并合并、要求修改或回滚（批准并合并后可用）。阶段上方的就绪胶囊检查项目文件夹和本机编程工具，只有缺东西时才展开**工作区与工具**向导（选择项目目录、按需开启版本记录、登录工具）。小项目且 RFC 里带检查命令时走精简流程：一个模型施工、另一个模型审查，不单独调用规划；发车卡上的开关可以只对本次运行关掉它。专业模式（画布、模拟器、案例回放）在页头一键可达。回滚只撤销仍位于基线分支最新的本次获批合并，恢复到批准前记录的基准提交；`baton-backup/<run_id>` 标签保留作手动恢复锚点。
 - **通用 CLI 注册表：** `presets/cli_registry.json` 描述 8 种编码 CLI 驱动（`claude`、`codex`、`dsh`、`gemini`、`opencode`、`aider`、`qwen`、`copilot`）。Studio 扫描本机已安装且可用的 CLI，为当前环境推荐一套阵容，并且只有在你授权后才执行安装或启动登录流程。
 - **双语技术术语表：** 覆盖 AI、工程、错误、Git、Web/HTTP 与 VibeBaton 概念的 220+ 条 `EN | 中文` 术语，以行内术语提示与可搜索的术语抽屉呈现。
 - **新增 REST 接口：** `GET /api/cli-registry`、`POST /api/cli-registry/scan`、`POST /api/cli-registry/install`、`POST /api/cli-registry/login`、`GET /api/workspace/info`、`POST /api/workspace/select`、`POST /api/workspace/init-git`、`POST /api/brainstorm/chat`、`POST /api/brainstorm/confirm`、`GET /api/runs/{id}/tasks/{task_id}` 与 `POST /api/runs/{id}/finalize`。
@@ -87,7 +87,7 @@ flowchart LR
 | 5 分钟内就能完成的紧耦合交互式结对微调。 | 希望用旗舰模型管规划与审校，搭配高速并发工人写业务与单测。 |
 | 项目尚未建立自动化构建、Lint 或测试命令。 | 需要抗 `429` 限流、隔离并行分支并严控修改边界的后台或通宵长跑。 |
 
-*零密钥预览：直接运行 `baton ui` 启动 Studio，即可离线模拟 `happy_path`、`gate_retry` 与 `escalate`，并浏览 **8 套本机就绪配方预设**。*
+*零密钥预览：直接运行 `baton ui` 启动 Studio，从页头切换到专业模式，即可离线模拟 `happy_path`、`gate_retry` 与 `escalate`，并浏览 **8 套本机就绪配方预设**。*
 
 ## 自举演进时间线（`v0.1-seed` → `v1.2.0`）
 
@@ -144,7 +144,7 @@ flowchart LR
 1. **安装** — 需要 Python 3.11+（`baton` CLI 与服务端保持 `dependencies = []`）及 Git；构建 Studio 前端需要 `Node 20+`：
    - **Windows**（[`scripts/install.ps1`](scripts/install.ps1)）：先执行 `.\scripts\install.ps1`，再激活 `.\.venv\Scripts\Activate.ps1` · **Linux / macOS**：`python -m pip install -e .`
    - **构建 Studio 前端**：`npm --prefix web ci && npm --prefix web run build`
-2. **检查环境并启动 Studio（支持零密钥导览与独立桌面窗）** — 即使尚未配置 API Key，也可立刻运行 `baton ui`（或 `baton ui --app` 弹出无地址栏的独立桌面应用窗口，Windows 用户可直接双击 [`VibeBaton-Studio.bat`](VibeBaton-Studio.bat) 一键启动）体验一期教程回放与离线模拟器：
+2. **检查环境并启动 Studio（支持零密钥导览与独立桌面窗）** — 即使尚未配置 API Key，也可立刻运行 `baton ui`（或 `baton ui --app` 弹出无地址栏的独立桌面应用窗口，Windows 用户可直接双击 [`VibeBaton-Studio.bat`](VibeBaton-Studio.bat) 一键启动）。Studio 默认打开引导模式工作台；一期教程回放与离线模拟器在专业模式里，从页头一键进入：
    ```sh
    baton init --repo . && baton doctor --repo .
    baton ui --app

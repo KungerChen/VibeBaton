@@ -74,7 +74,7 @@ For open-ended reviews instead of one fixed spec, `00_PANEL` runs first: read-on
 
 `v1.2.0` turns Studio into a single guided path from an empty folder to a signed-off run, scans the coding CLIs already on your machine, and explains each term in place.
 
-- **Guided Mode:** a four-step closed loop — **Workspace** (pick a project folder and initialize Git if needed), **Blueprint** (chat about your idea until VibeBaton produces a Blueprint Card, then confirm it), **Build** (follow the task map, open each task in the detail drawer, and answer decisions in the app), and **Sign-Off** (Approve & Merge, Request Changes, or Roll Back after approval). Rollback reverts only this run's approved merge (while it is still the base head) to the base commit recorded at approval; the `baton-backup/<run_id>` tag stays as a manual recovery point.
+- **Guided Mode:** the default Studio view, a closed loop in three numbered stages — **Blueprint** (chat about your idea until VibeBaton produces a Blueprint Card, or paste a finished RFC; then check the launch confirmation and start), **Build** (follow the task map, open each task in the detail drawer, and answer decisions in the app), and **Sign-Off** (Approve & Merge, Request Changes, or Roll Back after approval). A readiness capsule above the stages checks the project folder and your coding tools, and opens the **Workspace & Tools** wizard (pick a project folder, initialize Git if needed, sign in to tools) only when something is missing. A small project whose RFC carries a verification command runs a lean flow: one model builds and another reviews, with no separate planning call; a switch on the launch card turns it off for that run. Pro mode (canvas, simulator, case replay) stays one click away in the top bar. Rollback reverts only this run's approved merge (while it is still the base head) to the base commit recorded at approval; the `baton-backup/<run_id>` tag stays as a manual recovery point.
 - **Universal CLI Registry:** `presets/cli_registry.json` describes 8 coding-CLI drivers (`claude`, `codex`, `dsh`, `gemini`, `opencode`, `aider`, `qwen`, `copilot`). Studio scans which CLIs are installed and usable, recommends a lineup, and only installs a CLI or starts its login flow after you authorize it.
 - **Tech Glossary:** 220+ `EN | 中文` terms across AI, engineering, errors, Git, web/HTTP, and VibeBaton concepts, shown as inline term hints and in a searchable glossary drawer.
 - **New REST endpoints:** `GET /api/cli-registry`, `POST /api/cli-registry/scan`, `POST /api/cli-registry/install`, `POST /api/cli-registry/login`, `GET /api/workspace/info`, `POST /api/workspace/select`, `POST /api/workspace/init-git`, `POST /api/brainstorm/chat`, `POST /api/brainstorm/confirm`, `GET /api/runs/{id}/tasks/{task_id}`, and `POST /api/runs/{id}/finalize`.
@@ -87,7 +87,7 @@ For open-ended reviews instead of one fixed spec, `00_PANEL` runs first: read-on
 | The task takes under 5 minutes of tight interactive editing. | Mixing flagship planning/review models with fast parallel coding workers. |
 | Your repo has no automated build, lint, or test commands yet. | Running overnight or background work resilient to `429` limits, branch collisions, and scope drift. |
 
-*Zero-key preview: launch Studio (`baton ui`) to simulate `happy_path`, `gate_retry`, and `escalate` offline and explore **8 Ready-on-Host Recipe Presets**.*
+*Zero-key preview: launch Studio (`baton ui`) and switch to Pro mode in the top bar to simulate `happy_path`, `gate_retry`, and `escalate` offline and explore **8 Ready-on-Host Recipe Presets**.*
 
 ## Self-Hosting Evolution (`v0.1-seed` → `v1.2.0`)
 
@@ -144,7 +144,7 @@ Export with `baton export-case --repo . --run-id <id>` (add `--no-reviews` to om
 1. **Install** — Python 3.11+ (`dependencies = []` for `baton` CLI/server) and Git; Studio frontend requires `Node 20+`:
    - **Windows** ([`scripts/install.ps1`](scripts/install.ps1)): `.\scripts\install.ps1` then `.\.venv\Scripts\Activate.ps1` · **Linux / macOS**: `python -m pip install -e .`
    - **Studio UI build**: `npm --prefix web ci && npm --prefix web run build`
-2. **Inspect & Launch Studio (Zero-Key Tour Ready)** — Run `baton ui` immediately (or `baton ui --app` for a chromeless standalone desktop window, or double-click [`VibeBaton-Studio.bat`](VibeBaton-Studio.bat) on Windows) even before keys to play the Stage 1 tutorial or offline simulator:
+2. **Inspect & Launch Studio (Zero-Key Tour Ready)** — Run `baton ui` immediately (or `baton ui --app` for a chromeless standalone desktop window, or double-click [`VibeBaton-Studio.bat`](VibeBaton-Studio.bat) on Windows) even before keys. Studio opens on the Guided workbench; the Stage 1 tutorial replay and the offline simulator are in Pro mode, one click away in the top bar:
    ```sh
    baton init --repo . && baton doctor --repo .
    baton ui --app
