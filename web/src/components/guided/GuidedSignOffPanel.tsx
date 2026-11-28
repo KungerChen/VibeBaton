@@ -20,6 +20,7 @@ import { formatReportedUsd, usageCoverage } from '../inspector/billingFormat';
 import { Button } from '../ui/button';
 import { Textarea } from '../ui/input';
 import { MarkdownView } from '../ui/MarkdownView';
+import { EvidenceMatrix, type EvidenceLoader } from './EvidenceMatrix';
 import { isStaleRunError, localizeGuidedError } from './guidedErrors';
 import { LineageSummary } from './LineageSummary';
 
@@ -220,6 +221,8 @@ export interface GuidedSignOffPanelProps {
   /** Optional pre-loaded battle report markdown (primarily for tests or offline views). */
   initialReportMarkdown?: string | null;
   onBusyChange?(busy: boolean): void;
+  /** Reads the run's evidence table; the matrix of criteria against gate receipts shows only when given. */
+  evidenceLoader?: EvidenceLoader;
 }
 
 /**
@@ -240,6 +243,7 @@ export function useGuidedSignOffView({
   onRequestRevision,
   stale = false,
   reportFetcher,
+  evidenceLoader,
   onOpenPath,
   initialReportMarkdown = null,
   onBusyChange,
@@ -574,6 +578,8 @@ export function useGuidedSignOffView({
           <span className="guided-sign-off__dot" aria-hidden="true" />
           <span>{digest.tests}</span>
         </div>
+
+        {evidenceLoader ? <EvidenceMatrix runId={runId} runStatus={runStatus} locale={locale} loader={evidenceLoader} /> : null}
 
         {summary.workspacePath && (
           <div className="guided-sign-off__workspace-bar">

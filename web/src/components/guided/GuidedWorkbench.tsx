@@ -622,6 +622,8 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
   const manualRevision = replanContext && asRecord(session?.brainstorm.guided_revision)?.run_id === replanContext.run_id;
   const replanText = replanContext ? formatReplanContext(replanContext) : '';
   const lineageLoader = useCallback((id: string) => loadSignOffLineage(client, id), [client]);
+  const evidenceLoader = useMemo(() => typeof client.getRunEvidence === 'function'
+    ? (id: string) => client.getRunEvidence(id) : undefined, [client]);
   const brainstormApi = useMemo<GuidedBrainstormApi>(() => ({
     brainstormChat: async (payload) => {
       if (!replanContext) return client.brainstormChat(payload);
@@ -1220,6 +1222,7 @@ export function useGuidedWorkbenchView({ locale, client, apiMode, liveSnapshot, 
                   catch (failure) { if (isStaleRunError(failure)) setStaleRunId(id); throw failure; }
                 }}
                 reportFetcher={typeof client.getRunReport === 'function' ? (id, lang) => client.getRunReport(id, lang) : undefined}
+                evidenceLoader={evidenceLoader}
                 onOpenPath={typeof client.openWorkspacePath === 'function' ? (opts) => client.openWorkspacePath(opts) : undefined}
                 onFinalized={(result) => {
                   setLastSignOff({ runId: shownRunId, action: result.action });

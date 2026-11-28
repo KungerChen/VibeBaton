@@ -1,0 +1,142 @@
+.evidence-matrix {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  font-size: 0.85rem;
+}
+
+.evidence-matrix__title,
+.evidence-matrix__run-level h4 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.evidence-matrix__note {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
+.evidence-matrix__summary {
+  margin: 0;
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.evidence-matrix__table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.evidence-matrix__table th,
+.evidence-matrix__table td {
+  padding: 0.55rem 0.6rem;
+  border-top: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.evidence-matrix__table thead th {
+  border-top: 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.evidence-matrix__table tbody th {
+  width: 55%;
+  color: var(--foreground);
+  font-weight: 400;
+}
+
+.evidence-matrix__index {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Green belongs to a recorded pass only; changed files and missing links stay neutral. */
+.evidence-matrix__state {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.evidence-matrix__state[data-cell='receipt_passed'] {
+  border-color: color-mix(in srgb, var(--emerald) 55%, transparent);
+  background: color-mix(in srgb, var(--emerald) 14%, transparent);
+  color: var(--emerald);
+}
+
+.evidence-matrix__state[data-cell='receipt_failed'] {
+  border-color: color-mix(in srgb, var(--rose) 55%, transparent);
+  background: color-mix(in srgb, var(--rose) 14%, transparent);
+  color: var(--rose);
+}
+
+.evidence-matrix__pass { color: var(--emerald); }
+.evidence-matrix__fail { color: var(--rose); }
+
+.evidence-matrix__receipts {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evidence-matrix__receipts li {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.evidence-matrix__receipts p,
+.evidence-matrix__files {
+  margin: 0.2rem 0 0;
+}
+
+.evidence-matrix__files code {
+  margin-inline-start: 0.3rem;
+}
+
+.evidence-matrix code,
+.evidence-matrix__output {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+}
+
+.evidence-matrix__output {
+  max-height: 12rem;
+  margin: 0.3rem 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.evidence-matrix__run-level {
+  display: grid;
+  gap: 0.35rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.evidence-matrix__retry {
+  border: 0;
+  background: none;
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}

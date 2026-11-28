@@ -1331,6 +1331,27 @@ export interface Messages {
       };
     };
     /** Build and Sign-Off: the bottom dock with the latest event, the timeline, model calls and gate receipts. */
+    evidence: {
+      title: string;
+      note: string;
+      summary(passed: number, failed: number, total: number): string;
+      criterion: string;
+      evidenceColumn: string;
+      states: Record<'receipt_passed' | 'receipt_failed' | 'files_only' | 'not_linked', string>;
+      filesOnlyNote: string;
+      notLinkedNote: string;
+      receipts(count: number): string;
+      files: string;
+      runLevel: string;
+      runLevelNote: string;
+      noRunLevel: string;
+      noCriteria: string;
+      noRfc: string;
+      noReceiptsAtAll: string;
+      loading: string;
+      failed: string;
+      retry: string;
+    };
     dock: {
       aria: string;
       expand: string;
@@ -2302,6 +2323,33 @@ export const MESSAGES: Record<Locale, Messages> = {
           noBlocked: 'None recorded',
         },
       },
+      evidence: {
+        title: 'Acceptance criteria and their evidence',
+        note: 'One row for each numbered criterion in the blueprint of this run. A row is linked only when its own text names a gate command or a changed file word for word. Nothing here is guessed.',
+        summary: (passed, failed, total) => `${passed} of ${total} criteria have a gate receipt that passed`
+          + (failed > 0 ? `; ${failed} have a gate receipt that failed` : ''),
+        criterion: 'Criterion',
+        evidenceColumn: 'Evidence',
+        states: {
+          receipt_passed: 'Gate receipt: passed',
+          receipt_failed: 'Gate receipt: failed',
+          files_only: 'Changed files only',
+          not_linked: 'Not linked',
+        },
+        filesOnlyNote: 'This run changed a file the criterion names. A changed file is not a check, so it does not count as passed.',
+        notLinkedNote: 'This criterion names no gate command and no changed file.',
+        receipts: (count) => `Receipts (${count})`,
+        files: 'Files:',
+        runLevel: 'Run-level receipts',
+        runLevelNote: 'Gate commands that ran in this run and that no criterion names. They are listed here and not attached to a criterion by guesswork.',
+        noRunLevel: 'None.',
+        noCriteria: 'The blueprint of this run has no numbered acceptance criteria.',
+        noRfc: 'The blueprint saved with this run could not be read, so there are no rows.',
+        noReceiptsAtAll: 'This run recorded no gate receipts. Nothing here counts as passed.',
+        loading: 'Loading the evidence...',
+        failed: 'Could not load the evidence.',
+        retry: 'Try again',
+      },
       dock: {
         aria: 'Run activity',
         expand: 'Expand',
@@ -3270,6 +3318,33 @@ export const MESSAGES: Record<Locale, Messages> = {
           blocked: '阻塞原因',
           noBlocked: '没有记录',
         },
+      },
+      evidence: {
+        title: '验收条件与证据',
+        note: '本次运行的蓝图里每条编号的验收条件占一行。只有条件自己的文字里逐字写了某条门禁命令或某个改动文件，才算有关联。这里没有任何推测。',
+        summary: (passed, failed, total) => `${total} 条验收条件中，${passed} 条有通过的门禁回执`
+          + (failed > 0 ? `，${failed} 条的门禁回执是失败` : ''),
+        criterion: '验收条件',
+        evidenceColumn: '证据',
+        states: {
+          receipt_passed: '有门禁回执：通过',
+          receipt_failed: '有门禁回执：失败',
+          files_only: '仅有改动文件',
+          not_linked: '未关联',
+        },
+        filesOnlyNote: '这次运行改动了这条条件提到的文件。改了文件不等于检查过，所以不计入通过。',
+        notLinkedNote: '这条条件里没有写任何门禁命令，也没有写改动的文件。',
+        receipts: (count) => `回执（${count}）`,
+        files: '文件：',
+        runLevel: '运行级回执',
+        runLevelNote: '这次运行里跑过、但没有任何一条条件提到的门禁命令。它们列在这里，不靠猜测挂到某一条条件上。',
+        noRunLevel: '没有。',
+        noCriteria: '本次运行的蓝图里没有编号的验收条件。',
+        noRfc: '没能读到随本次运行保存的蓝图，所以没有可列的条件。',
+        noReceiptsAtAll: '这次运行没有记录任何门禁回执。这里没有任何一项算作通过。',
+        loading: '正在读取证据……',
+        failed: '没能读取证据。',
+        retry: '重试',
       },
       dock: {
         aria: '运行动态',
